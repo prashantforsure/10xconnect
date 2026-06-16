@@ -6,15 +6,50 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import type { Request } from "express";
-import { jwtVerify } from "jose";
+import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload } from "jose";
 
 import type { AuthUser } from "./auth-user.interface";
 
 type AuthenticatedRequest = Request & { user?: AuthUser };
 
+/** Thrown for server misconfiguration (missing env), surfaced as 500 not 401. */
+class AuthConfigError extends Error {}
+
+// Remote JWKS for asymmetric (ES256/RS256) signing keys, memoized + cached by jose.
+let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+function getJwks(): ReturnType<typeof createRemoteJWKSet> {
+  if (!env.SUPABASE_URL) {
+    throw new AuthConfigError("SUPABASE_URL is not configured");
+  }
+  if (!jwks) {
+    jwks = createRemoteJWKSet(new URL(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`));
+  }
+  return jwks;
+}
+
+async function verifyAccessToken(token: string): Promise<JWTPayload> {
+  // Newer Supabase projects sign access tokens with asymmetric keys (ES256/RS256)
+  // verified via JWKS; legacy projects use HS256 with the shared JWT secret.
+  const { alg } = decodeProtectedHeader(token);
+
+  if (alg === "HS256") {
+    const secret = env.SUPABASE_JWT_SECRET;
+    if (!secret) {
+      throw new AuthConfigError("SUPABASE_JWT_SECRET is not configured");
+    }
+    const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), {
+      algorithms: ["HS256"],
+    });
+    return payload;
+  }
+
+  const { payload } = await jwtVerify(token, getJwks());
+  return payload;
+}
+
 /**
- * Verifies the Supabase access-token JWT (HS256, signed with the project's JWT
- * secret) on protected routes and attaches the authenticated user to the request.
+ * Verifies the Supabase access-token JWT on protected routes and attaches the
+ * authenticated user to the request.
  */
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
@@ -26,32 +61,25 @@ export class SupabaseAuthGuard implements CanActivate {
       throw new UnauthorizedException("Missing bearer token");
     }
 
-    const secret = env.SUPABASE_JWT_SECRET;
-    if (!secret) {
-      // Misconfiguration, not an auth failure -> surface as a server error.
-      throw new Error("SUPABASE_JWT_SECRET is not configured");
-    }
-
+    let payload: JWTPayload;
     try {
-      const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), {
-        algorithms: ["HS256"],
-      });
-
-      if (!payload.sub) {
-        throw new UnauthorizedException("Invalid token");
-      }
-
-      request.user = {
-        id: payload.sub,
-        email: typeof payload.email === "string" ? payload.email : undefined,
-      };
-      return true;
+      payload = await verifyAccessToken(token);
     } catch (error) {
-      if (error instanceof UnauthorizedException) {
-        throw error;
+      if (error instanceof AuthConfigError) {
+        throw error; // misconfiguration -> 500
       }
       throw new UnauthorizedException("Invalid or expired token");
     }
+
+    if (!payload.sub) {
+      throw new UnauthorizedException("Invalid token");
+    }
+
+    request.user = {
+      id: payload.sub,
+      email: typeof payload.email === "string" ? payload.email : undefined,
+    };
+    return true;
   }
 }
 
