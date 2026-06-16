@@ -11,6 +11,7 @@
     "test": "echo \"@10xconnect/worker: no tests yet\" && exit 0"
   },
   "dependencies": {
+    "@10xconnect/adapters": "workspace:*",
     "@10xconnect/config": "workspace:*"
   },
   "devDependencies": {

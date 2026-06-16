@@ -54,6 +54,10 @@ const optionalUrl = z.preprocess(blankToUndefined, z.string().url().optional());
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
+  // Transport adapter selection (Step 8). 'mock' = in-memory adapter for
+  // dev/test; 'unipile' = real LinkedIn transport (later step). Defaults to mock.
+  ADAPTER: z.preprocess(blankToUndefined, z.enum(["mock", "unipile"]).default("mock")),
+
   // Supabase (Step 2+)
   // Server-side (used by apps/api and web server components).
   SUPABASE_URL: optionalUrl,

@@ -35,6 +35,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@10xconnect/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
       '@10xconnect/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -151,6 +154,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@10xconnect/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
       '@10xconnect/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -166,10 +172,20 @@ importers:
         version: 5.9.3
 
   packages/adapters:
+    dependencies:
+      '@10xconnect/config':
+        specifier: workspace:*
+        version: link:../config
+      '@10xconnect/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.21
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

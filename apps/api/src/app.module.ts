@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 
+import { ChannelAdapterModule } from "./adapter/channel-adapter.module";
 import { SupabaseAuthGuard } from "./auth/supabase-auth.guard";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
 import { DatabaseModule } from "./database/database.module";
@@ -21,6 +22,7 @@ import { WorkspacesModule } from "./modules/workspaces.module";
 @Module({
   imports: [
     DatabaseModule,
+    ChannelAdapterModule,
     WorkspacesModule,
     AccountsModule,
     LeadsModule,

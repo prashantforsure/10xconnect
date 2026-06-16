@@ -51,7 +51,7 @@ apps/
   worker/         Dispatch workers (BullMQ): rate governor, scheduler, sequence engine
 packages/
   core/           Domain logic: ChannelAdapter interface, sequence engine, rate governor, types
-  adapters/       ChannelAdapter implementations (unipile/, email/) — ONLY place provider SDKs are imported
+  adapters/       ChannelAdapter implementations (mock/, unipile/, email/) + createChannelAdapter factory (ADAPTER env, default mock) — ONLY place provider SDKs are imported
   db/             Supabase schema, migrations, generated types
   config/         Shared config, env validation
 
@@ -367,6 +367,7 @@ Required env vars (indicative)
 SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
 DATABASE_URL
 REDIS_URL
+ADAPTER (mock|unipile; default mock — selects the transport adapter; see §5/§8)
 UNIPILE_API_KEY, UNIPILE_DSN
 LLM_API_KEY
 TTS_API_KEY
