@@ -181,12 +181,19 @@ Auth & workspaces
 POST /auth/* — handled by Supabase Auth (signup, login, reset). App reads session.
 GET /workspaces — list workspaces the user belongs to.
 POST /workspaces — create a workspace (becomes Owner).
-PATCH /workspaces/:id — update workspace name and settings: inbox_type ('not_configured' | 'all_conversations' | 'campaign_only'), auto_withdraw_days (default 14, clamped 1–90), branding. (Settings are merged, not replaced.)
-DELETE /workspaces/:id — delete workspace and all scoped data.
-GET /workspaces/:id/members — list members + roles.
-POST /workspaces/:id/members — invite a member (unlimited, free). Roles: Owner/Admin/Member.
-PATCH /workspaces/:id/members/:userId — change role.
-DELETE /workspaces/:id/members/:userId — remove member.
+PATCH /workspaces/:id — update workspace name and settings: inbox_type ('not_configured' | 'all_conversations' | 'campaign_only'), auto_withdraw_days (default 14, clamped 1–90), branding. (Settings are merged, not replaced.) RBAC: workspace:update (Owner/Admin).
+DELETE /workspaces/:id — delete workspace and all scoped data. RBAC: workspace:delete (Owner only).
+GET /workspaces/:id/members — list members (name, email, role, joinedAt) + pending invites + the caller's role. RBAC: members:read (any member).
+POST /workspaces/:id/members — invite by email (unlimited, free). If the email already has an account → membership created immediately; else a pending workspace_invites row is created and resolved on signup (handle_new_user trigger). RBAC: members:invite (Owner/Admin); only an Owner can invite/grant the owner role.
+PATCH /workspaces/:id/members/:userId — change role. RBAC: members:update_role (Owner/Admin); assigning/changing the owner role requires Owner; the last Owner can't be demoted.
+DELETE /workspaces/:id/members/:userId — remove member. RBAC: members:remove (Owner/Admin); only an Owner removes an Owner; the last Owner can't be removed.
+DELETE /workspaces/:id/invites/:inviteId — revoke a pending invite. RBAC: members:invite (Owner/Admin).
+
+RBAC matrix (authoritative copy in packages/core/src/rbac.ts; enforced server-side by WorkspaceRbacGuard, UI gating is secondary):
+- Owner: everything — workspace:update/delete, transfer_ownership (grant/modify the owner role), billing:manage, all members:* .
+- Admin: workspace:update, members:read/invite/update_role/remove — but NOT delete/billing/ownership, and cannot affect Owners or grant the owner role.
+- Member: members:read + product use only.
+Invariants: never remove/demote the last Owner; only an Owner can delete the workspace, manage billing, or transfer ownership. Members are unlimited and free (billing is per sending-account slot, not per seat).
 
 
 Sending accounts (LinkedIn / mailbox) — the safety-critical surface
@@ -322,7 +329,8 @@ GET /affiliate — affiliate program dashboard (referral link, payouts).
 users — id, email, name, auth (Supabase).
 profiles — id (= auth.users.id), email, name (combined display), first_name, last_name. Mirror of auth.users (populated by the handle_new_user trigger; Google OAuth fills first/last from given_name/family_name).
 workspaces — id, name, owner_id, settings (jsonb: inbox_type ['not_configured'|'all_conversations'|'campaign_only'], auto_withdraw_days [default 14]), branding (jsonb).
-memberships — user_id, workspace_id, role (owner|admin|member).
+memberships — user_id, workspace_id, role (owner|admin|member). RBAC source of truth; multiple owners allowed (transfer ownership = promote a second owner, then optionally demote the first). workspaces.owner_id stays as the immutable creator pointer.
+workspace_invites — id, workspace_id, email, role, invited_by, status (pending|accepted), timestamps. A pending invite for an email is auto-resolved into a membership by handle_new_user when that email signs up. Unique pending invite per (workspace, lower(email)).
 sending_accounts — id, workspace_id, type (linkedin|mailbox), connection_method (extension|credentials), proxy (bundled|own + region), location, status (active|warming|paused|restricted|disconnected), health_score, warmup_state.
 contact_lists — id, workspace_id, name, color.
 leads — id, workspace_id, linkedin_url, email, enrichment (jsonb), tags, custom_columns (jsonb), dedupe_key, enrich_status, connection_degree.

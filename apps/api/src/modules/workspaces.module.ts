@@ -1,6 +1,9 @@
-import type { DB, Enums } from "@10xconnect/db";
+import { type Role, can } from "@10xconnect/core";
+import type { DB } from "@10xconnect/db";
 import {
+  BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   ForbiddenException,
@@ -9,25 +12,29 @@ import {
   Injectable,
   Module,
   NotFoundException,
-  NotImplementedException,
   Param,
   Patch,
   Post,
+  UseGuards,
 } from "@nestjs/common";
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { z } from "zod";
 
 import type { AuthUser } from "../auth/auth-user.interface";
 import { CurrentUser } from "../auth/current-user.decorator";
+import { MemberRole } from "../common/decorators/member-role.decorator";
+import { RequirePermission } from "../common/decorators/require-permission.decorator";
+import { WorkspaceId } from "../common/decorators/workspace-id.decorator";
+import { WorkspaceRbacGuard } from "../common/guards/workspace-rbac.guard";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { KYSELY_DB } from "../database/database.module";
 
-// Cross-workspace management surface — auth-only (no WorkspaceScopeGuard).
-// Membership for :id routes is resolved inside the service. Granular RBAC
-// (Owner/Admin/Member permissions) arrives in Step 6; for now any member may
-// rename/update/delete a workspace they belong to.
+// Cross-workspace management surface — auth-only globally; the :id routes use
+// WorkspaceRbacGuard, which resolves the caller's role from the :id param and
+// enforces @RequirePermission. list/create take no :id and need no role.
 
 const INBOX_TYPES = ["not_configured", "all_conversations", "campaign_only"] as const;
+const ROLE_VALUES = ["owner", "admin", "member"] as const;
 
 const createWorkspaceSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(100),
@@ -50,6 +57,15 @@ const updateWorkspaceSchema = z
   });
 type UpdateWorkspaceDto = z.infer<typeof updateWorkspaceSchema>;
 
+const inviteMemberSchema = z.object({
+  email: z.string().trim().email().max(255),
+  role: z.enum(ROLE_VALUES).default("member"),
+});
+type InviteMemberDto = z.infer<typeof inviteMemberSchema>;
+
+const updateMemberRoleSchema = z.object({ role: z.enum(ROLE_VALUES) });
+type UpdateMemberRoleDto = z.infer<typeof updateMemberRoleSchema>;
+
 interface WorkspaceSettings {
   inbox_type: (typeof INBOX_TYPES)[number];
   auto_withdraw_days: number;
@@ -60,16 +76,36 @@ const DEFAULT_SETTINGS: WorkspaceSettings = {
   auto_withdraw_days: 14,
 };
 
-type MembershipRole = Enums<"membership_role">;
-
 export interface WorkspaceView {
   id: string;
   name: string;
   owner_id: string;
-  role: MembershipRole;
+  role: Role;
   settings: WorkspaceSettings;
   branding: Record<string, unknown>;
   created_at: string;
+}
+
+export interface MemberView {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: Role;
+  joinedAt: string;
+}
+
+export interface InviteView {
+  id: string;
+  email: string;
+  role: Role;
+  status: string;
+  createdAt: string;
+}
+
+export interface MembersResponse {
+  currentUserRole: Role;
+  members: MemberView[];
+  invites: InviteView[];
 }
 
 @Injectable()
@@ -98,9 +134,8 @@ export class WorkspacesService {
   }
 
   /**
-   * Create a workspace AND the creator's Owner membership atomically. The two
-   * inserts share one transaction so a workspace can never exist without an
-   * owner (guardrail: never leave a workspace with no owner).
+   * Create a workspace AND the creator's Owner membership atomically, so a
+   * workspace can never exist without an owner.
    */
   async create(userId: string, dto: CreateWorkspaceDto): Promise<WorkspaceView> {
     return this.db.transaction().execute(async (trx) => {
@@ -124,12 +159,15 @@ export class WorkspacesService {
     });
   }
 
-  async update(userId: string, id: string, dto: UpdateWorkspaceDto): Promise<WorkspaceView> {
-    const role = await this.requireMembership(userId, id);
-
+  /** Update name + merge settings/branding. Access enforced by the RBAC guard. */
+  async update(
+    workspaceId: string,
+    dto: UpdateWorkspaceDto,
+    actorRole: Role,
+  ): Promise<WorkspaceView> {
     const current = await this.db
       .selectFrom("workspaces")
-      .where("id", "=", id)
+      .where("id", "=", workspaceId)
       .select(["settings", "branding"])
       .executeTakeFirst();
     if (!current) {
@@ -150,31 +188,272 @@ export class WorkspacesService {
         ...(nextSettings !== undefined ? { settings: JSON.stringify(nextSettings) } : {}),
         ...(nextBranding !== undefined ? { branding: JSON.stringify(nextBranding) } : {}),
       })
-      .where("id", "=", id)
+      .where("id", "=", workspaceId)
       .returning(["id", "name", "owner_id", "settings", "branding", "created_at"])
       .executeTakeFirstOrThrow();
 
-    return this.toView({ ...updated, role });
+    return this.toView({ ...updated, role: actorRole });
   }
 
   /** Delete the workspace; FK ON DELETE CASCADE removes all scoped rows. */
-  async remove(userId: string, id: string): Promise<{ deleted: true; id: string }> {
-    await this.requireMembership(userId, id);
-    await this.db.deleteFrom("workspaces").where("id", "=", id).execute();
-    return { deleted: true, id };
+  async remove(workspaceId: string): Promise<{ deleted: true; id: string }> {
+    await this.db.deleteFrom("workspaces").where("id", "=", workspaceId).execute();
+    return { deleted: true, id: workspaceId };
   }
 
-  private async requireMembership(userId: string, workspaceId: string): Promise<MembershipRole> {
-    const membership = await this.db
+  // --- members ---------------------------------------------------------------
+
+  async listMembers(workspaceId: string, actorRole: Role): Promise<MembersResponse> {
+    const memberRows = await this.db
+      .selectFrom("memberships")
+      .innerJoin("profiles", "profiles.id", "memberships.user_id")
+      .where("memberships.workspace_id", "=", workspaceId)
+      .select([
+        "memberships.user_id as userId",
+        "memberships.role as role",
+        "memberships.created_at as joinedAt",
+        "profiles.email as email",
+        "profiles.name as name",
+        "profiles.first_name as firstName",
+        "profiles.last_name as lastName",
+      ])
+      .orderBy("memberships.created_at", "asc")
+      .execute();
+
+    const inviteRows = await this.db
+      .selectFrom("workspace_invites")
+      .where("workspace_id", "=", workspaceId)
+      .where("status", "=", "pending")
+      .select(["id", "email", "role", "status", "created_at as createdAt"])
+      .orderBy("created_at", "asc")
+      .execute();
+
+    return {
+      currentUserRole: actorRole,
+      members: memberRows.map((m) => ({
+        userId: m.userId,
+        name: this.displayName(m.firstName, m.lastName, m.name),
+        email: m.email,
+        role: m.role,
+        joinedAt: m.joinedAt,
+      })),
+      invites: inviteRows.map((i) => ({
+        id: i.id,
+        email: i.email,
+        role: i.role,
+        status: i.status,
+        createdAt: i.createdAt,
+      })),
+    };
+  }
+
+  /**
+   * Invite by email. If a profile already exists → add the membership now;
+   * otherwise store a pending invite (resolved by handle_new_user on signup).
+   */
+  async invite(
+    workspaceId: string,
+    actorId: string,
+    actorRole: Role,
+    dto: InviteMemberDto,
+  ): Promise<{ type: "member"; member: MemberView } | { type: "invite"; invite: InviteView }> {
+    if (dto.role === "owner" && !can(actorRole, "workspace:transfer_ownership")) {
+      throw new ForbiddenException("Only an owner can invite another owner");
+    }
+    const email = dto.email.toLowerCase();
+
+    const profile = await this.db
+      .selectFrom("profiles")
+      .select(["id", "email", "name", "first_name as firstName", "last_name as lastName"])
+      .where(sql<boolean>`lower(email) = ${email}`)
+      .executeTakeFirst();
+
+    if (profile) {
+      const existing = await this.db
+        .selectFrom("memberships")
+        .select("user_id")
+        .where("workspace_id", "=", workspaceId)
+        .where("user_id", "=", profile.id)
+        .executeTakeFirst();
+      if (existing) {
+        throw new ConflictException("That person is already a member of this workspace");
+      }
+
+      const inserted = await this.db
+        .insertInto("memberships")
+        .values({ workspace_id: workspaceId, user_id: profile.id, role: dto.role })
+        .returning(["user_id as userId", "role", "created_at as joinedAt"])
+        .executeTakeFirstOrThrow();
+
+      return {
+        type: "member",
+        member: {
+          userId: inserted.userId,
+          name: this.displayName(profile.firstName, profile.lastName, profile.name),
+          email: profile.email,
+          role: inserted.role,
+          joinedAt: inserted.joinedAt,
+        },
+      };
+    }
+
+    const existingInvite = await this.db
+      .selectFrom("workspace_invites")
+      .select("id")
+      .where("workspace_id", "=", workspaceId)
+      .where(sql<boolean>`lower(email) = ${email}`)
+      .where("status", "=", "pending")
+      .executeTakeFirst();
+    if (existingInvite) {
+      throw new ConflictException("An invite is already pending for that email");
+    }
+
+    const invite = await this.db
+      .insertInto("workspace_invites")
+      .values({ workspace_id: workspaceId, email, role: dto.role, invited_by: actorId })
+      .returning(["id", "email", "role", "status", "created_at as createdAt"])
+      .executeTakeFirstOrThrow();
+
+    return {
+      type: "invite",
+      invite: {
+        id: invite.id,
+        email: invite.email,
+        role: invite.role,
+        status: invite.status,
+        createdAt: invite.createdAt,
+      },
+    };
+  }
+
+  async updateMemberRole(
+    workspaceId: string,
+    actorRole: Role,
+    targetUserId: string,
+    newRole: Role,
+  ): Promise<MemberView> {
+    const target = await this.db
       .selectFrom("memberships")
       .select("role")
       .where("workspace_id", "=", workspaceId)
-      .where("user_id", "=", userId)
+      .where("user_id", "=", targetUserId)
       .executeTakeFirst();
-    if (!membership) {
-      throw new ForbiddenException("You are not a member of this workspace");
+    if (!target) {
+      throw new NotFoundException("Member not found");
     }
-    return membership.role;
+
+    // Granting OR changing the owner role is an ownership transfer (Owner only).
+    if (
+      (newRole === "owner" || target.role === "owner") &&
+      !can(actorRole, "workspace:transfer_ownership")
+    ) {
+      throw new ForbiddenException("Only an owner can assign or change the owner role");
+    }
+
+    if (target.role === "owner" && newRole !== "owner" && (await this.countOwners(workspaceId)) <= 1) {
+      throw new BadRequestException("Cannot demote the last owner of the workspace");
+    }
+
+    await this.db
+      .updateTable("memberships")
+      .set({ role: newRole })
+      .where("workspace_id", "=", workspaceId)
+      .where("user_id", "=", targetUserId)
+      .execute();
+
+    return this.getMember(workspaceId, targetUserId);
+  }
+
+  async removeMember(
+    workspaceId: string,
+    actorRole: Role,
+    targetUserId: string,
+  ): Promise<{ removed: true; userId: string }> {
+    const target = await this.db
+      .selectFrom("memberships")
+      .select("role")
+      .where("workspace_id", "=", workspaceId)
+      .where("user_id", "=", targetUserId)
+      .executeTakeFirst();
+    if (!target) {
+      throw new NotFoundException("Member not found");
+    }
+
+    if (target.role === "owner" && !can(actorRole, "workspace:transfer_ownership")) {
+      throw new ForbiddenException("Only an owner can remove an owner");
+    }
+    if (target.role === "owner" && (await this.countOwners(workspaceId)) <= 1) {
+      throw new BadRequestException("Cannot remove the last owner of the workspace");
+    }
+
+    await this.db
+      .deleteFrom("memberships")
+      .where("workspace_id", "=", workspaceId)
+      .where("user_id", "=", targetUserId)
+      .execute();
+
+    return { removed: true, userId: targetUserId };
+  }
+
+  async revokeInvite(
+    workspaceId: string,
+    inviteId: string,
+  ): Promise<{ revoked: true; id: string }> {
+    const deleted = await this.db
+      .deleteFrom("workspace_invites")
+      .where("id", "=", inviteId)
+      .where("workspace_id", "=", workspaceId)
+      .where("status", "=", "pending")
+      .returning("id")
+      .executeTakeFirst();
+    if (!deleted) {
+      throw new NotFoundException("Pending invite not found");
+    }
+    return { revoked: true, id: inviteId };
+  }
+
+  private async getMember(workspaceId: string, userId: string): Promise<MemberView> {
+    const row = await this.db
+      .selectFrom("memberships")
+      .innerJoin("profiles", "profiles.id", "memberships.user_id")
+      .where("memberships.workspace_id", "=", workspaceId)
+      .where("memberships.user_id", "=", userId)
+      .select([
+        "memberships.user_id as userId",
+        "memberships.role as role",
+        "memberships.created_at as joinedAt",
+        "profiles.email as email",
+        "profiles.name as name",
+        "profiles.first_name as firstName",
+        "profiles.last_name as lastName",
+      ])
+      .executeTakeFirstOrThrow();
+    return {
+      userId: row.userId,
+      name: this.displayName(row.firstName, row.lastName, row.name),
+      email: row.email,
+      role: row.role,
+      joinedAt: row.joinedAt,
+    };
+  }
+
+  private async countOwners(workspaceId: string): Promise<number> {
+    const { count } = await this.db
+      .selectFrom("memberships")
+      .where("workspace_id", "=", workspaceId)
+      .where("role", "=", "owner")
+      .select((eb) => eb.fn.countAll<string>().as("count"))
+      .executeTakeFirstOrThrow();
+    return Number(count);
+  }
+
+  private displayName(
+    first: string | null,
+    last: string | null,
+    name: string | null,
+  ): string | null {
+    const combined = [first, last].filter(Boolean).join(" ").trim();
+    return combined || name || null;
   }
 
   private parseSettings(value: unknown): WorkspaceSettings {
@@ -205,7 +484,7 @@ export class WorkspacesService {
     id: string;
     name: string;
     owner_id: string;
-    role: WorkspaceView["role"];
+    role: Role;
     settings: unknown;
     branding: unknown;
     created_at: string;
@@ -240,41 +519,73 @@ export class WorkspacesController {
   }
 
   @Patch(":id")
+  @UseGuards(WorkspaceRbacGuard)
+  @RequirePermission("workspace:update")
   update(
-    @CurrentUser() user: AuthUser,
-    @Param("id") id: string,
+    @WorkspaceId() workspaceId: string,
+    @MemberRole() role: Role,
     @Body(new ZodValidationPipe(updateWorkspaceSchema)) body: UpdateWorkspaceDto,
   ): Promise<WorkspaceView> {
-    return this.workspaces.update(user.id, id, body);
+    return this.workspaces.update(workspaceId, body, role);
   }
 
   @Delete(":id")
-  remove(
-    @CurrentUser() user: AuthUser,
-    @Param("id") id: string,
-  ): Promise<{ deleted: true; id: string }> {
-    return this.workspaces.remove(user.id, id);
+  @UseGuards(WorkspaceRbacGuard)
+  @RequirePermission("workspace:delete")
+  remove(@WorkspaceId() workspaceId: string): Promise<{ deleted: true; id: string }> {
+    return this.workspaces.remove(workspaceId);
   }
 
-  // --- Members management: Step 6 (RBAC). Stubbed until then. ---
   @Get(":id/members")
-  listMembers(@Param("id") _id: string): never {
-    throw new NotImplementedException();
+  @UseGuards(WorkspaceRbacGuard)
+  @RequirePermission("members:read")
+  listMembers(@WorkspaceId() workspaceId: string, @MemberRole() role: Role): Promise<MembersResponse> {
+    return this.workspaces.listMembers(workspaceId, role);
   }
 
   @Post(":id/members")
-  inviteMember(@Param("id") _id: string): never {
-    throw new NotImplementedException();
+  @UseGuards(WorkspaceRbacGuard)
+  @RequirePermission("members:invite")
+  inviteMember(
+    @WorkspaceId() workspaceId: string,
+    @CurrentUser() user: AuthUser,
+    @MemberRole() role: Role,
+    @Body(new ZodValidationPipe(inviteMemberSchema)) body: InviteMemberDto,
+  ): Promise<{ type: "member"; member: MemberView } | { type: "invite"; invite: InviteView }> {
+    return this.workspaces.invite(workspaceId, user.id, role, body);
   }
 
   @Patch(":id/members/:userId")
-  updateMember(@Param("id") _id: string, @Param("userId") _userId: string): never {
-    throw new NotImplementedException();
+  @UseGuards(WorkspaceRbacGuard)
+  @RequirePermission("members:update_role")
+  updateMember(
+    @WorkspaceId() workspaceId: string,
+    @MemberRole() role: Role,
+    @Param("userId") userId: string,
+    @Body(new ZodValidationPipe(updateMemberRoleSchema)) body: UpdateMemberRoleDto,
+  ): Promise<MemberView> {
+    return this.workspaces.updateMemberRole(workspaceId, role, userId, body.role);
   }
 
   @Delete(":id/members/:userId")
-  removeMember(@Param("id") _id: string, @Param("userId") _userId: string): never {
-    throw new NotImplementedException();
+  @UseGuards(WorkspaceRbacGuard)
+  @RequirePermission("members:remove")
+  removeMember(
+    @WorkspaceId() workspaceId: string,
+    @MemberRole() role: Role,
+    @Param("userId") userId: string,
+  ): Promise<{ removed: true; userId: string }> {
+    return this.workspaces.removeMember(workspaceId, role, userId);
+  }
+
+  @Delete(":id/invites/:inviteId")
+  @UseGuards(WorkspaceRbacGuard)
+  @RequirePermission("members:invite")
+  revokeInvite(
+    @WorkspaceId() workspaceId: string,
+    @Param("inviteId") inviteId: string,
+  ): Promise<{ revoked: true; id: string }> {
+    return this.workspaces.revokeInvite(workspaceId, inviteId);
   }
 }
 

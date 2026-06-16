@@ -586,12 +586,53 @@ export type Database = {
         };
         Relationships: [];
       };
+      workspace_invites: {
+        Row: {
+          id: string;
+          workspace_id: string;
+          email: string;
+          role: Database["public"]["Enums"]["membership_role"];
+          invited_by: string | null;
+          status: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          workspace_id: string;
+          email: string;
+          role?: Database["public"]["Enums"]["membership_role"];
+          invited_by?: string | null;
+          status?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          workspace_id?: string;
+          email?: string;
+          role?: Database["public"]["Enums"]["membership_role"];
+          invited_by?: string | null;
+          status?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
     };
     Functions: {
       is_workspace_member: {
+        Args: { target_workspace_id: string };
+        Returns: boolean;
+      };
+      is_workspace_admin: {
+        Args: { target_workspace_id: string };
+        Returns: boolean;
+      };
+      is_workspace_owner: {
         Args: { target_workspace_id: string };
         Returns: boolean;
       };

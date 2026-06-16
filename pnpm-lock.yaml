@@ -38,6 +38,9 @@ importers:
       '@10xconnect/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@10xconnect/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@10xconnect/db':
         specifier: workspace:*
         version: link:../../packages/db
