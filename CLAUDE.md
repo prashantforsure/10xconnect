@@ -34,6 +34,15 @@ Responsible posture. LinkedIn automation violates LinkedIn ToS; never market gua
 LayerChoiceNotesFrontendReact + TypeScript, Next.js (App Router)Builder UIReact Flownode/edge campaign canvasStylingTailwind + shadcn/uiBackendTypeScript + NestJS(confirm vs team's strongest language)Data + Auth + Realtime + StorageSupabase (Postgres)Auth = Supabase Auth; Realtime = inbox; Storage = voice audioCompute / API / workersRender (or Railway)always-on dispatch workersCache / queueRedis + BullMQrate-governor token buckets; → Temporal when justifiedTransport (LinkedIn + email)Unipile, behind ChannelAdapterbuy now, reversibleAI personalizationLLM API (cheap model)swappableVoice notesTTS / voice-clone providerswappablePaymentsCreem (primary MoR) / Dodo (India+UPI)Stripe-via-US-entity = scale endgameObservabilitySentry + logs/metrics + alertingrestriction spikes, rate breaches, deliverability dropsEdge (optional)CloudflareCDN/WAF
 
 
+Data access strategy (hybrid — decided after Step 3)
+
+- Web (apps/web): @supabase/supabase-js + RLS. Queries run AS the logged-in user through Supabase's pooler, so tenant isolation is automatic. Use this for all user-facing reads/writes.
+- Server / safety engine (apps/api, apps/worker): Kysely — a typed query builder over a direct SERVICE-ROLE connection through the Supavisor transaction pooler (port 6543). Required for transactions + SELECT … FOR UPDATE row locking in the rate governor and idempotent dispatch. Service-role bypasses RLS, so workspace scoping is enforced in a thin repository layer; RLS stays as defense-in-depth.
+- Source of truth = SQL migrations in packages/db/supabase/migrations (they carry RLS policies, triggers, SECURITY DEFINER functions). Kysely reuses packages/db/src/database.types.ts (no second schema definition). We do NOT use an ORM that owns the schema (no Drizzle/drizzle-kit migrations).
+- DATABASE_URL: session pooler / port 5432 for migrations + session-needing scripts (SET ROLE, multi-statement DDL); transaction pooler / port 6543 for app + worker pooled connections.
+- Kysely is introduced when first needed (Step 4 / Phase 4), not before.
+
+
 4. Repo structure (monorepo, pnpm + turborepo)
 
 apps/
@@ -347,7 +356,7 @@ Observability: per-account action logs, health metrics, alerts on restriction sp
 
 TypeScript everywhere, strict: true; shared types in packages/core.
 Validate all input (zod) and env at boot (packages/config).
-DB access always scoped by workspace_id; prefer Supabase RLS as defense-in-depth.
+DB access always scoped by workspace_id; prefer Supabase RLS as defense-in-depth. Hybrid data access: Supabase client + RLS on web; Kysely (service role, transaction pooler, repository layer) on api/worker. SQL migrations remain the source of truth; reuse packages/db/src/database.types.ts. See "Data access strategy" under §3.
 Provider SDKs only inside packages/adapters.
 Every send carries an idempotency_key; check actions before dispatch.
 Account restriction is a domain event, not a thrown error.

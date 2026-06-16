@@ -1,11 +1,10 @@
-import { Controller, Get, UseGuards } from "@nestjs/common";
+import { Controller, Get } from "@nestjs/common";
 
 import type { AuthUser } from "../auth/auth-user.interface";
 import { CurrentUser } from "../auth/current-user.decorator";
-import { SupabaseAuthGuard } from "../auth/supabase-auth.guard";
 
+// Auth-only (no workspace scope). Protected by the global SupabaseAuthGuard.
 @Controller("me")
-@UseGuards(SupabaseAuthGuard)
 export class MeController {
   @Get()
   me(@CurrentUser() user: AuthUser): { id: string; email?: string } {

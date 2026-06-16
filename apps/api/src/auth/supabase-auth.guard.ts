@@ -5,8 +5,11 @@ import {
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 import type { Request } from "express";
 import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload } from "jose";
+
+import { IS_PUBLIC_KEY } from "../common/decorators/public.decorator";
 
 import type { AuthUser } from "./auth-user.interface";
 
@@ -48,12 +51,22 @@ async function verifyAccessToken(token: string): Promise<JWTPayload> {
 }
 
 /**
- * Verifies the Supabase access-token JWT on protected routes and attaches the
- * authenticated user to the request.
+ * Global guard: verifies the Supabase access-token JWT and attaches the user to
+ * the request. Routes marked with @Public() bypass it (e.g. GET /health).
  */
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
+  constructor(private readonly reflector: Reflector) {}
+
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) {
+      return true;
+    }
+
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const token = extractBearerToken(request);
 

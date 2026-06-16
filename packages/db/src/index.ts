@@ -4,6 +4,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "./database.types";
 
 export type { Database } from "./database.types";
+export { createDb, type DB } from "./kysely";
 
 /** Row type helper, e.g. `Tables<"leads">`. */
 export type Tables<T extends keyof Database["public"]["Tables"]> =
