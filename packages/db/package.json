@@ -8,10 +8,22 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
-    "test": "echo \"@10xconnect/db: no tests yet\" && exit 0"
+    "test": "echo \"@10xconnect/db: no tests yet\" && exit 0",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:test-rls": "tsx scripts/rls-test.ts",
+    "db:gen-types": "supabase gen types typescript --db-url \"$DATABASE_URL\" --schema public"
+  },
+  "dependencies": {
+    "@10xconnect/config": "workspace:*",
+    "@supabase/supabase-js": "^2.47.10"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "pg": "^8.13.1",
+    "supabase": "^2.2.1",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
 }
