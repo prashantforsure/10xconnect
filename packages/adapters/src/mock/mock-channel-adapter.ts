@@ -231,7 +231,7 @@ export class MockChannelAdapter implements ChannelAdapter {
     return {
       lead,
       channel: "linkedin",
-      messages: [...(this.conversations.get(lead.leadId) ?? [])],
+      messages: [...(this.conversations.get(this.leadKey(lead)) ?? [])],
     };
   }
 
@@ -358,8 +358,9 @@ export class MockChannelAdapter implements ChannelAdapter {
     const record: RecordedAction = { type, idempotencyKey: opts.idempotencyKey, account, lead, providerRef, at, detail };
     this.actions.push(record);
     this.actionsByKey.set(opts.idempotencyKey, record);
-    this.leadRefs.set(lead.leadId, lead);
-    this.accountForLead.set(lead.leadId, account.accountId);
+    const key = this.leadKey(lead);
+    this.leadRefs.set(key, lead);
+    this.accountForLead.set(key, account.accountId);
 
     return { status: "success", idempotencyKey: opts.idempotencyKey, providerRef, at };
   }
@@ -374,7 +375,7 @@ export class MockChannelAdapter implements ChannelAdapter {
   ): Promise<ActionResult> {
     const result = await this.perform(type, account, lead, opts, { ...message });
     if (result.status === "success" && !result.deduplicated) {
-      this.appendMessage(lead.leadId, {
+      this.appendMessage(this.leadKey(lead), {
         ...message,
         providerMessageId: result.providerRef,
         sentAt: result.at,
@@ -401,6 +402,10 @@ export class MockChannelAdapter implements ChannelAdapter {
 
   private leadRef(leadId: string): LeadRef {
     return this.leadRefs.get(leadId) ?? { leadId };
+  }
+
+  private leadKey(lead: LeadRef): string {
+    return lead.leadId ?? lead.providerId ?? lead.linkedinUrl ?? lead.email ?? "unknown";
   }
 
   private async emit(event: InboundEvent): Promise<void> {

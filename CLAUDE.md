@@ -71,7 +71,7 @@ Application — UI, CRM, inbox, analytics, billing, API.
 Adapter interfaces (packages/core) — implemented in Step 7. The transport boundary is split into two interfaces (ISP): ChannelAdapter (LinkedIn) and EmailAdapter (email, Phase 11). They share the same domain types and idempotency/result/event contract. ZERO provider/SDK imports may ever appear in packages/core.
 
 Key contract decisions:
-- Structured refs, not bare ids: methods take AccountRef { accountId; providerAccountId? } and LeadRef { leadId; linkedinUrl?; providerId?; email? } so the adapter is DB-free and provider-agnostic while echoing our correlation ids back.
+- Structured refs, not bare ids: methods take AccountRef { accountId; providerAccountId? } and LeadRef { leadId?; linkedinUrl?; providerId?; email? } so the adapter is DB-free and provider-agnostic while echoing our correlation ids back. leadId is optional: outbound verbs always pass it, but inbound webhook events may carry only a providerId/linkedinUrl until orchestration resolves it to our lead.
 - Idempotency-first: every mutating verb takes opts: SendOptions { idempotencyKey } (ConnectionRequestOptions adds note?, default NO note) and returns ActionResult.
 - ActionResult = { status:'success'; idempotencyKey; providerRef?; deduplicated?; at } | { status:'failed'; idempotencyKey; error: ChannelError }. Errors are RETURNED, never thrown as strings.
 - ChannelError { code; message; retriable; retryAfterMs?; providerRef?; cause? } with code ∈ rate_limited | account_restricted | account_disconnected | captcha_required | not_connected | lead_not_found | invalid_request | provider_error | timeout | unknown. account_restricted/captcha_required are domain events (§2) — returned, then mapped to auto-pause by orchestration.

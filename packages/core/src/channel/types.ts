@@ -50,10 +50,15 @@ export interface AccountRef {
   providerAccountId?: string;
 }
 
-/** Reference to a lead/prospect passed to adapter verbs (see AccountRef). */
+/**
+ * Reference to a lead/prospect (see AccountRef). Outbound verbs are always called
+ * with our `leadId`; inbound webhook events may carry only a provider id
+ * (`providerId`/`linkedinUrl`) until orchestration resolves it to our lead — so
+ * `leadId` is optional. Callers should populate whatever identifiers they have.
+ */
 export interface LeadRef {
-  /** Our leads.id — echoed back in results/events for correlation. */
-  leadId: string;
+  /** Our leads.id — present for outbound calls; may be absent on inbound events. */
+  leadId?: string;
   linkedinUrl?: string;
   /** Provider member/thread id. */
   providerId?: string;

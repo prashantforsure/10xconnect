@@ -1,8 +1,12 @@
+import { isInboundWebhookReceiver } from "@10xconnect/adapters";
 import {
+  Body,
   Controller,
   Delete,
   Get,
+  Inject,
   Injectable,
+  Logger,
   Module,
   NotImplementedException,
   Param,
@@ -10,6 +14,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 
+import { CHANNEL_ADAPTER } from "../adapter/channel-adapter.module";
 import { Public } from "../common/decorators/public.decorator";
 import { WorkspaceScopeGuard } from "../common/guards/workspace-scope.guard";
 
@@ -36,13 +41,25 @@ export class WebhooksController {
   }
 }
 
-// Inbound receivers from external services — public (verified by signature later).
+// Inbound receivers from external services — public.
 @Controller("webhooks")
 export class InboundWebhooksController {
+  private readonly logger = new Logger("InboundWebhooks");
+
+  // Injected as `unknown` and narrowed by isInboundWebhookReceiver, so no provider
+  // types cross into the app layer. The mock adapter does not ingest webhooks.
+  constructor(@Inject(CHANNEL_ADAPTER) private readonly adapter: unknown) {}
+
   @Public()
   @Post("inbound/unipile")
-  unipile(): never {
-    throw new NotImplementedException();
+  async unipile(@Body() body: unknown): Promise<{ received: true }> {
+    if (isInboundWebhookReceiver(this.adapter)) {
+      await this.adapter.ingestWebhook(body);
+    } else {
+      this.logger.warn("Unipile webhook received but the active adapter does not ingest webhooks");
+    }
+    // Always 200 quickly so Unipile does not retry (it expects 200 within 30s).
+    return { received: true };
   }
 
   @Public()
