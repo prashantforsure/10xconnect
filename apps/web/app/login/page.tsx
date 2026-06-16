@@ -1,7 +1,14 @@
 import Link from "next/link";
 
-import { login } from "@/app/auth/actions";
-import { AuthShell, Banner, Field, SubmitButton } from "@/app/auth/auth-ui";
+import { login, signInWithGoogle } from "@/app/auth/actions";
+import {
+  AuthShell,
+  Banner,
+  Field,
+  GoogleButton,
+  OrDivider,
+  SubmitButton,
+} from "@/app/auth/auth-ui";
 
 export default async function LoginPage({
   searchParams,
@@ -13,6 +20,10 @@ export default async function LoginPage({
   return (
     <AuthShell title="Log in">
       <Banner error={error} message={message} />
+      <form action={signInWithGoogle}>
+        <GoogleButton />
+      </form>
+      <OrDivider />
       <form action={login}>
         <Field label="Email" name="email" type="email" autoComplete="email" />
         <Field label="Password" name="password" type="password" autoComplete="current-password" />

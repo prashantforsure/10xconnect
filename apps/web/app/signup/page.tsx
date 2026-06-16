@@ -1,7 +1,14 @@
 import Link from "next/link";
 
-import { signup } from "@/app/auth/actions";
-import { AuthShell, Banner, Field, SubmitButton } from "@/app/auth/auth-ui";
+import { signInWithGoogle, signup } from "@/app/auth/actions";
+import {
+  AuthShell,
+  Banner,
+  Field,
+  GoogleButton,
+  OrDivider,
+  SubmitButton,
+} from "@/app/auth/auth-ui";
 
 export default async function SignupPage({
   searchParams,
@@ -13,6 +20,10 @@ export default async function SignupPage({
   return (
     <AuthShell title="Create account">
       <Banner error={error} message={message} />
+      <form action={signInWithGoogle}>
+        <GoogleButton />
+      </form>
+      <OrDivider />
       <form action={signup}>
         <Field label="Email" name="email" type="email" autoComplete="email" />
         <Field label="Password" name="password" type="password" autoComplete="new-password" />

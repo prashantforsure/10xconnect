@@ -69,6 +69,23 @@ export async function updatePassword(formData: FormData): Promise<void> {
   withMessage("/", "Your password has been updated.");
 }
 
+export async function signInWithGoogle(): Promise<void> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: `${siteUrl()}/auth/callback?next=/` },
+  });
+
+  if (error) {
+    withError("/login", error.message);
+  }
+  if (data.url) {
+    // Hand off to Google's consent screen.
+    redirect(data.url);
+  }
+  withError("/login", "Could not start Google sign-in");
+}
+
 export async function logout(): Promise<void> {
   const supabase = await createClient();
   await supabase.auth.signOut();
