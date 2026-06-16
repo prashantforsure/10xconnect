@@ -1,16 +1,30 @@
 import { env } from "@10xconnect/config";
-import { Kysely, PostgresDialect } from "kysely";
+import { type ColumnType, Kysely, PostgresDialect } from "kysely";
 import { Pool } from "pg";
 
 import type { Database } from "./database.types";
 
+type PublicTables = Database["public"]["Tables"];
+
 /**
  * Kysely database interface, derived from the generated Supabase types so there
- * is a single schema source of truth. Keys are snake_case table names; values
- * are the row shapes. (Insert/Update refinement with Generated<> can come later.)
+ * is a single schema source of truth. For each column we build a Kysely
+ * `ColumnType<Select, Insert, Update>` from the generated Row/Insert/Update
+ * shapes: columns that are optional in `Insert` (defaults like id, timestamps,
+ * jsonb defaults) become optional on insert, and selects return the Row type.
  */
 export type DB = {
-  [K in keyof Database["public"]["Tables"]]: Database["public"]["Tables"][K]["Row"];
+  [Table in keyof PublicTables]: {
+    [Column in keyof PublicTables[Table]["Row"]]: ColumnType<
+      PublicTables[Table]["Row"][Column],
+      Column extends keyof PublicTables[Table]["Insert"]
+        ? PublicTables[Table]["Insert"][Column]
+        : never,
+      Column extends keyof PublicTables[Table]["Update"]
+        ? PublicTables[Table]["Update"][Column]
+        : never
+    >;
+  };
 };
 
 /**

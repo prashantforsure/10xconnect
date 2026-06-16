@@ -4,7 +4,7 @@ Standing context for Claude Code. Read this fully before working in the repo. It
 v0.2 — verified against the Prosp.ai UI (settings, builder, frequency, schedule, analytics, import, onboarding). Routes now carry per-endpoint functionality.
 
 
-
+important note: there will be times when you feel like you want to suggest something better than this file , feel free to do it as we are building a big software there will be time where we have to make changes for better.
 
 1. What we're building
 
@@ -181,7 +181,7 @@ Auth & workspaces
 POST /auth/* — handled by Supabase Auth (signup, login, reset). App reads session.
 GET /workspaces — list workspaces the user belongs to.
 POST /workspaces — create a workspace (becomes Owner).
-PATCH /workspaces/:id — update profile/workspace name, inbox type (all-conversations | only-campaign), auto_withdraw_days (default 14), branding.
+PATCH /workspaces/:id — update workspace name and settings: inbox_type ('not_configured' | 'all_conversations' | 'campaign_only'), auto_withdraw_days (default 14, clamped 1–90), branding. (Settings are merged, not replaced.)
 DELETE /workspaces/:id — delete workspace and all scoped data.
 GET /workspaces/:id/members — list members + roles.
 POST /workspaces/:id/members — invite a member (unlimited, free). Roles: Owner/Admin/Member.
@@ -320,7 +320,8 @@ GET /affiliate — affiliate program dashboard (referral link, payouts).
 
 
 users — id, email, name, auth (Supabase).
-workspaces — id, name, owner_id, settings (inbox_type, auto_withdraw_days), branding.
+profiles — id (= auth.users.id), email, name (combined display), first_name, last_name. Mirror of auth.users (populated by the handle_new_user trigger; Google OAuth fills first/last from given_name/family_name).
+workspaces — id, name, owner_id, settings (jsonb: inbox_type ['not_configured'|'all_conversations'|'campaign_only'], auto_withdraw_days [default 14]), branding (jsonb).
 memberships — user_id, workspace_id, role (owner|admin|member).
 sending_accounts — id, workspace_id, type (linkedin|mailbox), connection_method (extension|credentials), proxy (bundled|own + region), location, status (active|warming|paused|restricted|disconnected), health_score, warmup_state.
 contact_lists — id, workspace_id, name, color.
