@@ -13,7 +13,10 @@ const envSchema = z.object({
   // Supabase (Step 2+)
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_ANON_KEY: z.string().optional(),
+  // Server-only. Never expose to the browser.
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  // Server-only. Used by the API to verify Supabase access-token JWTs (HS256).
+  SUPABASE_JWT_SECRET: z.string().optional(),
 
   // Database (Step 3+)
   DATABASE_URL: z.string().optional(),
