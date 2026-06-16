@@ -68,30 +68,19 @@ Orchestration ("the brain") — sequence engine, per-account rate governor, sche
 Application — UI, CRM, inbox, analytics, billing, API.
 
 
-ChannelAdapter interface (packages/core)
+Adapter interfaces (packages/core) — implemented in Step 7. The transport boundary is split into two interfaces (ISP): ChannelAdapter (LinkedIn) and EmailAdapter (email, Phase 11). They share the same domain types and idempotency/result/event contract. ZERO provider/SDK imports may ever appear in packages/core.
 
-tsinterface ChannelAdapter {
-  connectAccount(input): Promise<AccountConnection>          // extension | credentials
-  disconnectAccount(accountId): Promise<void>
-  getAccountStatus(accountId): Promise<AccountStatus>        // active|warming|paused|restricted|disconnected
-  sendConnectionRequest(accountId, leadId, opts): Promise<ActionResult>  // no-note default
-  sendMessage(accountId, leadId, body): Promise<ActionResult>
-  sendVoiceNote(accountId, leadId, audioRef): Promise<ActionResult>
-  sendInMail(accountId, leadId, body): Promise<ActionResult>
-  sendOpenProfileMessage(accountId, leadId, body): Promise<ActionResult>
-  likePost(accountId, leadId): Promise<ActionResult>
-  commentPost(accountId, leadId, text): Promise<ActionResult>
-  replyComment(accountId, leadId, text): Promise<ActionResult>
-  visitProfile(accountId, leadId): Promise<ActionResult>
-  followLead(accountId, leadId): Promise<ActionResult>
-  fetchProfile(accountId, linkedinUrl): Promise<EnrichedProfile>   // enrichment
-  fetchConversation(accountId, leadRef): Promise<Conversation>
-  subscribeInboundEvents(handler): void                     // webhooks: replies, accepts, opens
-  // EMAIL:
-  sendEmail(mailboxId, leadId, email): Promise<ActionResult>
-  connectMailbox(input): Promise<MailboxConnection>
-  getMailboxHealth(mailboxId): Promise<MailboxHealth>
-}
+Key contract decisions:
+- Structured refs, not bare ids: methods take AccountRef { accountId; providerAccountId? } and LeadRef { leadId; linkedinUrl?; providerId?; email? } so the adapter is DB-free and provider-agnostic while echoing our correlation ids back.
+- Idempotency-first: every mutating verb takes opts: SendOptions { idempotencyKey } (ConnectionRequestOptions adds note?, default NO note) and returns ActionResult.
+- ActionResult = { status:'success'; idempotencyKey; providerRef?; deduplicated?; at } | { status:'failed'; idempotencyKey; error: ChannelError }. Errors are RETURNED, never thrown as strings.
+- ChannelError { code; message; retriable; retryAfterMs?; providerRef?; cause? } with code ∈ rate_limited | account_restricted | account_disconnected | captcha_required | not_connected | lead_not_found | invalid_request | provider_error | timeout | unknown. account_restricted/captcha_required are domain events (§2) — returned, then mapped to auto-pause by orchestration.
+- InboundEvent discriminated union { id (provider event id = webhook dedup key); accountId; channel; occurredAt } & ( reply{lead,message} | invite_accepted{lead} | message_opened{lead} | email_opened{lead} | email_clicked{lead,url?} | email_bounced{lead,bounceType?} | account_status_changed{status} ). reply drives auto-stop + inbox.
+- ActionType (transport-dispatch subset of §7): connection_request | message | voice_note | inmail | open_profile_message | like_post | comment_post | reply_comment | visit_profile | follow_lead | email. (add_tag / wait_x_days / condition nodes are orchestration-level, not transport.)
+- subscribeInboundEvents(handler): Unsubscribe.
+
+ChannelAdapter (LinkedIn): connectAccount, disconnectAccount, getAccountStatus, sendConnectionRequest (no-note default), sendMessage, sendVoiceNote, sendInMail, sendOpenProfileMessage, likePost, commentPost, replyComment, visitProfile, followLead, fetchProfile (enrichment), fetchConversation, subscribeInboundEvents.
+EmailAdapter (Phase 11): connectMailbox, getMailboxHealth, sendEmail, subscribeInboundEvents.
 
 Execution model (the dispatch engine — heart of the product)
 
