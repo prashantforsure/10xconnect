@@ -3,3 +3,5 @@
 // live here (see CLAUDE.md §5). Provider SDKs are NEVER imported in this package.
 export * from "./rbac";
 export * from "./channel";
+export * from "./leads";
+export * from "./lead-source";

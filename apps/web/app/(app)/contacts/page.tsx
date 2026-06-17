@@ -1,5 +1,5 @@
-import { PagePlaceholder } from "@/components/page-placeholder";
+import { ContactsClient } from "@/components/contacts/contacts-client";
 
 export default function ContactsPage() {
-  return <PagePlaceholder title="Contacts" />;
+  return <ContactsClient />;
 }

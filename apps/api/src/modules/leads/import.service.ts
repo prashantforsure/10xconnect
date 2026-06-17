@@ -1,0 +1,594 @@
+import type {
+  LeadSourceAccountRef,
+  LeadSourceAdapter,
+  LeadSourceKind,
+  LeadSourceQuery,
+} from "@10xconnect/core";
+import { parseCsvToObjects, applyMapping } from "@10xconnect/core";
+import type { DB, ImportSource } from "@10xconnect/db";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
+import type { Kysely } from "kysely";
+
+import { KYSELY_DB } from "../../database/database.module";
+
+import type { ImportRequestDto } from "./dto";
+import { EnrichmentService } from "./enrichment.service";
+import { IMPORT_JOB_QUEUE, type ImportJobQueue } from "./import-queue";
+import {
+  buildLeadInsert,
+  candidateDedupeKey,
+  candidateFromMapped,
+  candidateFromSourced,
+  type Candidate,
+} from "./lead-mapper";
+import { LEAD_SOURCE_ADAPTER } from "./lead-source.provider";
+
+const DEFAULT_SOURCE_LIMIT = 50;
+const SOURCE_PAGE_SIZE = 100;
+
+export interface ImportJobView {
+  id: string;
+  source: string;
+  status: string;
+  listId: string | null;
+  campaignId: string | null;
+  params: unknown;
+  totalCount: number;
+  createdCount: number;
+  duplicateCount: number;
+  failedCount: number;
+  error: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PersistResult {
+  createdLeadIds: string[];
+  /** All resolved lead ids (created + matched existing), for list + enroll. */
+  allLeadIds: string[];
+  duplicateCount: number;
+  failedCount: number;
+}
+
+/**
+ * The generic import engine (Step 12/13). Every source — CSV, each LinkedIn
+ * LeadSourceAdapter source, and an existing list — flows through ONE pipeline:
+ * resolve candidates → workspace-dedupe → persist → link to a list → optionally
+ * enroll into a campaign → trigger enrichment. Jobs are tracked in import_jobs
+ * and run asynchronously via the ImportJobQueue (in-process in Phase 3).
+ */
+@Injectable()
+export class ImportService {
+  private readonly logger = new Logger("ImportService");
+
+  constructor(
+    @Inject(KYSELY_DB) private readonly db: Kysely<DB>,
+    @Inject(LEAD_SOURCE_ADAPTER) private readonly leadSource: LeadSourceAdapter,
+    @Inject(IMPORT_JOB_QUEUE) private readonly queue: ImportJobQueue,
+    private readonly enrichment: EnrichmentService,
+  ) {}
+
+  /** Create a pending import job, enqueue it, and return it immediately. */
+  async startImport(
+    workspaceId: string,
+    userId: string,
+    request: ImportRequestDto,
+  ): Promise<ImportJobView> {
+    // Validate references up front so the caller gets a clean error (not a job
+    // that fails later). Heavy work happens asynchronously in runJob.
+    if (request.listId) {
+      await this.requireList(workspaceId, request.listId);
+    }
+    if (request.campaignId) {
+      await this.requireCampaign(workspaceId, request.campaignId);
+    }
+    if (request.source === "list") {
+      await this.requireList(workspaceId, request.sourceListId);
+    }
+
+    const job = await this.db
+      .insertInto("import_jobs")
+      .values({
+        workspace_id: workspaceId,
+        source: request.source as ImportSource,
+        status: "pending",
+        list_id: request.listId ?? null,
+        campaign_id: request.campaignId ?? null,
+        params: JSON.stringify(this.describeParams(request)),
+        created_by: userId,
+      })
+      .returning(IMPORT_JOB_COLUMNS)
+      .executeTakeFirstOrThrow();
+
+    this.queue.enqueue(job.id, () => this.runJob(job.id, workspaceId, request));
+    return toJobView(job);
+  }
+
+  async listJobs(workspaceId: string): Promise<ImportJobView[]> {
+    const rows = await this.db
+      .selectFrom("import_jobs")
+      .select(IMPORT_JOB_COLUMNS)
+      .where("workspace_id", "=", workspaceId)
+      .orderBy("created_at", "desc")
+      .limit(50)
+      .execute();
+    return rows.map(toJobView);
+  }
+
+  async getJob(workspaceId: string, jobId: string): Promise<ImportJobView> {
+    const row = await this.db
+      .selectFrom("import_jobs")
+      .select(IMPORT_JOB_COLUMNS)
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", jobId)
+      .executeTakeFirst();
+    if (!row) {
+      throw new NotFoundException("Import job not found");
+    }
+    return toJobView(row);
+  }
+
+  // --- execution ------------------------------------------------------------
+
+  /** Execute an import job end-to-end, updating status/counts as it goes. */
+  async runJob(jobId: string, workspaceId: string, request: ImportRequestDto): Promise<void> {
+    await this.db
+      .updateTable("import_jobs")
+      .set({ status: "running", started_at: new Date().toISOString() })
+      .where("id", "=", jobId)
+      .where("workspace_id", "=", workspaceId)
+      .execute();
+
+    try {
+      const listId = await this.resolveTargetList(workspaceId, request);
+      const defaultTags = request.tags ?? [];
+
+      let result: PersistResult & { total: number };
+      if (request.source === "list") {
+        result = await this.importFromList(workspaceId, request.sourceListId, listId);
+      } else {
+        const candidates = await this.gatherCandidates(workspaceId, request);
+        const persisted = await this.persistCandidates(workspaceId, candidates, defaultTags, listId);
+        result = { ...persisted, total: candidates.length };
+      }
+
+      if (request.campaignId) {
+        await this.enrollLeads(workspaceId, request.campaignId, result.allLeadIds);
+      }
+
+      await this.db
+        .updateTable("import_jobs")
+        .set({
+          status: "completed",
+          total_count: result.total,
+          created_count: result.createdLeadIds.length,
+          duplicate_count: result.duplicateCount,
+          failed_count: result.failedCount,
+          finished_at: new Date().toISOString(),
+        })
+        .where("id", "=", jobId)
+        .where("workspace_id", "=", workspaceId)
+        .execute();
+
+      // Auto-enrich newly created leads (Step 14) — async, non-blocking.
+      this.enrichment.scheduleEnrichment(workspaceId, result.createdLeadIds);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Import failed";
+      this.logger.error(`Import job ${jobId} failed: ${message}`);
+      await this.db
+        .updateTable("import_jobs")
+        .set({ status: "failed", error: message.slice(0, 500), finished_at: new Date().toISOString() })
+        .where("id", "=", jobId)
+        .where("workspace_id", "=", workspaceId)
+        .execute();
+    }
+  }
+
+  // --- candidate resolution -------------------------------------------------
+
+  private async gatherCandidates(
+    workspaceId: string,
+    request: Exclude<ImportRequestDto, { source: "list" }>,
+  ): Promise<Candidate[]> {
+    if (request.source === "csv") {
+      const objects = parseCsvToObjects(request.csv);
+      return objects.map((row) => candidateFromMapped(applyMapping(row, request.mapping), "csv"));
+    }
+    return this.gatherFromSource(workspaceId, request);
+  }
+
+  private async gatherFromSource(
+    workspaceId: string,
+    request: Extract<ImportRequestDto, { source: LeadSourceKind }>,
+  ): Promise<Candidate[]> {
+    const account = await this.resolveSourceAccount(workspaceId, request.accountId);
+    const limit = Math.max(1, request.limit ?? DEFAULT_SOURCE_LIMIT);
+
+    const baseQuery: LeadSourceQuery = {
+      kind: request.source,
+      url: request.url,
+      keywords: request.keywords,
+      filters: request.filters,
+      engagement: request.engagement,
+    };
+
+    const collected: Candidate[] = [];
+    let cursor: string | undefined;
+    let guard = 0;
+    while (collected.length < limit) {
+      const pageSize = Math.min(SOURCE_PAGE_SIZE, limit - collected.length);
+      const page = await this.leadSource.fetchLeads(account, {
+        ...baseQuery,
+        limit: pageSize,
+        cursor,
+      });
+      for (const lead of page.leads) {
+        collected.push(candidateFromSourced(lead, request.source));
+      }
+      cursor = page.nextCursor;
+      guard += 1;
+      if (!cursor || page.leads.length === 0 || guard > 100) {
+        break;
+      }
+    }
+    return collected.slice(0, limit);
+  }
+
+  // --- persistence + dedupe -------------------------------------------------
+
+  /**
+   * Persist candidates with workspace dedupe (CLAUDE.md §10). Leads sharing a
+   * dedupe_key collapse to one row; rows already in the workspace are reused
+   * (counted as duplicates). All resolved leads are linked to the target list.
+   */
+  private async persistCandidates(
+    workspaceId: string,
+    candidates: Candidate[],
+    defaultTags: string[],
+    listId: string,
+  ): Promise<PersistResult> {
+    const keyed = new Map<string, Candidate>();
+    const unkeyed: Candidate[] = [];
+    let duplicateCount = 0;
+
+    for (const candidate of candidates) {
+      const key = candidateDedupeKey(candidate);
+      if (!key) {
+        unkeyed.push(candidate);
+        continue;
+      }
+      if (keyed.has(key)) {
+        duplicateCount += 1; // same identity twice within this import
+        continue;
+      }
+      keyed.set(key, candidate);
+    }
+
+    // Which keyed identities already exist in the workspace?
+    const keys = [...keyed.keys()];
+    const existingByKey = new Map<string, string>();
+    if (keys.length > 0) {
+      const rows = await this.db
+        .selectFrom("leads")
+        .select(["id", "dedupe_key"])
+        .where("workspace_id", "=", workspaceId)
+        .where("dedupe_key", "in", keys)
+        .execute();
+      for (const row of rows) {
+        if (row.dedupe_key) {
+          existingByKey.set(row.dedupe_key, row.id);
+        }
+      }
+    }
+
+    const createdLeadIds: string[] = [];
+    const allLeadIds = new Set<string>();
+    let failedCount = 0;
+
+    for (const [key, candidate] of keyed) {
+      const existingId = existingByKey.get(key);
+      if (existingId) {
+        duplicateCount += 1;
+        allLeadIds.add(existingId);
+        continue;
+      }
+      try {
+        const id = await this.insertLead(workspaceId, candidate, defaultTags, key);
+        createdLeadIds.push(id);
+        allLeadIds.add(id);
+      } catch (err) {
+        // A concurrent import may have inserted the same identity first.
+        const raced = await this.findByDedupeKey(workspaceId, key);
+        if (raced) {
+          duplicateCount += 1;
+          allLeadIds.add(raced);
+        } else {
+          failedCount += 1;
+          this.logger.warn(`Failed to insert lead (${key}): ${String(err)}`);
+        }
+      }
+    }
+
+    // Leads with no usable identifier can't be deduped — each is created.
+    for (const candidate of unkeyed) {
+      try {
+        const id = await this.insertLead(workspaceId, candidate, defaultTags, undefined);
+        createdLeadIds.push(id);
+        allLeadIds.add(id);
+      } catch (err) {
+        failedCount += 1;
+        this.logger.warn(`Failed to insert lead (no key): ${String(err)}`);
+      }
+    }
+
+    await this.addLeadsToList(workspaceId, listId, [...allLeadIds]);
+    return { createdLeadIds, allLeadIds: [...allLeadIds], duplicateCount, failedCount };
+  }
+
+  private async insertLead(
+    workspaceId: string,
+    candidate: Candidate,
+    defaultTags: string[],
+    dedupeKey: string | undefined,
+  ): Promise<string> {
+    const row = await this.db
+      .insertInto("leads")
+      .values(buildLeadInsert(workspaceId, candidate, defaultTags, dedupeKey))
+      .returning("id")
+      .executeTakeFirstOrThrow();
+    return row.id;
+  }
+
+  private async findByDedupeKey(workspaceId: string, key: string): Promise<string | undefined> {
+    const row = await this.db
+      .selectFrom("leads")
+      .select("id")
+      .where("workspace_id", "=", workspaceId)
+      .where("dedupe_key", "=", key)
+      .executeTakeFirst();
+    return row?.id;
+  }
+
+  // --- existing-list source -------------------------------------------------
+
+  private async importFromList(
+    workspaceId: string,
+    sourceListId: string,
+    targetListId: string,
+  ): Promise<PersistResult & { total: number }> {
+    const rows = await this.db
+      .selectFrom("list_leads")
+      .select("lead_id")
+      .where("workspace_id", "=", workspaceId)
+      .where("list_id", "=", sourceListId)
+      .execute();
+    const leadIds = rows.map((r) => r.lead_id);
+
+    let createdCount = 0;
+    if (targetListId !== sourceListId) {
+      createdCount = await this.addLeadsToList(workspaceId, targetListId, leadIds);
+    }
+    return {
+      total: leadIds.length,
+      createdLeadIds: [], // no NEW leads — these already exist
+      allLeadIds: leadIds,
+      duplicateCount: leadIds.length - createdCount,
+      failedCount: 0,
+    };
+  }
+
+  // --- list + campaign linking ----------------------------------------------
+
+  /** Link leads to a list (idempotent). Returns how many memberships were new. */
+  private async addLeadsToList(
+    workspaceId: string,
+    listId: string,
+    leadIds: string[],
+  ): Promise<number> {
+    if (leadIds.length === 0) {
+      return 0;
+    }
+    const inserted = await this.db
+      .insertInto("list_leads")
+      .values(leadIds.map((leadId) => ({ workspace_id: workspaceId, list_id: listId, lead_id: leadId })))
+      .onConflict((oc) => oc.columns(["list_id", "lead_id"]).doNothing())
+      .returning("lead_id")
+      .execute();
+    return inserted.length;
+  }
+
+  /** Enroll leads into a campaign (idempotent; CLAUDE.md §8 POST /campaigns/:id/leads). */
+  private async enrollLeads(
+    workspaceId: string,
+    campaignId: string,
+    leadIds: string[],
+  ): Promise<void> {
+    if (leadIds.length === 0) {
+      return;
+    }
+    const campaign = await this.db
+      .selectFrom("campaigns")
+      .select("id")
+      .where("id", "=", campaignId)
+      .where("workspace_id", "=", workspaceId)
+      .executeTakeFirst();
+    if (!campaign) {
+      return; // campaign removed between request and run — skip silently
+    }
+    await this.db
+      .insertInto("lead_campaign_state")
+      .values(
+        leadIds.map((leadId) => ({
+          workspace_id: workspaceId,
+          campaign_id: campaignId,
+          lead_id: leadId,
+          status: "active",
+        })),
+      )
+      .onConflict((oc) => oc.columns(["campaign_id", "lead_id"]).doNothing())
+      .execute();
+  }
+
+  // --- helpers --------------------------------------------------------------
+
+  private async resolveTargetList(
+    workspaceId: string,
+    request: ImportRequestDto,
+  ): Promise<string> {
+    if (request.listId) {
+      return request.listId;
+    }
+    const name = request.listName?.trim() || this.defaultListName(request);
+    const created = await this.db
+      .insertInto("contact_lists")
+      .values({ workspace_id: workspaceId, name })
+      .returning("id")
+      .executeTakeFirstOrThrow();
+    return created.id;
+  }
+
+  private defaultListName(request: ImportRequestDto): string {
+    const date = new Date().toISOString().slice(0, 10);
+    const label: Record<string, string> = {
+      csv: "CSV import",
+      list: "List import",
+      linkedin_search: "LinkedIn search",
+      sales_navigator: "Sales Navigator",
+      event: "Event attendees",
+      post: "Post engagement",
+      group: "Group members",
+      lead_finder: "Lead finder",
+    };
+    return `${label[request.source] ?? "Import"} — ${date}`;
+  }
+
+  private async resolveSourceAccount(
+    workspaceId: string,
+    accountId: string | undefined,
+  ): Promise<LeadSourceAccountRef> {
+    if (accountId) {
+      const account = await this.db
+        .selectFrom("sending_accounts")
+        .select("id")
+        .where("id", "=", accountId)
+        .where("workspace_id", "=", workspaceId)
+        .where("type", "=", "linkedin")
+        .executeTakeFirst();
+      if (!account) {
+        throw new BadRequestException("Sending account not found in this workspace");
+      }
+      return { accountId: account.id };
+    }
+    const fallback = await this.db
+      .selectFrom("sending_accounts")
+      .select("id")
+      .where("workspace_id", "=", workspaceId)
+      .where("type", "=", "linkedin")
+      .orderBy("created_at", "asc")
+      .executeTakeFirst();
+    return { accountId: fallback?.id ?? `ws-${workspaceId}-source` };
+  }
+
+  private async requireList(workspaceId: string, listId: string): Promise<void> {
+    const list = await this.db
+      .selectFrom("contact_lists")
+      .select("id")
+      .where("id", "=", listId)
+      .where("workspace_id", "=", workspaceId)
+      .executeTakeFirst();
+    if (!list) {
+      throw new NotFoundException("List not found");
+    }
+  }
+
+  private async requireCampaign(workspaceId: string, campaignId: string): Promise<void> {
+    const campaign = await this.db
+      .selectFrom("campaigns")
+      .select("id")
+      .where("id", "=", campaignId)
+      .where("workspace_id", "=", workspaceId)
+      .executeTakeFirst();
+    if (!campaign) {
+      throw new NotFoundException("Campaign not found");
+    }
+  }
+
+  private describeParams(request: ImportRequestDto): Record<string, unknown> {
+    switch (request.source) {
+      case "csv":
+        return { mappedColumns: Object.keys(request.mapping).length };
+      case "list":
+        return { sourceListId: request.sourceListId };
+      default:
+        return {
+          url: request.url,
+          keywords: request.keywords,
+          filters: request.filters,
+          engagement: request.engagement,
+          limit: request.limit,
+        };
+    }
+  }
+}
+
+const IMPORT_JOB_COLUMNS = [
+  "id",
+  "source",
+  "status",
+  "list_id",
+  "campaign_id",
+  "params",
+  "total_count",
+  "created_count",
+  "duplicate_count",
+  "failed_count",
+  "error",
+  "started_at",
+  "finished_at",
+  "created_at",
+  "updated_at",
+] as const;
+
+function toJobView(row: {
+  id: string;
+  source: string;
+  status: string;
+  list_id: string | null;
+  campaign_id: string | null;
+  params: unknown;
+  total_count: number;
+  created_count: number;
+  duplicate_count: number;
+  failed_count: number;
+  error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+}): ImportJobView {
+  return {
+    id: row.id,
+    source: row.source,
+    status: row.status,
+    listId: row.list_id,
+    campaignId: row.campaign_id,
+    params: row.params,
+    totalCount: row.total_count,
+    createdCount: row.created_count,
+    duplicateCount: row.duplicate_count,
+    failedCount: row.failed_count,
+    error: row.error,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}

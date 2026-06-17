@@ -14,7 +14,7 @@ import { BillingModule } from "./modules/billing.module";
 import { CampaignsModule } from "./modules/campaigns.module";
 import { ConversationsModule } from "./modules/conversations.module";
 import { IntegrationsModule } from "./modules/integrations.module";
-import { LeadsModule } from "./modules/leads.module";
+import { LeadsModule } from "./modules/leads/leads.module";
 import { ListsModule } from "./modules/lists.module";
 import { WebhooksModule } from "./modules/webhooks.module";
 import { WorkspacesModule } from "./modules/workspaces.module";

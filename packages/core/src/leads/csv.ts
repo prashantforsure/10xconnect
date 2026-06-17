@@ -1,0 +1,136 @@
+// Pure, dependency-free CSV parsing (RFC 4180-ish). Lives in packages/core so the
+// SAME parser runs in the browser (column-mapping preview) and on the server
+// (authoritative import parse) — there is ONE source of truth for how a CSV is
+// read. ZERO provider/SDK or node imports (CLAUDE.md §5).
+
+export interface ParsedCsv {
+  /** First row, treated as the header. Empty if the input was blank. */
+  headers: string[];
+  /** Data rows (header excluded), each padded/truncated to headers.length. */
+  rows: string[][];
+}
+
+export interface ParseCsvOptions {
+  /** Field delimiter (default ","). */
+  delimiter?: string;
+}
+
+/**
+ * Parse CSV text into headers + rows. Handles quoted fields, escaped quotes
+ * (""), embedded commas/newlines inside quotes, and CRLF or LF line endings.
+ * Rows are normalized to the header width so downstream mapping is index-safe.
+ */
+export function parseCsv(text: string, options: ParseCsvOptions = {}): ParsedCsv {
+  const delimiter = options.delimiter ?? ",";
+  const records = parseRecords(text, delimiter);
+  if (records.length === 0) {
+    return { headers: [], rows: [] };
+  }
+
+  const headers = records[0]!.map((h) => h.trim());
+  const width = headers.length;
+  const rows = records
+    .slice(1)
+    // Drop fully-empty trailing rows (common with a final newline).
+    .filter((record) => !(record.length === 1 && record[0] === ""))
+    .map((record) => normalizeWidth(record, width));
+
+  return { headers, rows };
+}
+
+/** Convenience: parse into an array of header→value objects. */
+export function parseCsvToObjects(
+  text: string,
+  options: ParseCsvOptions = {},
+): Record<string, string>[] {
+  const { headers, rows } = parseCsv(text, options);
+  return rows.map((row) => {
+    const obj: Record<string, string> = {};
+    headers.forEach((header, i) => {
+      obj[header] = row[i] ?? "";
+    });
+    return obj;
+  });
+}
+
+function normalizeWidth(record: string[], width: number): string[] {
+  if (record.length === width) {
+    return record;
+  }
+  if (record.length > width) {
+    return record.slice(0, width);
+  }
+  return [...record, ...Array<string>(width - record.length).fill("")];
+}
+
+/** Tokenize raw CSV text into records (arrays of fields). */
+function parseRecords(text: string, delimiter: string): string[][] {
+  const records: string[][] = [];
+  let field = "";
+  let record: string[] = [];
+  let inQuotes = false;
+  let i = 0;
+
+  const pushField = (): void => {
+    record.push(field);
+    field = "";
+  };
+  const pushRecord = (): void => {
+    pushField();
+    records.push(record);
+    record = [];
+  };
+
+  while (i < text.length) {
+    const char = text[i]!;
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (text[i + 1] === '"') {
+          // Escaped quote.
+          field += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = false;
+        i += 1;
+        continue;
+      }
+      field += char;
+      i += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+      i += 1;
+      continue;
+    }
+    if (char === delimiter) {
+      pushField();
+      i += 1;
+      continue;
+    }
+    if (char === "\r") {
+      // Treat CRLF (and a lone CR) as one record terminator.
+      pushRecord();
+      i += text[i + 1] === "\n" ? 2 : 1;
+      continue;
+    }
+    if (char === "\n") {
+      pushRecord();
+      i += 1;
+      continue;
+    }
+
+    field += char;
+    i += 1;
+  }
+
+  // Flush the final field/record if the text did not end with a newline.
+  if (field !== "" || record.length > 0) {
+    pushRecord();
+  }
+
+  return records;
+}

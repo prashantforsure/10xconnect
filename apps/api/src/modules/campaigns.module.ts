@@ -1,7 +1,9 @@
+import type { DB } from "@10xconnect/db";
 import {
   Controller,
   Delete,
   Get,
+  Inject,
   Injectable,
   Module,
   NotImplementedException,
@@ -11,18 +13,44 @@ import {
   Put,
   UseGuards,
 } from "@nestjs/common";
+import type { Kysely } from "kysely";
 
+import { WorkspaceId } from "../common/decorators/workspace-id.decorator";
 import { WorkspaceScopeGuard } from "../common/guards/workspace-scope.guard";
+import { KYSELY_DB } from "../database/database.module";
+
+export interface CampaignSummary {
+  id: string;
+  name: string;
+  status: string;
+}
 
 @Injectable()
-export class CampaignsService {}
+export class CampaignsService {
+  constructor(@Inject(KYSELY_DB) private readonly db: Kysely<DB>) {}
+
+  /**
+   * Minimal campaign list — id/name/status only. Added in Phase 3 to back the
+   * contacts "enroll in campaign" picker; full campaign CRUD is Phase 5.
+   */
+  async list(workspaceId: string): Promise<CampaignSummary[]> {
+    return this.db
+      .selectFrom("campaigns")
+      .select(["id", "name", "status"])
+      .where("workspace_id", "=", workspaceId)
+      .orderBy("created_at", "desc")
+      .execute();
+  }
+}
 
 @UseGuards(WorkspaceScopeGuard)
 @Controller("campaigns")
 export class CampaignsController {
+  constructor(private readonly campaigns: CampaignsService) {}
+
   @Get()
-  list(): never {
-    throw new NotImplementedException();
+  list(@WorkspaceId() workspaceId: string): Promise<CampaignSummary[]> {
+    return this.campaigns.list(workspaceId);
   }
 
   @Post()
