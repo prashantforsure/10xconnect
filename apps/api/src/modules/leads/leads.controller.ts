@@ -17,9 +17,12 @@ import { WorkspaceId } from "../../common/decorators/workspace-id.decorator";
 import { WorkspaceScopeGuard } from "../../common/guards/workspace-scope.guard";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 
+import { type ConnectionsResult, ConnectionsService } from "./connections.service";
 import {
   type BulkActionDto,
   bulkActionSchema,
+  type ConnectionsQueryDto,
+  connectionsQuerySchema,
   type FindRequestDto,
   findRequestSchema,
   type ImportRequestDto,
@@ -39,6 +42,7 @@ export class LeadsController {
   constructor(
     private readonly leads: LeadsService,
     private readonly imports: ImportService,
+    private readonly connections: ConnectionsService,
     private readonly enrichment: EnrichmentService,
   ) {}
 
@@ -74,6 +78,16 @@ export class LeadsController {
     @Param("id", ParseUUIDPipe) id: string,
   ): Promise<ImportJobView> {
     return this.imports.getJob(workspaceId, id);
+  }
+
+  // Browse the connected account's 1st-degree connections (live, not persisted).
+  // Declared before the `:id` route so the literal path isn't parsed as a UUID.
+  @Get("connections")
+  listConnections(
+    @WorkspaceId() workspaceId: string,
+    @Query(new ZodValidationPipe(connectionsQuerySchema)) query: ConnectionsQueryDto,
+  ): Promise<ConnectionsResult> {
+    return this.connections.list(workspaceId, query);
   }
 
   // --- bulk multi-select actions --------------------------------------------

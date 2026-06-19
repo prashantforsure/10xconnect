@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
+import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import { createClient } from "@/lib/supabase/client";
@@ -139,8 +140,8 @@ export function GeneralSettingsForm({
     <div className="space-y-10">
       <form onSubmit={onSave} className="space-y-8">
         {/* Profile */}
-        <section className="space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <section className="surface-card space-y-4 p-6">
+          <h2 className="font-display text-base font-semibold">
             Profile
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -171,8 +172,8 @@ export function GeneralSettingsForm({
         </section>
 
         {/* Workspace */}
-        <section className="space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <section className="surface-card space-y-4 p-6">
+          <h2 className="font-display text-base font-semibold">
             Workspace
           </h2>
           {workspace ? (
@@ -188,18 +189,13 @@ export function GeneralSettingsForm({
               </div>
               <div className="space-y-2">
                 <Label htmlFor="inbox-type">Inbox type</Label>
-                <select
-                  id="inbox-type"
-                  value={inboxType}
-                  onChange={(e) => setInboxType(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
+                <Select id="inbox-type" value={inboxType} onChange={(e) => setInboxType(e.target.value)}>
                   {INBOX_TYPE_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
                   ))}
-                </select>
+                </Select>
                 <p className="text-xs text-muted-foreground">
                   Which conversations the unified inbox pulls in. Applied later.
                 </p>
@@ -240,8 +236,8 @@ export function GeneralSettingsForm({
 
       {/* Danger zone */}
       {workspace ? (
-        <section className="space-y-3 rounded-lg border border-destructive/30 p-5">
-          <h2 className="text-sm font-semibold text-destructive">Danger zone</h2>
+        <section className="surface-card space-y-3 border-destructive/40 p-6">
+          <h2 className="font-display text-base font-semibold text-destructive">Danger zone</h2>
           <p className="text-sm text-muted-foreground">
             Deleting this workspace permanently removes its accounts, campaigns, contacts, and
             conversations. This cannot be undone.

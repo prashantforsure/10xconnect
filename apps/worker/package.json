@@ -12,7 +12,10 @@
   },
   "dependencies": {
     "@10xconnect/adapters": "workspace:*",
-    "@10xconnect/config": "workspace:*"
+    "@10xconnect/config": "workspace:*",
+    "@10xconnect/core": "workspace:*",
+    "@10xconnect/db": "workspace:*",
+    "@10xconnect/engine": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

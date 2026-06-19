@@ -4,56 +4,271 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
+    /* Warm, Slite-inspired light theme */
+    --background: 40 43% 96%; /* warm cream #FAF6EE */
+    --foreground: 30 10% 15%; /* warm near-black */
+
+    --card: 40 40% 99%; /* near-white warm surface */
+    --card-foreground: 30 10% 15%;
+    --popover: 40 40% 99%;
+    --popover-foreground: 30 10% 15%;
+
+    --primary: 15 87% 59%; /* coral-orange #F2683C */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 40 35% 93%; /* soft cream */
+    --secondary-foreground: 30 12% 20%;
+
+    --muted: 41 33% 92%;
+    --muted-foreground: 36 8% 46%;
+
+    --accent: 40 40% 93%; /* hover surface */
+    --accent-foreground: 30 12% 18%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 56% 38%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 35 92% 50%;
+    --warning-foreground: 30 30% 12%;
+
+    --border: 38 27% 87%; /* warm light gray */
+    --input: 38 27% 87%;
+    --ring: 15 87% 59%; /* coral focus ring */
+
+    --radius: 0.75rem;
+
+    /* Chart series — coral lead + warm/neutral complements */
+    --chart-1: 15 87% 59%; /* coral */
+    --chart-2: 200 70% 50%; /* teal-blue */
+    --chart-3: 152 50% 45%; /* green */
+    --chart-4: 265 55% 62%; /* violet */
+    --chart-5: 38 90% 55%; /* amber */
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --background: 28 12% 9%;
+    --foreground: 40 30% 95%;
+    --card: 28 12% 12%;
+    --card-foreground: 40 30% 95%;
+    --popover: 28 12% 12%;
+    --popover-foreground: 40 30% 95%;
+    --primary: 15 87% 59%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 28 10% 18%;
+    --secondary-foreground: 40 30% 95%;
+    --muted: 28 10% 18%;
+    --muted-foreground: 36 10% 64%;
+    --accent: 28 10% 20%;
+    --accent-foreground: 40 30% 95%;
+    --destructive: 0 62% 48%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 50% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 35 92% 55%;
+    --warning-foreground: 30 30% 12%;
+    --border: 28 10% 22%;
+    --input: 28 10% 22%;
+    --ring: 15 87% 59%;
+    --chart-1: 15 87% 62%;
+    --chart-2: 200 70% 58%;
+    --chart-3: 152 50% 52%;
+    --chart-4: 265 60% 70%;
+    --chart-5: 38 90% 60%;
   }
 }
 
 @layer base {
+  /*
+   * In-app surface theme: whiter / lighter than the warm marketing cream, with
+   * only a faint warm tint. Coral primary, fonts, and text colors are inherited
+   * unchanged. Applied to the AppShell root so every nested card/input/popover
+   * (which read these CSS vars) pick it up automatically; marketing & auth keep
+   * the warm :root cream.
+   */
+  .app-surface {
+    --background: 36 16% 97%; /* near-white, faint warm tint */
+    --card: 0 0% 100%; /* pure white cards */
+    --card-foreground: 30 10% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 30 10% 15%;
+    --secondary: 40 14% 95.5%;
+    --secondary-foreground: 30 12% 20%;
+    --muted: 40 14% 95.5%;
+    --muted-foreground: 30 6% 45%;
+    --accent: 36 20% 94%;
+    --accent-foreground: 30 12% 18%;
+    --border: 36 15% 90.5%;
+    --input: 36 15% 90.5%;
+  }
+
   * {
     @apply border-border;
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1,
+      "cv11" 1;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* Headings lean on the display face */
+  h1,
+  h2,
+  h3 {
+    @apply font-display tracking-tight;
+  }
+}
+
+@layer components {
+  /* Subtle warm grain/elevation surface used by feature cards */
+  .surface-card {
+    @apply rounded-2xl border bg-card shadow-soft;
+  }
+  /* Pill used for marketing eyebrows + badges */
+  .eyebrow {
+    @apply inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs font-medium text-muted-foreground;
+  }
+  /* Marketing display headline scale */
+  .display-xl {
+    @apply font-display text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Marketing motion — scoped utilities for the landing page. All decorative,  */
+/* CSS-only (no JS), and fully disabled under prefers-reduced-motion.         */
+/* -------------------------------------------------------------------------- */
+@layer utilities {
+  @keyframes floaty {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-9px);
+    }
+  }
+  @keyframes glowPulse {
+    0%,
+    100% {
+      opacity: 0.6;
+      transform: translateX(-50%) scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: translateX(-50%) scale(1.07);
+    }
+  }
+  @keyframes marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  @keyframes pingRing {
+    0% {
+      transform: scale(1);
+      opacity: 0.6;
+    }
+    70%,
+    100% {
+      transform: scale(2.6);
+      opacity: 0;
+    }
+  }
+  @keyframes shineMove {
+    to {
+      background-position: -200% center;
+    }
+  }
+  @keyframes revealUp {
+    from {
+      opacity: 0;
+      transform: translateY(28px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* Hero product preview gently floats; its glow breathes behind it. */
+  .float {
+    animation: floaty 6.5s ease-in-out infinite;
+  }
+  .glow {
+    animation: glowPulse 7s ease-in-out infinite;
+  }
+
+  /* Infinite logo marquee. Track holds two copies; it translates by -50%. */
+  .marquee-track {
+    display: flex;
+    width: max-content;
+    animation: marquee 32s linear infinite;
+  }
+  .marquee-track:hover {
+    animation-play-state: paused;
+  }
+
+  /* Coral shimmer sweeping across the highlighted headline phrase. */
+  .shine {
+    background: linear-gradient(100deg, hsl(var(--primary)), #ffb089, hsl(var(--primary)));
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shineMove 5s linear infinite;
+  }
+
+  /* Live "ping" ring radiating from a status dot (inherits the dot's color). */
+  .ping-dot {
+    position: relative;
+  }
+  .ping-dot::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: inherit;
+    animation: pingRing 1.9s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+
+  /* Scroll-reveal via CSS view() timeline (Chromium); degrades to a one-shot
+     reveal on load elsewhere — content is never left hidden either way. */
+  .reveal {
+    animation: revealUp 0.85s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 36%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .float,
+    .glow,
+    .marquee-track,
+    .shine,
+    .reveal {
+      animation: none;
+    }
+    .ping-dot::after {
+      display: none;
+    }
+  }
+}
+
+@layer utilities {
+  /* Hide scrollbars on horizontal rails while keeping scroll */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
 }

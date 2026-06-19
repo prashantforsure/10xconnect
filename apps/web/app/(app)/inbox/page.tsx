@@ -1,5 +1,5 @@
-import { PagePlaceholder } from "@/components/page-placeholder";
+import { InboxClient } from "@/components/inbox/inbox-client";
 
 export default function InboxPage() {
-  return <PagePlaceholder title="Inbox" />;
+  return <InboxClient />;
 }

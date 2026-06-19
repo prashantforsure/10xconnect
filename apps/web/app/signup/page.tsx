@@ -29,8 +29,8 @@ export default async function SignupPage({
         <Field label="Password" name="password" type="password" autoComplete="new-password" />
         <SubmitButton>Sign up</SubmitButton>
       </form>
-      <div className="mt-4 text-sm text-gray-600">
-        <Link href="/login" className="hover:text-indigo-600">
+      <div className="mt-4 text-sm text-muted-foreground">
+        <Link href="/login" className="font-medium transition-colors hover:text-primary">
           Already have an account? Log in
         </Link>
       </div>

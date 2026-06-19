@@ -7,11 +7,19 @@ import type {
   ConnectInput,
   ConnectionRequestOptions,
   Conversation,
+  ConversationPage,
+  ConversationSyncCapable,
+  ConversationThread,
   EnrichedProfile,
+  HostedAuthCallback,
+  HostedAuthCapable,
+  HostedAuthLink,
+  HostedAuthLinkParams,
   InboundEvent,
   InboundEventHandler,
   InMailContent,
   LeadRef,
+  ListConversationsOptions,
   Message,
   MessageContent,
   SendOptions,
@@ -21,12 +29,13 @@ import type {
 
 import type { InboundWebhookReceiver } from "../webhook-receiver";
 
-import { mapAccountStatus, mapConnectionDegree, mapHttpError } from "./mappers";
+import { buildConnectProxy, mapAccountStatus, mapConnectionDegree, mapHttpError } from "./mappers";
 import { UnipileClient, UnipileHttpError } from "./unipile-client";
 import type {
   UnipileAccountListItem,
   UnipileConfig,
   UnipileCreateAccountResponse,
+  UnipileHostedAuthResponse,
   UnipileSendResponse,
   UnipileUserProfile,
 } from "./unipile-types";
@@ -35,8 +44,25 @@ import { normalizeWebhook } from "./webhook-normalizer";
 interface UserPostList {
   items?: { id?: string; social_id?: string }[];
 }
+interface ChatListItem {
+  id?: string;
+  /** Set for LinkedIn promotional/system threads (ads/sponsored/offers) — skip these. */
+  content_type?: string;
+  attendee_provider_id?: string;
+  timestamp?: string;
+}
 interface ChatList {
-  items?: { id?: string }[];
+  items?: ChatListItem[];
+  cursor?: string | null;
+}
+interface ChatAttendeeList {
+  items?: {
+    is_self?: boolean | number;
+    name?: string;
+    provider_id?: string;
+    profile_url?: string;
+    specifics?: { occupation?: string; network_distance?: string };
+  }[];
 }
 interface ChatMessageList {
   items?: {
@@ -60,29 +86,43 @@ interface ChatMessageList {
  *               like/comment "last post" id lookup, followLead, replyComment,
  *               fetchConversation chat lookup.
  */
-export class UnipileChannelAdapter implements ChannelAdapter, InboundWebhookReceiver {
+export class UnipileChannelAdapter
+  implements ChannelAdapter, InboundWebhookReceiver, HostedAuthCapable, ConversationSyncCapable
+{
   private readonly client: UnipileClient;
   private readonly handlers = new Set<InboundEventHandler>();
+  /** Normalized DSN passed to Unipile as `api_url` in hosted-auth requests. */
+  private readonly apiUrl: string;
 
   constructor(config: UnipileConfig) {
     this.client = new UnipileClient(config);
+    this.apiUrl = /^https?:\/\//.test(config.dsn) ? config.dsn : `https://${config.dsn}`;
   }
 
   // --- account lifecycle ----------------------------------------------------
 
   async connectAccount(input: ConnectInput): Promise<AccountConnection> {
-    if (input.method !== "credentials" || !input.credentials) {
-      throw new Error(
-        "UnipileChannelAdapter.connectAccount supports the credentials method here; " +
-          "production connects should use Unipile hosted auth (added in the accounts step).",
-      );
+    // Extension connect: the browser extension captures the user's real li_at
+    // session + the matching user-agent and hands them here (`cookie` is the same
+    // transport carrier, used internally). Unipile validates the session at
+    // creation, so an expired/invalid li_at fails here rather than persisting a
+    // dead account. Always route through a region-matched IP (own proxy or
+    // Unipile's country pool) — mismatched geography is the top cause of LinkedIn
+    // logouts (§6/§14), and passing the source browser's user-agent prevents
+    // disconnects (Unipile's strong recommendation).
+    if (input.method !== "extension" && input.method !== "cookie") {
+      throw new Error("UnipileChannelAdapter.connectAccount supports the extension method only");
     }
+    if (!input.cookie?.liAt) {
+      throw new Error("extension connect requires the captured li_at session");
+    }
+    const proxyFields = buildConnectProxy(input);
     const res = await this.client.postJson<UnipileCreateAccountResponse>("/api/v1/accounts", {
       provider: "LINKEDIN",
-      username: input.credentials.email,
-      password: input.credentials.password,
+      access_token: input.cookie.liAt,
+      ...(input.cookie.userAgent ? { user_agent: input.cookie.userAgent } : {}),
+      ...proxyFields,
     });
-    // 2FA/checkpoint flows are not handled here (documented limitation).
     return { accountId: res.account_id, providerAccountId: res.account_id, status: "warming" };
   }
 
@@ -96,6 +136,46 @@ export class UnipileChannelAdapter implements ChannelAdapter, InboundWebhookRece
     );
     const status = acc.sources?.[0]?.status ?? "OK";
     return mapAccountStatus(status);
+  }
+
+  // --- hosted auth (provider-hosted connect; lowest friction) ---------------
+
+  async createHostedAuthLink(params: HostedAuthLinkParams): Promise<HostedAuthLink> {
+    const res = await this.client.postJson<UnipileHostedAuthResponse>(
+      "/api/v1/hosted/accounts/link",
+      {
+        type: params.type,
+        providers: ["LINKEDIN"],
+        api_url: this.apiUrl,
+        expiresOn: params.expiresAt,
+        success_redirect_url: params.successRedirectUrl,
+        failure_redirect_url: params.failureRedirectUrl,
+        notify_url: params.notifyUrl,
+        name: params.name,
+        ...(params.type === "reconnect" && params.reconnectProviderAccountId
+          ? { reconnect_account: params.reconnectProviderAccountId }
+          : {}),
+      },
+    );
+    return { url: res.url, expiresAt: params.expiresAt };
+  }
+
+  parseHostedAuthCallback(payload: unknown): HostedAuthCallback | null {
+    if (typeof payload !== "object" || payload === null) {
+      return null;
+    }
+    const p = payload as { status?: unknown; account_id?: unknown; name?: unknown };
+    if (typeof p.account_id !== "string" || typeof p.name !== "string") {
+      return null;
+    }
+    const status = typeof p.status === "string" ? p.status.toUpperCase() : "";
+    if (status === "CREATION_SUCCESS") {
+      return { providerAccountId: p.account_id, name: p.name, status: "created" };
+    }
+    if (status === "RECONNECTED") {
+      return { providerAccountId: p.account_id, name: p.name, status: "reconnected" };
+    }
+    return null;
   }
 
   // --- outreach actions -----------------------------------------------------
@@ -247,11 +327,12 @@ export class UnipileChannelAdapter implements ChannelAdapter, InboundWebhookRece
       `/api/v1/users/${encodeURIComponent(identifier)}`,
       { account_id: this.acc(account) },
     );
+    const { firstName, lastName } = dropAnonymousName(p.first_name, p.last_name);
     return {
       linkedinUrl,
       providerId: p.provider_id,
-      firstName: p.first_name,
-      lastName: p.last_name,
+      firstName,
+      lastName,
       headline: p.headline,
       about: p.summary,
       company: p.current_company,
@@ -286,6 +367,100 @@ export class UnipileChannelAdapter implements ChannelAdapter, InboundWebhookRece
       sentAt: m.timestamp ?? new Date().toISOString(),
     }));
     return { lead, channel: "linkedin", messages };
+  }
+
+  /**
+   * Bulk-list the account's existing conversations for an inbox sync
+   * (ConversationSyncCapable). Pulls chats, skips LinkedIn promotional/system
+   * threads (content_type set), and resolves each thread's other attendee +
+   * messages. Best-effort against the current Unipile chat API; verified against
+   * a live account (chat.attendee_provider_id, message.is_sender, attendees).
+   */
+  async listConversations(
+    account: AccountRef,
+    opts?: ListConversationsOptions,
+  ): Promise<ConversationPage> {
+    const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 50);
+    const chats = await this.client.getJson<ChatList>("/api/v1/chats", {
+      account_id: this.acc(account),
+      limit: String(limit),
+      cursor: opts?.cursor,
+    });
+
+    const threads: ConversationThread[] = [];
+    for (const chat of chats.items ?? []) {
+      if (!chat.id || chat.content_type) {
+        continue; // skip ads / sponsored / offer threads
+      }
+      const messages = await this.chatMessages(chat.id);
+      if (messages.length === 0) {
+        continue;
+      }
+      threads.push({
+        providerChatId: chat.id,
+        channel: "linkedin",
+        attendee: await this.chatAttendee(chat),
+        messages,
+      });
+    }
+
+    const page: ConversationPage = { threads };
+    if (chats.cursor) {
+      page.nextCursor = chats.cursor;
+    }
+    return page;
+  }
+
+  /** The other party (not the account owner) of a chat, with name + profile. */
+  private async chatAttendee(chat: ChatListItem): Promise<ConversationThread["attendee"]> {
+    try {
+      const res = await this.client.getJson<ChatAttendeeList>(
+        `/api/v1/chats/${encodeURIComponent(chat.id!)}/attendees`,
+        {},
+      );
+      const other = (res.items ?? []).find((a) => !a.is_self) ?? res.items?.[0];
+      if (other) {
+        const attendee: ConversationThread["attendee"] = {};
+        const providerId = other.provider_id ?? chat.attendee_provider_id;
+        if (providerId) attendee.providerId = providerId;
+        const url =
+          other.profile_url ??
+          (providerId ? `https://www.linkedin.com/in/${providerId}` : undefined);
+        if (url) attendee.linkedinUrl = url;
+        if (other.name) attendee.name = other.name;
+        if (other.specifics?.occupation) attendee.headline = other.specifics.occupation;
+        const degree = mapConnectionDegree(other.specifics?.network_distance);
+        if (degree !== undefined) attendee.connectionDegree = degree;
+        return attendee;
+      }
+    } catch {
+      // Fall through to the chat-level provider id below.
+    }
+    return chat.attendee_provider_id ? { providerId: chat.attendee_provider_id } : {};
+  }
+
+  /** A chat's text messages, oldest-first, mapped to our Message shape. */
+  private async chatMessages(chatId: string): Promise<Message[]> {
+    const res = await this.client.getJson<ChatMessageList>(
+      `/api/v1/chats/${encodeURIComponent(chatId)}/messages`,
+      { limit: "50" },
+    );
+    const messages: Message[] = [];
+    for (const m of res.items ?? []) {
+      const body = (m.text ?? "").trim();
+      if (!body) {
+        continue; // skip attachment-only / system messages (no renderable text)
+      }
+      messages.push({
+        ...(m.id ? { providerMessageId: m.id } : {}),
+        direction: m.is_sender ? "outbound" : "inbound",
+        channel: "linkedin",
+        body,
+        sentAt: m.timestamp ?? new Date().toISOString(),
+      });
+    }
+    // Unipile returns newest-first; store oldest-first for natural thread order.
+    return messages.reverse();
   }
 
   // --- inbound --------------------------------------------------------------
@@ -379,6 +554,23 @@ export class UnipileChannelAdapter implements ChannelAdapter, InboundWebhookRece
   private acc(account: AccountRef): string {
     return account.providerAccountId ?? account.accountId;
   }
+}
+
+/**
+ * LinkedIn returns the anonymized name "LinkedIn Member" for profiles the viewing
+ * account can't see by name (out-of-network / privacy). That's not a usable name,
+ * so drop it — the lead keeps whatever name we derived from its URL slug instead
+ * of displaying a confusing "LinkedIn Member" contact (§2: no broken data).
+ */
+function dropAnonymousName(
+  first?: string,
+  last?: string,
+): { firstName?: string; lastName?: string } {
+  const full = [first, last].filter(Boolean).join(" ").trim().toLowerCase();
+  if (full === "linkedin member") {
+    return {};
+  }
+  return { firstName: first, lastName: last };
 }
 
 /** Extract the LinkedIn public identifier (the /in/{slug} part) from a URL. */

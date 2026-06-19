@@ -45,6 +45,22 @@ const blankToUndefined = (value: unknown): unknown =>
 const optionalString = z.preprocess(blankToUndefined, z.string().optional());
 const optionalUrl = z.preprocess(blankToUndefined, z.string().url().optional());
 
+/** A number env var with a default; blank/unset → default. */
+const numberWithDefault = (def: number) =>
+  z.preprocess(blankToUndefined, z.coerce.number().default(def));
+
+/** A boolean env var ("true"/"1"/"yes" → true); blank/unset → default. */
+const booleanWithDefault = (def: boolean) =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z
+      .union([z.boolean(), z.string()])
+      .transform((v) =>
+        typeof v === "boolean" ? v : ["true", "1", "yes", "on"].includes(v.trim().toLowerCase()),
+      )
+      .default(def),
+  );
+
 /**
  * Environment schema for the whole platform.
  *
@@ -67,6 +83,11 @@ const envSchema = z.object({
   // Server-only. Used by the API to verify Supabase access-token JWTs (HS256).
   SUPABASE_JWT_SECRET: optionalString,
 
+  // Server-only. AES-256-GCM key for encrypting sending-account credential /
+  // session material at rest (Step 10). 32 bytes, hex (64 chars) or base64.
+  // Required to connect credentials-based accounts; never sent to the browser.
+  SECRETS_ENCRYPTION_KEY: optionalString,
+
   // Database (Step 3+)
   DATABASE_URL: optionalString,
 
@@ -77,11 +98,24 @@ const envSchema = z.object({
   UNIPILE_API_KEY: optionalString,
   UNIPILE_DSN: optionalString,
 
-  // AI personalization (Phase 6+)
+  // AI personalization (Phase 6+). LLM_API_KEY is the provider key (Gemini for
+  // the MVP). Model + provider are swappable; the adapter lives in packages/adapters.
   LLM_API_KEY: optionalString,
+  LLM_PROVIDER: z.preprocess(blankToUndefined, z.enum(["gemini", "mock"]).default("gemini")),
+  LLM_MODEL: z.preprocess(blankToUndefined, z.string().default("gemini-2.0-flash")),
 
   // Voice notes / TTS (Phase 6+)
   TTS_API_KEY: optionalString,
+
+  // Dispatch engine cadence (orchestration brain). Defaults are SAFE for real
+  // accounts: poll every 15s, ~15-min average spacing with ±5-min jitter, respect
+  // working hours. The demo-only knobs (small spacing / ignore working hours) make
+  // a campaign visibly run in minutes on the MOCK adapter — never on a real account.
+  DISPATCH_ENABLED: booleanWithDefault(true),
+  DISPATCH_TICK_MS: numberWithDefault(15_000),
+  DISPATCH_MIN_SPACING_MS: numberWithDefault(900_000),
+  DISPATCH_JITTER_MS: numberWithDefault(300_000),
+  DISPATCH_IGNORE_WORKING_HOURS: booleanWithDefault(false),
 
   // Payments (Phase 9+)
   CREEM_API_KEY: optionalString,
@@ -91,6 +125,11 @@ const envSchema = z.object({
 
   // App
   APP_URL: z.preprocess(blankToUndefined, z.string().url().default("http://localhost:3000")),
+  // The API's own PUBLICLY reachable base URL (no trailing /api/v1). Used to build
+  // the Unipile Hosted Auth `notify_url`, which Unipile must be able to reach —
+  // so this must be a public URL in production (localhost only works with the
+  // mock adapter, which simulates the callback locally).
+  API_PUBLIC_URL: z.preprocess(blankToUndefined, z.string().url().default("http://localhost:3001")),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -64,6 +64,17 @@ const listImportSchema = z
   })
   .strict();
 
+// Manually-entered LinkedIn profile URLs (add contacts one by one / in batches),
+// and the backing import for "add selected connections". Each URL becomes a lead
+// with only a linkedin_url; async enrichment fills the rest (CLAUDE.md §8).
+const profileUrlsImportSchema = z
+  .object({
+    source: z.literal("profile_urls"),
+    urls: z.array(z.string().trim().url().max(2000)).min(1).max(IMPORT_LIMIT_MAX),
+    ...targetFields,
+  })
+  .strict();
+
 const linkedinImportSchema = z
   .object({
     source: z.enum(LINKEDIN_SOURCE_KINDS),
@@ -88,9 +99,18 @@ const linkedinImportSchema = z
 export const importRequestSchema = z.union([
   csvImportSchema,
   listImportSchema,
+  profileUrlsImportSchema,
   linkedinImportSchema,
 ]);
 export type ImportRequestDto = z.infer<typeof importRequestSchema>;
+
+// GET /leads/connections — browse the connected account's 1st-degree connections
+// (live, paged, not persisted; CLAUDE.md §8 "Lead sourcing & contacts").
+export const connectionsQuerySchema = z.object({
+  cursor: z.string().trim().min(1).max(1000).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+export type ConnectionsQueryDto = z.infer<typeof connectionsQuerySchema>;
 
 // POST /leads/find — built-in lead finder (a lead_finder import shortcut).
 export const findRequestSchema = z

@@ -65,3 +65,18 @@ test("lead_finder candidates carry a resolved email", async () => {
   });
   assert.ok(leads.every((l) => Boolean(l.email)), "every lead_finder lead has an email");
 });
+
+test("connections are 1st-degree and always have an importable profile URL", async () => {
+  const adapter = new MockLeadSourceAdapter({ totalPerQuery: 12, defaultPageSize: 12 });
+  const { leads } = await adapter.fetchLeads(ACCOUNT, { kind: "connections" });
+
+  assert.equal(leads.length, 12);
+  assert.ok(
+    leads.every((l) => l.connectionDegree === 1),
+    "every connection is 1st-degree",
+  );
+  assert.ok(
+    leads.every((l) => Boolean(l.linkedinUrl)),
+    "every connection has a LinkedIn URL (so it can be imported by URL)",
+  );
+});

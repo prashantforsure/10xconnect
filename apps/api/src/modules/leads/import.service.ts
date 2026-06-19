@@ -25,6 +25,7 @@ import {
   candidateDedupeKey,
   candidateFromMapped,
   candidateFromSourced,
+  candidateFromUrl,
   type Candidate,
 } from "./lead-mapper";
 import { LEAD_SOURCE_ADAPTER } from "./lead-source.provider";
@@ -201,6 +202,9 @@ export class ImportService {
     if (request.source === "csv") {
       const objects = parseCsvToObjects(request.csv);
       return objects.map((row) => candidateFromMapped(applyMapping(row, request.mapping), "csv"));
+    }
+    if (request.source === "profile_urls") {
+      return request.urls.map((url) => candidateFromUrl(url));
     }
     return this.gatherFromSource(workspaceId, request);
   }
@@ -460,6 +464,7 @@ export class ImportService {
     const label: Record<string, string> = {
       csv: "CSV import",
       list: "List import",
+      profile_urls: "Added by URL",
       linkedin_search: "LinkedIn search",
       sales_navigator: "Sales Navigator",
       event: "Event attendees",
@@ -474,10 +479,13 @@ export class ImportService {
     workspaceId: string,
     accountId: string | undefined,
   ): Promise<LeadSourceAccountRef> {
+    // provider_account_id is the handle the real transport (Unipile) addresses;
+    // the mock adapter ignores the account entirely. Threading it through is what
+    // lets a real LinkedIn search run against the connected account's session.
     if (accountId) {
       const account = await this.db
         .selectFrom("sending_accounts")
-        .select("id")
+        .select(["id", "provider_account_id"])
         .where("id", "=", accountId)
         .where("workspace_id", "=", workspaceId)
         .where("type", "=", "linkedin")
@@ -485,16 +493,34 @@ export class ImportService {
       if (!account) {
         throw new BadRequestException("Sending account not found in this workspace");
       }
-      return { accountId: account.id };
+      return toAccountRef(account);
+    }
+    // Prefer a connected (active/warming) LinkedIn account — sourcing through a
+    // disconnected/restricted one would just fail at the provider. 'active' sorts
+    // before 'warming' alphabetically, so a live account wins over a warming one.
+    const healthy = await this.db
+      .selectFrom("sending_accounts")
+      .select(["id", "provider_account_id"])
+      .where("workspace_id", "=", workspaceId)
+      .where("type", "=", "linkedin")
+      .where("status", "in", ["active", "warming"])
+      .orderBy("status", "asc")
+      .orderBy("created_at", "asc")
+      .executeTakeFirst();
+    if (healthy) {
+      return toAccountRef(healthy);
     }
     const fallback = await this.db
       .selectFrom("sending_accounts")
-      .select("id")
+      .select(["id", "provider_account_id"])
       .where("workspace_id", "=", workspaceId)
       .where("type", "=", "linkedin")
       .orderBy("created_at", "asc")
       .executeTakeFirst();
-    return { accountId: fallback?.id ?? `ws-${workspaceId}-source` };
+    if (fallback) {
+      return toAccountRef(fallback);
+    }
+    return { accountId: `ws-${workspaceId}-source` };
   }
 
   private async requireList(workspaceId: string, listId: string): Promise<void> {
@@ -527,6 +553,8 @@ export class ImportService {
         return { mappedColumns: Object.keys(request.mapping).length };
       case "list":
         return { sourceListId: request.sourceListId };
+      case "profile_urls":
+        return { count: request.urls.length };
       default:
         return {
           url: request.url,
@@ -537,6 +565,15 @@ export class ImportService {
         };
     }
   }
+}
+
+function toAccountRef(account: {
+  id: string;
+  provider_account_id: string | null;
+}): LeadSourceAccountRef {
+  return account.provider_account_id
+    ? { accountId: account.id, providerAccountId: account.provider_account_id }
+    : { accountId: account.id };
 }
 
 const IMPORT_JOB_COLUMNS = [

@@ -31,11 +31,25 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     headers["X-Workspace-Id"] = options.workspaceId;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: options.method ?? "GET",
-    headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? "GET",
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+  } catch (cause) {
+    // fetch only rejects on a network-level failure (server down, DNS, CORS,
+    // offline) — never on an HTTP error status. Turn the browser's opaque
+    // "Failed to fetch" into an actionable message so a stopped API server is
+    // self-diagnosing instead of looking like a data bug.
+    throw {
+      statusCode: 0,
+      code: "network_error",
+      message: `Can't reach the API server at ${API_BASE}. Is it running? Start the full stack with \`pnpm dev\`.`,
+      details: cause instanceof Error ? cause.message : String(cause),
+    } satisfies ApiError;
+  }
 
   const text = await response.text();
   const data: unknown = text ? JSON.parse(text) : null;

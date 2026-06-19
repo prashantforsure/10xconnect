@@ -89,6 +89,7 @@ export class MockLeadSourceAdapter implements LeadSourceAdapter {
     // Stable, query-derived slug so the SAME query yields the SAME URLs.
     const slug = `${slugBase}-${first.toLowerCase()}-${last.toLowerCase()}-${n}`;
 
+    const isConnections = query.kind === "connections";
     const lead: SourcedLead = {
       firstName: first,
       lastName: last,
@@ -96,12 +97,15 @@ export class MockLeadSourceAdapter implements LeadSourceAdapter {
       company,
       role,
       location,
-      connectionDegree: (index % 2) + 2, // alternate 2nd / 3rd degree
+      // Relations are always 1st-degree; other sources alternate 2nd / 3rd.
+      connectionDegree: isConnections ? 1 : (index % 2) + 2,
       providerId: `mock-src-${seed}-${n}`,
     };
 
-    // Every 5th candidate is email-only (no LinkedIn URL) to exercise email dedupe.
-    if (index % 5 === 4) {
+    // Every 5th candidate is email-only (no LinkedIn URL) to exercise email
+    // dedupe — but real 1st-degree connections always have a profile, so the
+    // connections source always yields a LinkedIn URL (importable by URL).
+    if (!isConnections && index % 5 === 4) {
       lead.email = `${first.toLowerCase()}.${last.toLowerCase()}@${slugify(company)}.com`;
     } else {
       lead.linkedinUrl = `https://www.linkedin.com/in/${slug}`;

@@ -1,0 +1,121 @@
+import { CAPPED_ACTION_TYPES } from "@10xconnect/core";
+import { z } from "zod";
+
+// --- Campaign CRUD ---------------------------------------------------------
+
+export const createCampaignSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(120),
+  /** Optional sending account to bind at creation (can be set later). */
+  accountId: z.string().uuid().optional(),
+});
+export type CreateCampaignDto = z.infer<typeof createCampaignSchema>;
+
+export const updateCampaignSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    /** null clears the binding; a uuid binds an account. */
+    accountId: z.string().uuid().nullable().optional(),
+    settings: z
+      .object({
+        skip_already_contacted: z.boolean().optional(),
+        exclude_conn_req_from_reply_rate: z.boolean().optional(),
+        follow_up_cap: z.number().int().min(0).max(20).optional(),
+      })
+      .optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: "No fields to update" });
+export type UpdateCampaignDto = z.infer<typeof updateCampaignSchema>;
+
+// --- Frequency (per-action daily caps) -------------------------------------
+
+// A partial caps map keyed by the capped action types. Missing keys fall back to
+// defaults; values are clamped to safe maxima server-side (never trusted raw).
+const capsShape = Object.fromEntries(
+  CAPPED_ACTION_TYPES.map((t) => [t, z.number().int().min(0).max(10_000).optional()]),
+) as Record<(typeof CAPPED_ACTION_TYPES)[number], z.ZodOptional<z.ZodNumber>>;
+
+export const saveFrequencySchema = z.object({
+  caps: z.object(capsShape),
+});
+export type SaveFrequencyDto = z.infer<typeof saveFrequencySchema>;
+
+// --- Schedule (per-weekday working hours, UTC) -----------------------------
+
+const HHMM = /^\d{1,2}:\d{2}$/;
+const daySchedule = z.object({
+  enabled: z.boolean(),
+  start: z.string().regex(HHMM, "Use HH:MM (24h, UTC)"),
+  end: z.string().regex(HHMM, "Use HH:MM (24h, UTC)"),
+});
+
+export const saveScheduleSchema = z.object({
+  schedule: z.object({
+    sun: daySchedule,
+    mon: daySchedule,
+    tue: daySchedule,
+    wed: daySchedule,
+    thu: daySchedule,
+    fri: daySchedule,
+    sat: daySchedule,
+  }),
+});
+export type SaveScheduleDto = z.infer<typeof saveScheduleSchema>;
+
+// --- Sequence graph (builder save/load) ------------------------------------
+
+const sequenceNodeSchema = z.object({
+  /** Client-side node id (any unique string); remapped to a uuid on save. */
+  id: z.string().min(1),
+  kind: z.enum(["action", "condition"]),
+  type: z.string().min(1).max(64),
+  config: z.record(z.unknown()).default({}),
+  next: z.string().nullable().optional(),
+  true: z.string().nullable().optional(),
+  false: z.string().nullable().optional(),
+  delayDays: z.number().int().min(0).max(365).nullable().optional(),
+});
+export type SequenceNodeDto = z.infer<typeof sequenceNodeSchema>;
+
+export const saveSequenceSchema = z.object({
+  nodes: z.array(sequenceNodeSchema).max(200),
+});
+export type SaveSequenceDto = z.infer<typeof saveSequenceSchema>;
+
+// --- AI campaign generator (E4) --------------------------------------------
+
+const genIntakeSchema = z.object({
+  offer: z.string().trim().min(1).max(600),
+  audience: z.string().trim().min(1).max(600),
+  goal: z.string().trim().min(1).max(600),
+  tone: z.enum(["gentle", "balanced", "aggressive"]),
+  instructions: z.string().trim().max(1200).optional(),
+});
+
+const genNodeSchema = z.object({
+  kind: z.enum(["action", "condition"]),
+  type: z.string().min(1).max(64),
+  config: z.record(z.unknown()).default({}),
+});
+
+export const generateCampaignSchema = z
+  .object({
+    intake: genIntakeSchema.optional(),
+    instruction: z.string().trim().min(1).max(500).optional(),
+    currentGraph: z.array(genNodeSchema).max(60).optional(),
+  })
+  .refine((v) => v.intake || (v.instruction && v.currentGraph), {
+    message: "Provide an intake, or an instruction with the current graph.",
+  });
+export type GenerateCampaignDto = z.infer<typeof generateCampaignSchema>;
+
+// --- Enroll leads ----------------------------------------------------------
+
+export const enrollLeadsSchema = z
+  .object({
+    leadIds: z.array(z.string().uuid()).max(5000).optional(),
+    listId: z.string().uuid().optional(),
+  })
+  .refine((v) => (v.leadIds && v.leadIds.length > 0) || v.listId, {
+    message: "Provide leadIds or a listId",
+  });
+export type EnrollLeadsDto = z.infer<typeof enrollLeadsSchema>;

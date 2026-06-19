@@ -70,6 +70,56 @@ export function candidateFromMapped(input: MappedLeadInput, source: string): Can
   };
 }
 
+/**
+ * A candidate from a manually-entered LinkedIn profile URL (profile_urls import).
+ * Only the URL is known up front, so we derive a best-effort display name from
+ * the /in/ vanity slug — the lead then shows a readable name immediately, before
+ * async enrichment runs and even if enrichment later fails (out-of-network /
+ * private profiles). Real enrichment (fetchProfile) overwrites it when available.
+ */
+export function candidateFromUrl(url: string): Candidate {
+  const trimmed = url.trim();
+  return {
+    linkedinUrl: trimmed,
+    enrichment: pruneEnrichment({ ...deriveNameFromLinkedInUrl(trimmed), source: "profile_urls" }),
+    tags: [],
+    customColumns: {},
+  };
+}
+
+/**
+ * Parse a LinkedIn /in/ vanity slug into a first/last name.
+ * "jane-doe" → { firstName: "Jane", lastName: "Doe" };
+ * "jane-doe-1a2b3c" → drops the trailing id token → { firstName: "Jane", lastName: "Doe" }.
+ */
+function deriveNameFromLinkedInUrl(url: string): { firstName?: string; lastName?: string } {
+  const match = url.match(/\/in\/([^/?#]+)/i);
+  if (!match) {
+    return {};
+  }
+  let slug: string;
+  try {
+    slug = decodeURIComponent(match[1]);
+  } catch {
+    slug = match[1];
+  }
+  const tokens = slug.split("-").filter(Boolean);
+  // LinkedIn appends a numeric/hex id to disambiguate duplicate vanity names
+  // ("jane-doe-1a2b3c") — drop trailing id-like tokens (those containing a digit).
+  while (tokens.length > 1 && /\d/.test(tokens[tokens.length - 1]!)) {
+    tokens.pop();
+  }
+  const named = tokens.filter((t) => /[a-z]/i.test(t));
+  if (named.length === 0) {
+    return {};
+  }
+  const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  const firstName = cap(named[0]!);
+  return named.length > 1
+    ? { firstName, lastName: named.slice(1).map(cap).join(" ") }
+    : { firstName };
+}
+
 export function candidateFromSourced(lead: SourcedLead, source: string): Candidate {
   return {
     linkedinUrl: lead.linkedinUrl,

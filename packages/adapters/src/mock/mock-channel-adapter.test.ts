@@ -107,3 +107,25 @@ test("fetchProfile returns plausible, deterministic enrichment from the URL", as
   assert.equal(profile.lastName, "Lovelace");
   assert.equal(typeof profile.headline, "string");
 });
+
+test("listConversations returns syncable threads with an attendee + messages", async () => {
+  const adapter = new MockChannelAdapter();
+  const page = await adapter.listConversations(account, { limit: 4 });
+
+  assert.equal(page.threads.length, 4);
+  for (const thread of page.threads) {
+    assert.ok(thread.attendee.linkedinUrl, "thread has an attendee profile URL to resolve a lead");
+    assert.ok(thread.attendee.name, "thread has an attendee name");
+    assert.ok(thread.messages.length > 0, "thread carries messages");
+    assert.ok(
+      thread.messages.some((m) => m.direction === "inbound"),
+      "thread has at least one inbound message",
+    );
+  }
+  // Stable: a re-sync yields the same chat ids (so it dedupes to zero new rows).
+  const again = await adapter.listConversations(account, { limit: 4 });
+  assert.deepEqual(
+    page.threads.map((t) => t.providerChatId),
+    again.threads.map((t) => t.providerChatId),
+  );
+});

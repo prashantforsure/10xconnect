@@ -41,8 +41,16 @@ export class UnipileClient {
     return this.send<T>(url.toString(), { method: "GET", headers: this.headers() });
   }
 
-  postJson<T>(path: string, body: unknown): Promise<T> {
-    return this.send<T>(this.baseUrl + path, {
+  postJson<T>(path: string, body: unknown, query?: Record<string, string | undefined>): Promise<T> {
+    const url = new URL(this.baseUrl + path);
+    if (query) {
+      for (const [key, value] of Object.entries(query)) {
+        if (value != null) {
+          url.searchParams.set(key, value);
+        }
+      }
+    }
+    return this.send<T>(url.toString(), {
       method: "POST",
       headers: this.headers({ "content-type": "application/json" }),
       body: JSON.stringify(body),

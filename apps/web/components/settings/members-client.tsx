@@ -3,6 +3,8 @@
 import { MoreHorizontal, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { Avatar } from "@/components/ui/avatar";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -13,9 +15,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
+import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
-import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/lib/workspace/context";
 
 // Roles match packages/core's RBAC matrix. The server is the source of truth;
@@ -48,21 +50,14 @@ function errorMessage(err: unknown, fallback: string): string {
   return (err as ApiError)?.message ?? (err instanceof Error ? err.message : fallback);
 }
 
+const ROLE_VARIANT: Record<Role, NonNullable<BadgeProps["variant"]>> = {
+  owner: "default",
+  admin: "secondary",
+  member: "muted",
+};
+
 function RoleBadge({ role }: { role: Role }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        role === "owner"
-          ? "bg-primary/10 text-primary"
-          : role === "admin"
-            ? "bg-accent text-accent-foreground"
-            : "bg-muted text-muted-foreground",
-      )}
-    >
-      {ROLE_LABEL[role]}
-    </span>
-  );
+  return <Badge variant={ROLE_VARIANT[role]}>{ROLE_LABEL[role]}</Badge>;
 }
 
 export function MembersClient() {
@@ -194,18 +189,16 @@ export function MembersClient() {
       </div>
 
       {actionError ? (
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {actionError}
         </div>
       ) : null}
 
       {/* Members */}
-      <div className="divide-y rounded-lg border">
+      <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
         {data.members.map((member) => (
           <div key={member.userId} className="flex items-center gap-3 px-4 py-3">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium uppercase">
-              {(member.name ?? member.email ?? "?").charAt(0)}
-            </span>
+            <Avatar name={member.name ?? member.email ?? undefined} size="md" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{member.name ?? member.email}</div>
               {member.name ? (
@@ -214,17 +207,17 @@ export function MembersClient() {
             </div>
 
             {canEditMember(member) ? (
-              <select
+              <Select
                 value={member.role}
                 onChange={(e) => void changeRole(member, e.target.value as Role)}
-                className="h-8 rounded-md border border-input bg-transparent px-2 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="h-8 w-auto text-xs"
               >
                 {roleOptions(member).map((r) => (
                   <option key={r} value={r}>
                     {ROLE_LABEL[r]}
                   </option>
                 ))}
-              </select>
+              </Select>
             ) : (
               <RoleBadge role={member.role} />
             )}
@@ -255,17 +248,13 @@ export function MembersClient() {
       {/* Pending invites */}
       {data.invites.length > 0 ? (
         <div className="space-y-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Pending invites
-          </h2>
-          <div className="divide-y rounded-lg border">
+          <h2 className="font-display text-base font-semibold">Pending invites</h2>
+          <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
             {data.invites.map((invite) => (
               <div key={invite.id} className="flex items-center gap-3 px-4 py-3">
                 <div className="min-w-0 flex-1 truncate text-sm">{invite.email}</div>
                 <RoleBadge role={invite.role} />
-                <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                  Pending
-                </span>
+                <Badge variant="muted">Pending</Badge>
                 {canManage ? (
                   <Button variant="ghost" size="sm" onClick={() => void revokeInvite(invite)}>
                     Revoke
@@ -379,18 +368,13 @@ function InviteMemberModal({
         </div>
         <div className="space-y-2">
           <Label htmlFor="invite-role">Role</Label>
-          <select
-            id="invite-role"
-            value={role}
-            onChange={(e) => setRole(e.target.value as Role)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
+          <Select id="invite-role" value={role} onChange={(e) => setRole(e.target.value as Role)}>
             {roleChoices.map((r) => (
               <option key={r} value={r}>
                 {ROLE_LABEL[r]}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <div className="flex justify-end gap-2">

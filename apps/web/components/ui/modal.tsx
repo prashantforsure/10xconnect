@@ -45,7 +45,7 @@ export function Modal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4 backdrop-blur-sm"
       onClick={onClose}
       role="presentation"
     >
@@ -54,7 +54,7 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         className={cn(
-          "relative w-full max-w-md rounded-lg border bg-card p-6 shadow-lg",
+          "relative w-full max-w-md animate-fade-in rounded-2xl border bg-card p-6 shadow-soft-lg",
           className,
         )}
         onClick={(e) => e.stopPropagation()}
@@ -63,11 +63,11 @@ export function Modal({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute right-4 top-4 text-muted-foreground transition-colors hover:text-foreground"
+          className="absolute right-4 top-4 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <X className="size-4" />
         </button>
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        <h2 className="font-display text-lg font-semibold tracking-tight">{title}</h2>
         {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
         <div className="mt-4">{children}</div>
       </div>

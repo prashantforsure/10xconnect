@@ -27,8 +27,13 @@ export function WorkspaceSwitcher() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="w-full justify-between">
-            <span className="truncate">{label}</span>
+          <Button variant="outline" className="w-full justify-between gap-2">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-xs font-semibold text-primary">
+                {(activeWorkspace?.name ?? "?").charAt(0).toUpperCase()}
+              </span>
+              <span className="truncate">{label}</span>
+            </span>
             <ChevronsUpDown className="opacity-50" />
           </Button>
         </DropdownMenuTrigger>

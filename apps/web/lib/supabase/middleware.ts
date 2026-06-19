@@ -6,9 +6,15 @@ import { supabaseAnonKey, supabaseUrl } from "./env";
 type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
 // Routes reachable without a session. Everything else requires auth.
-const PUBLIC_PATHS = ["/login", "/signup", "/reset-password", "/auth"];
+// "/connect" covers the Hosted Auth popup landing page (/connect/callback).
+const PUBLIC_PATHS = ["/login", "/signup", "/reset-password", "/auth", "/connect"];
+// Public marketing/legal pages (exact match — "/" must not make everything public).
+const PUBLIC_EXACT = new Set(["/", "/pricing", "/privacy", "/terms", "/extension-privacy"]);
 
 function isPublicPath(pathname: string): boolean {
+  if (PUBLIC_EXACT.has(pathname)) {
+    return true;
+  }
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
@@ -52,7 +58,7 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
 
   if (user && (pathname === "/login" || pathname === "/signup")) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 

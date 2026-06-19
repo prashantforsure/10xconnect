@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
-    "test": "tsx --test src/mock/mock-channel-adapter.test.ts src/unipile/unipile-mapping.test.ts src/lead-source/mock-lead-source-adapter.test.ts"
+    "test": "tsx --test src/mock/mock-channel-adapter.test.ts src/unipile/unipile-mapping.test.ts src/lead-source/mock-lead-source-adapter.test.ts src/lead-source/unipile-lead-source-mapping.test.ts"
   },
   "dependencies": {
     "@10xconnect/config": "workspace:*",

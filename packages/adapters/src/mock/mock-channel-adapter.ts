@@ -10,11 +10,19 @@ import type {
   ConnectInput,
   ConnectionRequestOptions,
   Conversation,
+  ConversationPage,
+  ConversationSyncCapable,
+  ConversationThread,
   EnrichedProfile,
+  HostedAuthCallback,
+  HostedAuthCapable,
+  HostedAuthLink,
+  HostedAuthLinkParams,
   InboundEvent,
   InboundEventHandler,
   InMailContent,
   LeadRef,
+  ListConversationsOptions,
   Message,
   MessageContent,
   SendOptions,
@@ -60,7 +68,9 @@ const RETRIABLE_CODES: ReadonlySet<ChannelErrorCode> = new Set([
  * manually via the simulate* hooks. This is what the whole system is developed
  * and tested against until a step explicitly needs Unipile.
  */
-export class MockChannelAdapter implements ChannelAdapter {
+export class MockChannelAdapter
+  implements ChannelAdapter, HostedAuthCapable, ConversationSyncCapable
+{
   private readonly config: MockAdapterConfig;
   private readonly clock: () => string;
 
@@ -84,13 +94,18 @@ export class MockChannelAdapter implements ChannelAdapter {
     await this.delay();
     const accountId = this.nextId("account");
     const providerAccountId = this.nextId("provider-account");
-    // New accounts begin warming up (CLAUDE.md §6 warm-up).
-    this.accountStatus.set(accountId, "warming");
+    // Simulate provider-side validation so the connect flow's verification step
+    // can be exercised in dev: an obviously-bad/empty li_at connects "disconnected"
+    // (rejected on verify); everything else begins warming (CLAUDE.md §6).
+    const liAt = input.cookie?.liAt?.toLowerCase() ?? "";
+    const invalid = liAt === "" || liAt.includes("invalid");
+    const status: AccountStatus = invalid ? "disconnected" : "warming";
+    this.accountStatus.set(accountId, status);
     return {
       accountId,
       providerAccountId,
-      status: "warming",
-      name: input.credentials?.email ?? `Mock ${input.method} account`,
+      status,
+      name: `Mock ${input.method} account`,
     };
   }
 
@@ -102,6 +117,41 @@ export class MockChannelAdapter implements ChannelAdapter {
   async getAccountStatus(account: AccountRef): Promise<AccountStatus> {
     await this.delay();
     return this.accountStatus.get(account.accountId) ?? "active";
+  }
+
+  // --- hosted auth (dev simulation) ----------------------------------------
+
+  async createHostedAuthLink(params: HostedAuthLinkParams): Promise<HostedAuthLink> {
+    await this.delay();
+    // No real provider: point at the API's dev completion route, which fires the
+    // same callback the real notify_url would, then redirects back to the app.
+    const base = params.notifyUrl.replace(
+      /\/webhooks\/hosted\/unipile$/,
+      "/dev/hosted-auth/complete",
+    );
+    const url =
+      `${base}?token=${encodeURIComponent(params.name)}` +
+      `&type=${params.type}` +
+      `&redirect=${encodeURIComponent(params.successRedirectUrl)}`;
+    return { url, expiresAt: params.expiresAt };
+  }
+
+  parseHostedAuthCallback(payload: unknown): HostedAuthCallback | null {
+    if (typeof payload !== "object" || payload === null) {
+      return null;
+    }
+    const p = payload as { status?: unknown; account_id?: unknown; name?: unknown };
+    if (typeof p.account_id !== "string" || typeof p.name !== "string") {
+      return null;
+    }
+    const status = typeof p.status === "string" ? p.status.toUpperCase() : "";
+    if (status === "CREATION_SUCCESS") {
+      return { providerAccountId: p.account_id, name: p.name, status: "created" };
+    }
+    if (status === "RECONNECTED") {
+      return { providerAccountId: p.account_id, name: p.name, status: "reconnected" };
+    }
+    return null;
   }
 
   // --- outreach actions (idempotent) ---------------------------------------
@@ -233,6 +283,58 @@ export class MockChannelAdapter implements ChannelAdapter {
       channel: "linkedin",
       messages: [...(this.conversations.get(this.leadKey(lead)) ?? [])],
     };
+  }
+
+  /**
+   * Bulk-list conversations for an inbox sync (ConversationSyncCapable). Returns
+   * deterministic synthetic threads so the "extract all conversations" flow is
+   * demoable/testable offline. Stable: the same call yields the same threads, so
+   * a re-sync dedupes to zero new rows.
+   */
+  async listConversations(
+    _account: AccountRef,
+    opts?: ListConversationsOptions,
+  ): Promise<ConversationPage> {
+    await this.delay();
+    const firsts = ["Jordan", "Avery", "Riley", "Casey", "Morgan", "Taylor"];
+    const lasts = ["Bennett", "Carter", "Donovan", "Ellison", "Fletcher", "Grant"];
+    const count = Math.min(opts?.limit ?? 6, 6);
+    const threads: ConversationThread[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const first = firsts[i % firsts.length]!;
+      const last = lasts[(i * 5) % lasts.length]!;
+      const slug = `${first.toLowerCase()}-${last.toLowerCase()}-conn-${i + 1}`;
+      const t0 = new Date(Date.now() - (i + 1) * 3_600_000).toISOString();
+      const t1 = new Date(Date.now() - (i + 1) * 3_600_000 + 600_000).toISOString();
+      threads.push({
+        providerChatId: `mock-chat-${i + 1}`,
+        channel: "linkedin",
+        attendee: {
+          providerId: `mock-attendee-${i + 1}`,
+          linkedinUrl: `https://www.linkedin.com/in/${slug}`,
+          name: `${first} ${last}`,
+          headline: "Head of Growth at Northwind Labs",
+          connectionDegree: 1,
+        },
+        messages: [
+          {
+            providerMessageId: `mock-cmsg-${i + 1}-1`,
+            direction: "outbound",
+            channel: "linkedin",
+            body: "Hey — great to connect! What are you focused on this quarter?",
+            sentAt: t0,
+          },
+          {
+            providerMessageId: `mock-cmsg-${i + 1}-2`,
+            direction: "inbound",
+            channel: "linkedin",
+            body: "Likewise! Mostly scaling our outbound. Curious what you do.",
+            sentAt: t1,
+          },
+        ],
+      });
+    }
+    return { threads };
   }
 
   // --- inbound subscription -------------------------------------------------

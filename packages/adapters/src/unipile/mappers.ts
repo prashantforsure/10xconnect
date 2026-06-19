@@ -1,7 +1,7 @@
-import type { AccountStatus, ChannelError, ChannelErrorCode } from "@10xconnect/core";
+import type { AccountStatus, ChannelError, ChannelErrorCode, ProxyConfig } from "@10xconnect/core";
 
 import { UnipileHttpError } from "./unipile-client";
-import type { UnipileErrorBody } from "./unipile-types";
+import type { UnipileErrorBody, UnipileProxy } from "./unipile-types";
 
 const RETRIABLE: ReadonlySet<ChannelErrorCode> = new Set([
   "rate_limited",
@@ -81,6 +81,74 @@ function classify(status: number, body: UnipileErrorBody): ChannelErrorCode {
     return "provider_error";
   }
   return "unknown";
+}
+
+/**
+ * Build the proxy-related fields for a Unipile account connect (Unipile LinkedIn
+ * docs). Routing the account through an IP that matches the owner's region is the
+ * #1 defense against LinkedIn's "impossible travel" logout (CLAUDE.md §6/§14):
+ *  - own proxy  → a `proxy` object { host, port, username?, password? }
+ *  - bundled    → top-level `country` (ISO alpha-2) so Unipile assigns a
+ *                 region-matched residential IP from its managed pool.
+ * Returns {} when nothing usable is provided (connect proceeds on Unipile's default).
+ */
+export function buildConnectProxy(input: { proxy?: ProxyConfig; country?: string }): Record<string, unknown> {
+  if (input.proxy?.mode === "own" && input.proxy.url) {
+    const proxy = parseProxyUrl(input.proxy.url);
+    return proxy ? { proxy } : {};
+  }
+  const country = isoAlpha2(input.country ?? input.proxy?.region);
+  return country ? { country } : {};
+}
+
+/**
+ * Parse a proxy string into Unipile's proxy object. Accepts a URL
+ * (`http://user:pass@host:port`, `socks5://host:port`) or a bare
+ * `host:port` / `host:port:user:pass` (common residential-proxy format).
+ */
+export function parseProxyUrl(raw: string): UnipileProxy | undefined {
+  const value = raw.trim();
+  if (!value) {
+    return undefined;
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    try {
+      const u = new URL(value);
+      const port = Number(u.port);
+      if (!u.hostname || !Number.isInteger(port) || port <= 0) {
+        return undefined;
+      }
+      const proxy: UnipileProxy = { host: u.hostname, port };
+      if (u.username) proxy.username = decodeURIComponent(u.username);
+      if (u.password) proxy.password = decodeURIComponent(u.password);
+      return proxy;
+    } catch {
+      return undefined;
+    }
+  }
+  const parts = value.split(":");
+  if (parts.length < 2) {
+    return undefined;
+  }
+  const host = parts[0];
+  const port = Number(parts[1]);
+  if (!host || !Number.isInteger(port) || port <= 0) {
+    return undefined;
+  }
+  const proxy: UnipileProxy = { host, port };
+  if (parts.length >= 4) {
+    proxy.username = parts[2];
+    proxy.password = parts.slice(3).join(":");
+  }
+  return proxy;
+}
+
+function isoAlpha2(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const v = value.trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(v) ? v : undefined;
 }
 
 /** Map Unipile's network distance string to a numeric connection degree. */

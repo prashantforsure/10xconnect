@@ -12,14 +12,22 @@
 // RULE (same as ChannelAdapter): ZERO provider/SDK imports in this package.
 // Adapters in packages/adapters translate provider payloads to/from these shapes.
 
-/** The LinkedIn-derived sources that resolve via this adapter. */
+/**
+ * The LinkedIn-derived sources that resolve via this adapter.
+ *
+ * `connections` is the connected account's OWN 1st-degree relations ("my
+ * network"), not prospect discovery — but it pages identical `SourcedLead`
+ * results, so it rides the same read verb. It carries neither a `url` nor
+ * `keywords`; the adapter lists the account owner's relations directly.
+ */
 export type LeadSourceKind =
   | "linkedin_search"
   | "sales_navigator"
   | "event"
   | "post"
   | "group"
-  | "lead_finder";
+  | "lead_finder"
+  | "connections";
 
 /** Structured filters for the built-in lead finder (CLAUDE.md §8 /leads/find). */
 export interface LeadFinderFilters {

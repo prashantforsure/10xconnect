@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Columns3,
+  Contact,
   ExternalLink,
   LayoutGrid,
   LayoutList,
@@ -18,7 +19,10 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ConnectionsPanel } from "@/components/contacts/connections-panel";
 import { ImportModal } from "@/components/contacts/import-modal";
+import { Avatar } from "@/components/ui/avatar";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -29,6 +33,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
+import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import {
@@ -59,18 +64,15 @@ function errorMessage(err: unknown, fallback: string): string {
   return (err as ApiError)?.message ?? (err instanceof Error ? err.message : fallback);
 }
 
+const STATUS_VARIANT: Record<EnrichStatus, NonNullable<BadgeProps["variant"]>> = {
+  pending: "muted",
+  enriching: "warning",
+  enriched: "success",
+  failed: "destructive",
+};
+
 function StatusBadge({ status }: { status: EnrichStatus }) {
-  const styles: Record<EnrichStatus, string> = {
-    pending: "bg-muted text-muted-foreground",
-    enriching: "bg-amber-100 text-amber-800",
-    enriched: "bg-emerald-100 text-emerald-800",
-    failed: "bg-destructive/10 text-destructive",
-  };
-  return (
-    <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-medium", styles[status])}>
-      {status}
-    </span>
-  );
+  return <Badge variant={STATUS_VARIANT[status] ?? "muted"}>{status}</Badge>;
 }
 
 function degreeLabel(d: number | null): string {
@@ -89,6 +91,9 @@ export function ContactsClient() {
   const [result, setResult] = useState<LeadListResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Which main panel is showing: the contacts table or the Connections browser.
+  const [panel, setPanel] = useState<"contacts" | "connections">("contacts");
 
   // Filters.
   const [activeListId, setActiveListId] = useState<string | null>(null);
@@ -204,7 +209,7 @@ export function ContactsClient() {
   return (
     <div className="flex h-full">
       {/* Lists sidebar */}
-      <aside className="w-56 shrink-0 border-r bg-card/40 p-3">
+      <aside className="w-56 shrink-0 border-r bg-card p-3">
         <div className="mb-2 flex items-center justify-between px-1">
           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             My lists
@@ -220,19 +225,27 @@ export function ContactsClient() {
         </div>
         <nav className="space-y-0.5">
           <SidebarItem
-            active={activeListId === null}
+            active={panel === "contacts" && activeListId === null}
             onClick={() => {
+              setPanel("contacts");
               setActiveListId(null);
               setOffset(0);
             }}
             label="All contacts"
             icon={<Users className="size-4" />}
           />
+          <SidebarItem
+            active={panel === "connections"}
+            onClick={() => setPanel("connections")}
+            label="Connections"
+            icon={<Contact className="size-4" />}
+          />
           {lists.map((l) => (
             <SidebarItem
               key={l.id}
-              active={activeListId === l.id}
+              active={panel === "contacts" && activeListId === l.id}
               onClick={() => {
+                setPanel("contacts");
                 setActiveListId(l.id);
                 setOffset(0);
               }}
@@ -248,6 +261,9 @@ export function ContactsClient() {
       </aside>
 
       {/* Main */}
+      {panel === "connections" ? (
+        <ConnectionsPanel campaigns={campaigns} onChanged={refreshAll} />
+      ) : (
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
@@ -261,13 +277,13 @@ export function ContactsClient() {
             />
           </div>
 
-          <select
+          <Select
             value={enrichFilter}
             onChange={(e) => {
               setEnrichFilter(e.target.value as EnrichStatus | "");
               setOffset(0);
             }}
-            className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
+            className="h-9 w-auto min-w-[8rem]"
             aria-label="Filter by status"
           >
             <option value="">All statuses</option>
@@ -276,7 +292,7 @@ export function ContactsClient() {
                 {s}
               </option>
             ))}
-          </select>
+          </Select>
 
           <Input
             value={tagFilter}
@@ -312,11 +328,14 @@ export function ContactsClient() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <div className="flex overflow-hidden rounded-md border">
+          <div className="flex overflow-hidden rounded-lg border bg-card">
             <button
               type="button"
               onClick={() => setView("list")}
-              className={cn("px-2.5 py-1.5", view === "list" ? "bg-accent" : "hover:bg-accent/50")}
+              className={cn(
+                "px-2.5 py-2 transition-colors",
+                view === "list" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent",
+              )}
               aria-label="List view"
             >
               <LayoutList className="size-4" />
@@ -324,7 +343,10 @@ export function ContactsClient() {
             <button
               type="button"
               onClick={() => setView("board")}
-              className={cn("px-2.5 py-1.5", view === "board" ? "bg-accent" : "hover:bg-accent/50")}
+              className={cn(
+                "px-2.5 py-2 transition-colors",
+                view === "board" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent",
+              )}
               aria-label="Board view"
             >
               <LayoutGrid className="size-4" />
@@ -341,7 +363,7 @@ export function ContactsClient() {
 
         {/* Bulk action bar */}
         {selected.size > 0 ? (
-          <div className="flex items-center gap-2 border-b bg-accent/40 px-3 py-2 text-sm">
+          <div className="flex items-center gap-2 border-b bg-primary/5 px-3 py-2 text-sm">
             <span className="font-medium">{selected.size} selected</span>
             <div className="flex-1" />
             <Button variant="outline" size="sm" onClick={() => setBulkAction("tag")}>
@@ -407,6 +429,7 @@ export function ContactsClient() {
           </div>
         ) : null}
       </div>
+      )}
 
       <ImportModal
         open={importOpen}
@@ -462,8 +485,8 @@ function SidebarItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-        active ? "bg-accent font-medium" : "hover:bg-accent/50",
+        "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+        active ? "bg-primary/10 font-medium text-primary" : "text-foreground hover:bg-accent",
       )}
     >
       {icon ?? (
@@ -484,7 +507,7 @@ function Checkbox({ checked, onChange }: { checked: boolean; onChange: () => voi
       type="checkbox"
       checked={checked}
       onChange={onChange}
-      className="size-4 cursor-pointer rounded border-input"
+      className="size-4 cursor-pointer rounded border-input accent-primary"
     />
   );
 }
@@ -506,7 +529,7 @@ function LeadTable({
 }) {
   return (
     <table className="w-full text-sm">
-      <thead className="sticky top-0 bg-card text-xs uppercase tracking-wide text-muted-foreground">
+      <thead className="sticky top-0 z-10 bg-secondary text-xs uppercase tracking-wide text-muted-foreground">
         <tr className="border-b">
           <th className="w-10 px-3 py-2">
             <Checkbox checked={allSelected} onChange={onToggleAll} />
@@ -522,13 +545,26 @@ function LeadTable({
       </thead>
       <tbody>
         {leads.map((lead) => (
-          <tr key={lead.id} className={cn("border-b hover:bg-accent/30", selected.has(lead.id) && "bg-accent/30")}>
-            <td className="px-3 py-2">
+          <tr
+            key={lead.id}
+            className={cn(
+              "border-b transition-colors hover:bg-accent/50",
+              selected.has(lead.id) && "bg-primary/5",
+            )}
+          >
+            <td className="px-3 py-2.5">
               <Checkbox checked={selected.has(lead.id)} onChange={() => onToggleOne(lead.id)} />
             </td>
-            <td className="px-3 py-2">
-              <div className="font-medium">{lead.name ?? "—"}</div>
-              {lead.location ? <div className="text-xs text-muted-foreground">{lead.location}</div> : null}
+            <td className="px-3 py-2.5">
+              <div className="flex items-center gap-2.5">
+                <Avatar name={lead.name ?? undefined} size="sm" />
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{lead.name ?? "—"}</div>
+                  {lead.location ? (
+                    <div className="truncate text-xs text-muted-foreground">{lead.location}</div>
+                  ) : null}
+                </div>
+              </div>
             </td>
             {visibleCols.title ? <td className="px-3 py-2 text-muted-foreground">{lead.role ?? lead.headline ?? "—"}</td> : null}
             {visibleCols.company ? <td className="px-3 py-2 text-muted-foreground">{lead.company ?? "—"}</td> : null}
@@ -556,9 +592,9 @@ function LeadTable({
               <td className="px-3 py-2">
                 <div className="flex flex-wrap gap-1">
                   {lead.tags.map((t) => (
-                    <span key={t} className="rounded-full bg-muted px-2 py-0.5 text-xs">
+                    <Badge key={t} variant="secondary">
                       {t}
-                    </span>
+                    </Badge>
                   ))}
                 </div>
               </td>
@@ -607,16 +643,19 @@ function LeadBoard({
   return (
     <div className="flex h-full gap-3 overflow-x-auto p-3">
       {columns.map(([tag, items]) => (
-        <div key={tag} className="flex w-64 shrink-0 flex-col rounded-lg border bg-card/40">
-          <div className="flex items-center justify-between border-b px-3 py-2 text-sm font-medium">
+        <div key={tag} className="flex w-64 shrink-0 flex-col rounded-2xl border bg-secondary/40">
+          <div className="flex items-center justify-between border-b px-3 py-2.5 text-sm font-medium">
             <span className="truncate">{tag}</span>
-            <span className="text-xs text-muted-foreground">{items.length}</span>
+            <Badge variant="muted">{items.length}</Badge>
           </div>
           <div className="flex-1 space-y-2 overflow-auto p-2">
             {items.map((lead) => (
               <div
                 key={`${tag}-${lead.id}`}
-                className={cn("rounded-md border bg-background p-2 text-sm", selected.has(lead.id) && "ring-1 ring-primary")}
+                className={cn(
+                  "rounded-xl border bg-card p-2.5 text-sm shadow-soft transition-shadow hover:shadow-soft-md",
+                  selected.has(lead.id) && "ring-2 ring-primary",
+                )}
               >
                 <div className="flex items-start gap-2">
                   <Checkbox checked={selected.has(lead.id)} onChange={() => onToggleOne(lead.id)} />
@@ -642,10 +681,14 @@ function LeadBoard({
 function EmptyState({ onImport }: { onImport: () => void }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-      <Users className="size-10 text-muted-foreground" />
+      <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+        <Users className="size-7" />
+      </span>
       <div>
-        <p className="font-medium">No contacts yet</p>
-        <p className="text-sm text-muted-foreground">Import leads from a CSV or a LinkedIn source to get started.</p>
+        <p className="font-display text-lg font-semibold">No contacts yet</p>
+        <p className="text-sm text-muted-foreground">
+          Import leads from a CSV or a LinkedIn source to get started.
+        </p>
       </div>
       <Button onClick={onImport}>
         <Upload /> Import contacts
@@ -786,18 +829,13 @@ function BulkModal({
         {action === "list" ? (
           <div className="space-y-2">
             <Label htmlFor="bulk-list">List</Label>
-            <select
-              id="bulk-list"
-              value={listId}
-              onChange={(e) => setListId(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-            >
+            <Select id="bulk-list" value={listId} onChange={(e) => setListId(e.target.value)}>
               {lists.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         ) : null}
         {action === "campaign" ? (
@@ -806,18 +844,17 @@ function BulkModal({
             {campaigns.length === 0 ? (
               <p className="text-sm text-muted-foreground">No campaigns yet — create one first.</p>
             ) : (
-              <select
+              <Select
                 id="bulk-campaign"
                 value={campaignId}
                 onChange={(e) => setCampaignId(e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
               >
                 {campaigns.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
           </div>
         ) : null}

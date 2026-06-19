@@ -96,12 +96,14 @@ Idempotent: each action has a unique key; retries never double-send.
 
 6. Account safety rules (implement exactly)
 
-Connection methods (onboarding offers both)
+Connection methods — Hosted Auth (primary) + extension (secondary)
 
 
-Browser extension (preferred): rides the user's real authenticated LinkedIn session.
-Credentials: country + email/password + mandatory 2FA guidance; server-side session through a country-matched proxy.
-Each account gets a dedicated residential proxy matching the owner's region. Options: "use our free proxy" (bundled) or "use your own proxy".
+Hosted Auth (primary, lowest friction): Unipile-hosted login (HostedAuthCapable adapter capability). The user clicks Connect, logs into LinkedIn once on the provider's hosted page (provider handles 2FA/checkpoints in a consistent browser+proxy context — the most logout-resistant path), and the provider calls our webhook (POST /webhooks/hosted/unipile) with a one-time token (account_link_requests) to finalize. No password, no cookie, no extension. ADAPTER=mock simulates the callback via GET /dev/hosted-auth/complete so the flow is testable locally.
+Browser extension (secondary, "connect another way"): the 10xConnect MV3 extension (apps/extension) captures the user's real li_at + matching user-agent and connects via POST /accounts/connect. Manual li_at paste is a dev-only testing toggle. There is NO credentials (email/password) path — a server-side datacenter login is a top cause of the repeated-logout loop, so it was removed.
+One LinkedIn account per workspace (a workspace = one "SaaS account"). Enforced at three layers: a partial unique index uq_sending_accounts_one_linkedin_per_workspace (DB), a reconnect-in-place guard in AccountsService.connect (API — reconnecting refreshes the single account's session/provider handle, preserving campaign state), and a single-account UI. Scaling to multiple LinkedIn accounts = multiple workspaces.
+Users never create a Unipile or any third-party account. The platform holds ONE Unipile account (global UNIPILE_API_KEY/UNIPILE_DSN); every connected LinkedIn account is a provider_account_id under it. We run the automation infrastructure for the user.
+Each account gets a dedicated residential proxy matching the owner's region — the region-matched, stable IP plus the captured user-agent is the core defense against LinkedIn's "impossible travel" logout. Options: "use our free proxy" (bundled) or "use your own proxy".
 
 
 Default per-account daily caps (per campaign UI; clamp to safe max). Exact Prosp labels:
@@ -155,6 +157,33 @@ revisit later with a new angle (months)
 
 At every step a reply auto-stops the sequence and routes the lead to the inbox for human takeover. Dispatch always respects the account schedule + rate governor.
 
+Message composer (text-bearing nodes: send_message, send_voice_note, inmail, send_message_to_open_profile, comment_last_post)
+
+Clicking a text-bearing node opens the composer panel (apps/web/components/campaigns/composer/). It writes structured config into the node's `config` jsonb (no schema migration — `config` is permissive):
+- messageBody — the canonical body: `{ v:1, segments: Segment[] }` where Segment = `{type:'text',text}` | `{type:'variable',key,fallback?}` | `{type:'ai',promptId?,prompt?}`. The composer is an inline chip editor (free text interleaved with variable + AI chips). Defined + rendered in packages/core/src/composer (segments.ts, render.ts) — PURE and shared so the web Preview and the engine dispatch render identically.
+- NO BROKEN MERGES (§2): renderMessageBody() resolves a variable to its value, else its fallback, else DROPS the segment, then collapses leftover whitespace/punctuation — a message never renders "Hi ," or "saw you're doing ". The variable palette (VARIABLE_REGISTRY): First Name, Last Name, Headline, Job title, Biography, Location, Company name, Company Overview → engine variable keys via leadVariables().
+- AI chips: whole-message AI for now (the engine routes an AI-bearing body through resolveContent / the personalization engine; promptId is the E2 prompt-library hook). The web Preview stubs AI per-lead.
+- senders: sending_accounts.id[] — per-node sender selection (multi-select for future rotation; one LinkedIn account per workspace today, so rotation is a no-op — §6).
+- attachments: ComposerAttachment[] uploaded to the private `campaign-media` Supabase Storage bucket (path `{workspace_id}/{campaign_id}/{uuid}-{file}`, member-scoped RLS). Adapter media delivery is not wired yet.
+- sendCondition: `{type:'always'}` | `{type:'never_messaged'}` (extensible; dispatch-level gating deferred to Phase 4).
+- Legacy compat: the composer also derives the flat `config.body`/`config.text` + `config.aiPrompt`; readMessageBody() reads `messageBody` first, else parses the legacy `{token}` template. Each text-bearing node shows an "Action required" badge when its body is empty and a per-node lead counter.
+
+AI prompt library + personalization (E2)
+
+- The "AI Prompt" button opens a library (Community | Saved | My Prompts) — packages/core/src/composer/prompts.ts (curated COMMUNITY_PROMPTS, {{Variable}}/{{key}} template resolution, varietyWarning) + the /ai/* routes (§8). Picking a prompt inserts an AI chip (prompt + promptId=ref). A prompt references contact variables and outputs a short personalized segment; generation runs behind the swappable TextGenerationAdapter (gemini | mock), per-lead, with a variety warning when outputs look copy-paste-similar.
+
+Methodology guardrails (E3) — ALL ADVISORY (non-blocking); only the rate caps stay hard
+
+- Sales-guard linter (packages/core/src/composer/guardrails.ts → lintMessage + aboveTheFold): warns on salesy phrases, hard CTAs, links in a first-touch message, and >50-word length, and shows the above-the-fold preview. Surfaced live in the composer.
+- Framework defaults: frameworkOpenerBody() (personalized observation + soft question) + OBSERVATION_SNIPPETS / SOFT_QUESTION_SNIPPETS, insertable from the composer's "Framework" menu.
+- Voice-note follow-up: recorded vs AI-clone mode, a ≤30s length meter, helper tips; adding a voice node auto-appends a short "quick voice note for context" text message.
+- Follow-up discipline: a configurable follow_up_cap (campaign setting); one-click "Engagement nurture" (like → wait → visit → wait → comment) and "Revisit later" (long wait → fresh-angle message) builder templates.
+- Profile-readiness audit (auditAccountProfile): a pre-launch checklist on "Run it!" (photo, non-sales headline, recent activity, account status) — advisory, never blocks.
+
+AI campaign generator (E4)
+
+- "Build with AI" on the empty builder canvas: an intake (offer, ICP/audience, goal, gentle↔aggressive tone, free text) → POST /campaigns/:id/generate → a structured, editable sequence rendered as normal nodes (with pre-written, offer-tuned AI prompts). packages/core/src/campaign-gen enforces the contract: only known node/condition types (never invented), no-note connection default, clamped waits, reply-driven auto-stop is engine-global. Flow is generate → review → edit → run; nothing launches without explicit approval. A "Refine with AI" bar patches the existing graph in place ("add a voice note", "make it gentler", "remove the InMail"). Mock-safe: the deterministic generator runs when no LLM is configured.
+
 Campaign settings (Settings tab)
 
 name · skip leads already contacted by another campaign (checkbox) · exclude connection-request messages from reply-rate calc (applies to all campaigns, checkbox) · per-action caps (Frequency) · schedule · start ("Run it!") / stop · delete · Share (shareable campaign/template link) · status badge (draft|pending|running|stopped|completed).
@@ -189,7 +218,9 @@ Sending accounts (LinkedIn / mailbox) — the safety-critical surface
 
 
 GET /accounts — list connected accounts with status, location/country, health score.
-POST /accounts/connect — connect via extension or credentials (country, email, password, 2FA, proxy = bundled|own). Kicks off warm-up state.
+POST /accounts/hosted-auth — start Hosted Auth (PRIMARY connect): mint a one-time token (account_link_requests), request a provider hosted-login link, return { url } for the browser to open. Completion is async via the webhook below; create-vs-reconnect is decided by whether the workspace already has a LinkedIn account.
+POST /webhooks/hosted/unipile — public provider notify_url callback; matches the token → workspace and finalizes the account (reuses one-per-workspace + reconnect-in-place). (Dev: GET /dev/hosted-auth/complete simulates it on the mock adapter.)
+POST /accounts/connect — secondary connect (or reconnect) of the workspace's single LinkedIn account via the extension/manual li_at (country, liAt, userAgent, proxy = bundled|own). Verifies the session before persisting; reconnects in place if one exists. No credentials payloads.
 GET /accounts/:id — account detail + settings.
 GET /accounts/:id/health — acceptance rate, reply rate, action volume vs caps, restriction/captcha events, health score.
 PATCH /accounts/:id — update proxy, per-account schedule overrides, warm-up overrides.
@@ -221,7 +252,9 @@ GET /campaigns/:id — campaign detail (tabs: Leads | Builder | Analytics | Sett
 PATCH /campaigns/:id — settings: name, skip-already-contacted, exclude-conn-req-from-reply-rate.
 DELETE /campaigns/:id — delete campaign.
 GET /campaigns/:id/sequence — return the node graph (actions + conditions + edges + delays).
-PUT /campaigns/:id/sequence — save the builder graph.
+PUT /campaigns/:id/sequence — save the builder graph (incl. composer node config: messageBody, senders, attachments, sendCondition — see §7).
+GET /campaigns/:id/sequence/node-counts — per-node enrolled-lead counts (lead_campaign_state grouped by current_node_id); drives the builder's per-node counter.
+GET /campaigns/:id/preview-samples — up to N sample leads with rendered variables ({leadId,name,vars}) for the composer Preview.
 POST /campaigns/:id/start — "Run it!" → enqueue leads, begin dispatch within schedule + caps.
 POST /campaigns/:id/stop — stop dispatch.
 GET /campaigns/:id/status — running/pending/stopped/completed + counts.
@@ -240,7 +273,13 @@ AI personalization & voice
 
 
 POST /ai/preview — run the editable personalization prompt across a sample of leads; return generated observations for review before activating.
-GET /ai/prompts · POST /ai/prompts — prompt library / brand-voice templates.
+GET /ai/library — prompt library for the composer's "AI Prompt" button: { community (curated, read-only), saved (favorites), mine } (E2). Each card: ref, title, template, author, runCount, favorited.
+POST /ai/prompts — create a workspace prompt (My Prompts).
+POST /ai/prompts/favorite — toggle a favorite ({ ref, favorited }); powers the Saved tab.
+POST /ai/prompts/use — bump a workspace prompt's run-count when inserted.
+POST /ai/render-preview — render a full composer messageBody across sample leads (variables + AI per lead via the swappable text adapter) → { results, varietyWarning }. The variety warning flags copy-paste-similar output.
+GET /ai/status — whether an LLM is configured. AI is behind the swappable TextGenerationAdapter (gemini | mock); ADAPTER=mock (or LLM_PROVIDER=mock) uses a deterministic MockTextAdapter so AI works with no key.
+POST /campaigns/:id/generate — AI campaign generator (E4): { intake } → a structured, editable sequence graph; or { instruction, currentGraph } → an in-place refinement. Output is validated/clamped to the known node types with safety enforced (no-note connection default); NEVER auto-saves or launches. Mock-safe (deterministic fallback).
 POST /voice/clone — train/generate the user's voice clone from uploaded audio.
 POST /voice/preview — preview a generated note (with variable injection) before send.
 POST /voice/generate — generate a per-prospect cloned note for a list/segment.
@@ -293,14 +332,14 @@ GET /affiliate — affiliate program dashboard (referral link, payouts).
 /campaigns                         # campaigns list w/ status badges; Create campaign (empty state CTA)
 /campaigns/:id                     # campaign workspace, tabbed:
    ?tab=leads                      #   Leads: imported leads + stage; Import contacts (8 sources); Add contacts to campaign
-   ?tab=builder                    #   Builder: React Flow canvas; "Start the campaign" root; +Add action / +Add condition modal; zoom/lock; Run it!; Share
+   ?tab=builder                    #   Builder: linear node list, "Start the campaign" root; +Add action / +Add condition menus; Run it!; Share. Clicking a text-bearing node opens the docked composer panel (sender select; AI Prompt / Contact Variables (+fallback) / Add media / Preview; inline chip body editor; send-condition; Change action type; Action-required badge; per-node lead counter) — see §7
    ?tab=analytics                  #   per-campaign metrics + Past Actions log + 15-min interval notice
    ?tab=settings                   #   General (name, skip-already-contacted, exclude-conn-req-from-reply-rate, delete), Frequency (caps), Schedule (per-day UTC hours)
 /contacts                          # CRM: MY LIST sidebar, search, View all contacts, Create new list; Filters; Columns (visibility); list/board view toggle; Import contacts
 /contacts/lists/:id                # a single list's contacts
 /inbox                             # unified inbox; first-run "Select Inbox Type" modal (Extract all conversations | Only Prosp conversations); thread view + reply + lead panel + saved responses + pipeline stages
 /settings/general                  # first/last name, workspace name, inbox type, auto-withdraw-after-14-days, delete workspace
-/settings/accounts                 # Connect LinkedIn ("Add a LinkedIn account" → extension|credentials), connected accounts (name, country, status, health, Disconnect)
+/settings/accounts                 # Connect the workspace's single LinkedIn account via the 10xConnect extension ("Connect with extension"); shows the account (name, country, status, health), Reconnect (refresh session in place), Pause/Resume, Disconnect
 /settings/members                  # invite/manage members (unlimited, free), roles
 /settings/billing                  # subscription status, active/free slots, current cost, Annual|Monthly toggle, per-account slot slider, Buy Slot, what's included, custom pricing CTA
 /settings/voice-cloner             # record/upload training audio → generate → preview clone
@@ -320,7 +359,7 @@ profiles — id (= auth.users.id), email, name (combined display), first_name, l
 workspaces — id, name, owner_id, settings (jsonb: inbox_type ['not_configured'|'all_conversations'|'campaign_only'], auto_withdraw_days [default 14]), branding (jsonb).
 memberships — user_id, workspace_id, role (owner|admin|member). RBAC source of truth; multiple owners allowed (transfer ownership = promote a second owner, then optionally demote the first). workspaces.owner_id stays as the immutable creator pointer.
 workspace_invites — id, workspace_id, email, role, invited_by, status (pending|accepted), timestamps. A pending invite for an email is auto-resolved into a membership by handle_new_user when that email signs up. Unique pending invite per (workspace, lower(email)).
-sending_accounts — id, workspace_id, type (linkedin|mailbox), connection_method (extension|credentials), proxy (bundled|own + region), location, status (active|warming|paused|restricted|disconnected), health_score, warmup_state.
+sending_accounts — id, workspace_id, type (linkedin|mailbox), connection_method (extension only for new rows; enum still carries legacy credentials|cookie values), proxy (bundled|own + region), location, status (active|warming|paused|restricted|disconnected), health_score, warmup_state. At most ONE type='linkedin' row per workspace (partial unique index uq_sending_accounts_one_linkedin_per_workspace).
 contact_lists — id, workspace_id, name, color.
 leads — id, workspace_id, linkedin_url, email, enrichment (jsonb), tags, custom_columns (jsonb), dedupe_key, enrich_status, connection_degree.
 list_leads — list_id, lead_id.
@@ -365,6 +404,7 @@ Commands (fill in as scaffolded): pnpm dev, pnpm build, pnpm test, pnpm lint, pn
 Required env vars (indicative)
 
 SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+SECRETS_ENCRYPTION_KEY (server-only; AES-256-GCM key, 32 bytes hex/base64 — encrypts sending-account credential/session material at rest; required for the credentials connect flow)
 DATABASE_URL
 REDIS_URL
 ADAPTER (mock|unipile; default mock — selects the transport adapter; see §5/§8)

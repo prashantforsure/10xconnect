@@ -1,12 +1,13 @@
 "use client";
 
 import { LEAD_FIELD_KEYS, parseCsv, type ColumnTarget } from "@10xconnect/core";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
+import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import {
@@ -33,6 +34,24 @@ const FIELD_LABELS: Record<string, string> = {
 
 function errorMessage(err: unknown, fallback: string): string {
   return (err as ApiError)?.message ?? (err instanceof Error ? err.message : fallback);
+}
+
+/**
+ * Normalize a pasted LinkedIn profile reference to a full URL, or null if it
+ * isn't a LinkedIn URL. Accepts a bare "linkedin.com/in/.." (scheme prepended).
+ */
+function normalizeProfileUrl(raw: string): string | null {
+  let s = raw.trim();
+  if (!s) return null;
+  if (!/^https?:\/\//i.test(s)) s = `https://${s}`;
+  try {
+    const u = new URL(s);
+    const host = u.hostname.toLowerCase();
+    if (host !== "linkedin.com" && !host.endsWith(".linkedin.com")) return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
 }
 
 /** Guess a sensible mapping target for a CSV header. */
@@ -92,6 +111,10 @@ export function ImportModal({
   const [location, setLocation] = useState("");
   const [sourceListId, setSourceListId] = useState<string>(lists[0]?.id ?? "");
 
+  // Profile URLs (manual add — one by one or bulk paste).
+  const [urls, setUrls] = useState<string[]>([]);
+  const [urlInput, setUrlInput] = useState("");
+
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -110,9 +133,38 @@ export function ImportModal({
     setLocation("");
     setLimit(50);
     setTags("");
+    setUrls([]);
+    setUrlInput("");
     setStatus(null);
     setError(null);
     setSubmitting(false);
+  }, []);
+
+  // Parse free text (single URL, comma- or newline-separated list) into
+  // normalized LinkedIn profile URLs, appended without duplicates.
+  const addUrlsFromText = useCallback((text: string) => {
+    const parts = text.split(/[\s,]+/).map((p) => p.trim()).filter(Boolean);
+    if (parts.length === 0) return;
+    setUrls((prev) => {
+      const seen = new Set(prev);
+      const next = [...prev];
+      let added = 0;
+      for (const part of parts) {
+        const url = normalizeProfileUrl(part);
+        if (url && !seen.has(url)) {
+          seen.add(url);
+          next.push(url);
+          added += 1;
+        }
+      }
+      if (added === 0) {
+        setError("Enter a valid LinkedIn profile URL (e.g. linkedin.com/in/jane-doe).");
+      } else {
+        setError(null);
+      }
+      return next;
+    });
+    setUrlInput("");
   }, []);
 
   const close = useCallback(() => {
@@ -120,6 +172,17 @@ export function ImportModal({
     reset();
     onClose();
   }, [submitting, reset, onClose]);
+
+  // Lists load asynchronously, so the mount-time state initializers can run
+  // before any list exists. Re-derive sensible list defaults whenever the modal
+  // opens (or the lists arrive) so "Import into" lands on a real list instead of
+  // being stuck on "+ New list…".
+  useEffect(() => {
+    if (!open) return;
+    setListMode(lists.length ? "existing" : "new");
+    setListId(lists[0]?.id ?? "");
+    setSourceListId(lists[0]?.id ?? "");
+  }, [open, lists]);
 
   const onFile = async (file: File): Promise<void> => {
     const text = await file.text();
@@ -163,6 +226,13 @@ export function ImportModal({
           : (value as ColumnTarget);
       }
       return { source: "csv", csv: csvText, mapping: map, ...target };
+    }
+    if (source === "profile_urls") {
+      if (urls.length === 0) {
+        setError("Add at least one LinkedIn profile URL.");
+        return null;
+      }
+      return { source: "profile_urls", urls, ...target };
     }
     if (source === "list") {
       if (!sourceListId) {
@@ -263,9 +333,9 @@ export function ImportModal({
               key={s.kind}
               type="button"
               onClick={() => setSource(s.kind)}
-              className={`rounded-md border px-3 py-2 text-left text-xs transition-colors ${
+              className={`rounded-xl border px-3 py-2.5 text-left text-xs transition-colors ${
                 source === s.kind
-                  ? "border-primary bg-primary/5"
+                  ? "border-primary bg-primary/10 text-primary"
                   : "border-input hover:bg-accent"
               }`}
             >
@@ -296,22 +366,88 @@ export function ImportModal({
             {headers.length > 0 ? (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">{rowCount} rows · map your columns:</p>
-                <div className="max-h-56 space-y-2 overflow-auto rounded-md border p-3">
+                <div className="max-h-56 space-y-2 overflow-auto rounded-xl border bg-secondary/30 p-3">
                   {headers.map((header) => (
                     <div key={header} className="flex items-center gap-2">
                       <span className="min-w-0 flex-1 truncate text-sm">{header}</span>
-                      <select
+                      <Select
                         value={mapping[header] ?? "ignore"}
                         onChange={(e) => setMapping((m) => ({ ...m, [header]: e.target.value }))}
-                        className="h-8 w-44 rounded-md border border-input bg-transparent px-2 text-xs"
+                        className="h-8 w-44 text-xs"
                       >
                         {["ignore", ...LEAD_FIELD_KEYS].map((key) => (
                           <option key={key} value={key}>
                             {FIELD_LABELS[key] ?? key}
                           </option>
                         ))}
-                        <option value={`custom:${header}`}>Custom column "{header}"</option>
-                      </select>
+                        <option value={`custom:${header}`}>Custom column &quot;{header}&quot;</option>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {source === "profile_urls" ? (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="purls">LinkedIn profile URLs</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="purls"
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addUrlsFromText(urlInput);
+                    }
+                  }}
+                  onPaste={(e) => {
+                    const text = e.clipboardData.getData("text");
+                    if (/[\s,]/.test(text)) {
+                      e.preventDefault();
+                      addUrlsFromText(text);
+                    }
+                  }}
+                  placeholder="https://www.linkedin.com/in/jane-doe"
+                />
+                <Button type="button" variant="outline" onClick={() => addUrlsFromText(urlInput)}>
+                  Add
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Press Enter to add one. Paste several at once (one per line or comma-separated).
+              </p>
+            </div>
+            {urls.length > 0 ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">
+                    {urls.length} profile{urls.length === 1 ? "" : "s"} to import
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => setUrls([])}
+                  >
+                    Clear all
+                  </button>
+                </div>
+                <div className="max-h-48 space-y-1 overflow-auto rounded-xl border bg-secondary/30 p-2">
+                  {urls.map((u) => (
+                    <div key={u} className="flex items-center gap-2 rounded-lg bg-card px-2 py-1.5 text-xs">
+                      <span className="min-w-0 flex-1 truncate">{u}</span>
+                      <button
+                        type="button"
+                        aria-label="Remove"
+                        className="shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => setUrls((prev) => prev.filter((x) => x !== u))}
+                      >
+                        ✕
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -334,15 +470,14 @@ export function ImportModal({
             {source === "post" ? (
               <div className="space-y-1.5">
                 <Label htmlFor="src-eng">Engagement</Label>
-                <select
+                <Select
                   id="src-eng"
                   value={engagement}
                   onChange={(e) => setEngagement(e.target.value as "likers" | "commenters")}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                 >
                   <option value="likers">People who liked the post</option>
                   <option value="commenters">People who commented</option>
-                </select>
+                </Select>
               </div>
             ) : null}
             <LimitField value={limit} onChange={setLimit} />
@@ -376,47 +511,39 @@ export function ImportModal({
         {source === "list" ? (
           <div className="space-y-1.5">
             <Label htmlFor="src-list">Source list</Label>
-            <select
-              id="src-list"
-              value={sourceListId}
-              onChange={(e) => setSourceListId(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-            >
+            <Select id="src-list" value={sourceListId} onChange={(e) => setSourceListId(e.target.value)}>
               <option value="">Select a list…</option>
               {lists.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name} ({l.leadCount})
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
         ) : null}
 
         {/* Target list + campaign + tags */}
-        <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+        <div className="space-y-3 rounded-xl border bg-secondary/40 p-4">
           <div className="space-y-1.5">
             <Label>Import into</Label>
-            <div className="flex gap-2">
-              <select
-                value={listMode === "existing" ? listId : "__new__"}
-                onChange={(e) => {
-                  if (e.target.value === "__new__") {
-                    setListMode("new");
-                  } else {
-                    setListMode("existing");
-                    setListId(e.target.value);
-                  }
-                }}
-                className="flex h-9 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
-              >
-                {lists.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-                <option value="__new__">+ New list…</option>
-              </select>
-            </div>
+            <Select
+              value={listMode === "existing" ? listId : "__new__"}
+              onChange={(e) => {
+                if (e.target.value === "__new__") {
+                  setListMode("new");
+                } else {
+                  setListMode("existing");
+                  setListId(e.target.value);
+                }
+              }}
+            >
+              {lists.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+              <option value="__new__">+ New list…</option>
+            </Select>
             {listMode === "new" ? (
               <Input
                 value={listName}
@@ -428,19 +555,14 @@ export function ImportModal({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="enroll">Enroll in campaign (optional)</Label>
-              <select
-                id="enroll"
-                value={campaignId}
-                onChange={(e) => setCampaignId(e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-              >
+              <Select id="enroll" value={campaignId} onChange={(e) => setCampaignId(e.target.value)}>
                 <option value="">No campaign</option>
                 {campaigns.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="def-tags">Tags (optional)</Label>

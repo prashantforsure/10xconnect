@@ -7,11 +7,16 @@ import type {
   ConnectMailboxInput,
   ConnectionRequestOptions,
   Conversation,
+  ConversationPage,
   EmailContent,
   EnrichedProfile,
+  HostedAuthCallback,
+  HostedAuthLink,
+  HostedAuthLinkParams,
   InboundEvent,
   InMailContent,
   LeadRef,
+  ListConversationsOptions,
   MailboxConnection,
   MailboxHealth,
   MailboxRef,
@@ -95,6 +100,44 @@ export interface ChannelAdapter {
 
   // inbound (webhooks): replies, accepts, opens, account status changes
   subscribeInboundEvents(handler: InboundEventHandler): Unsubscribe;
+}
+
+/**
+ * Optional adapter capability: a provider-hosted connect flow (e.g. Unipile
+ * Hosted Auth). Not every adapter implements it — narrow with isHostedAuthCapable
+ * before use, like InboundWebhookReceiver. Provider payload parsing stays in the
+ * adapter (§5): the app never inspects the raw callback body.
+ */
+export interface HostedAuthCapable {
+  createHostedAuthLink(params: HostedAuthLinkParams): Promise<HostedAuthLink>;
+  parseHostedAuthCallback(payload: unknown): HostedAuthCallback | null;
+}
+
+export function isHostedAuthCapable(value: unknown): value is HostedAuthCapable {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { createHostedAuthLink?: unknown }).createHostedAuthLink === "function" &&
+    typeof (value as { parseHostedAuthCallback?: unknown }).parseHostedAuthCallback === "function"
+  );
+}
+
+/**
+ * Optional adapter capability: bulk-list the connected account's existing
+ * conversations, for the "extract all conversations" inbox sync (CLAUDE.md §8/§9).
+ * Not every adapter implements it — narrow with isConversationSyncCapable before
+ * use (like HostedAuthCapable). Provider payload mapping stays in the adapter (§5).
+ */
+export interface ConversationSyncCapable {
+  listConversations(account: AccountRef, opts?: ListConversationsOptions): Promise<ConversationPage>;
+}
+
+export function isConversationSyncCapable(value: unknown): value is ConversationSyncCapable {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { listConversations?: unknown }).listConversations === "function"
+  );
 }
 
 /**

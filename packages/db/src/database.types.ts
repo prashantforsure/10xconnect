@@ -107,6 +107,7 @@ export type Database = {
           type: Database["public"]["Enums"]["sending_account_type"];
           connection_method: Database["public"]["Enums"]["connection_method"] | null;
           name: string | null;
+          provider_account_id: string | null;
           proxy_type: Database["public"]["Enums"]["proxy_type"] | null;
           proxy_region: string | null;
           location: string | null;
@@ -123,6 +124,7 @@ export type Database = {
           type: Database["public"]["Enums"]["sending_account_type"];
           connection_method?: Database["public"]["Enums"]["connection_method"] | null;
           name?: string | null;
+          provider_account_id?: string | null;
           proxy_type?: Database["public"]["Enums"]["proxy_type"] | null;
           proxy_region?: string | null;
           location?: string | null;
@@ -139,6 +141,7 @@ export type Database = {
           type?: Database["public"]["Enums"]["sending_account_type"];
           connection_method?: Database["public"]["Enums"]["connection_method"] | null;
           name?: string | null;
+          provider_account_id?: string | null;
           proxy_type?: Database["public"]["Enums"]["proxy_type"] | null;
           proxy_region?: string | null;
           location?: string | null;
@@ -146,6 +149,30 @@ export type Database = {
           status?: Database["public"]["Enums"]["sending_account_status"];
           health_score?: number;
           warmup_state?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      sending_account_secrets: {
+        Row: {
+          account_id: string;
+          workspace_id: string;
+          ciphertext: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          account_id: string;
+          workspace_id: string;
+          ciphertext: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          account_id?: string;
+          workspace_id?: string;
+          ciphertext?: string;
           created_at?: string;
           updated_at?: string;
         };
@@ -445,7 +472,12 @@ export type Database = {
           workspace_id: string;
           account_id: string | null;
           lead_id: string | null;
+          campaign_id: string | null;
+          node_id: string | null;
           type: string;
+          status: string;
+          attempts: number;
+          config: Json;
           idempotency_key: string;
           scheduled_at: string | null;
           executed_at: string | null;
@@ -457,7 +489,12 @@ export type Database = {
           workspace_id: string;
           account_id?: string | null;
           lead_id?: string | null;
+          campaign_id?: string | null;
+          node_id?: string | null;
           type: string;
+          status?: string;
+          attempts?: number;
+          config?: Json;
           idempotency_key: string;
           scheduled_at?: string | null;
           executed_at?: string | null;
@@ -469,7 +506,12 @@ export type Database = {
           workspace_id?: string;
           account_id?: string | null;
           lead_id?: string | null;
+          campaign_id?: string | null;
+          node_id?: string | null;
           type?: string;
+          status?: string;
+          attempts?: number;
+          config?: Json;
           idempotency_key?: string;
           scheduled_at?: string | null;
           executed_at?: string | null;
@@ -640,7 +682,7 @@ export type Database = {
     Enums: {
       membership_role: "owner" | "admin" | "member";
       sending_account_type: "linkedin" | "mailbox";
-      connection_method: "extension" | "credentials";
+      connection_method: "extension" | "credentials" | "cookie" | "hosted_auth";
       proxy_type: "bundled" | "own";
       sending_account_status: "active" | "warming" | "paused" | "restricted" | "disconnected";
       enrich_status: "pending" | "enriching" | "enriched" | "failed";

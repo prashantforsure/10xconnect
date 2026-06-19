@@ -8,7 +8,7 @@
 
 export type AccountStatus = "active" | "warming" | "paused" | "restricted" | "disconnected";
 
-export type ConnectionMethod = "extension" | "credentials";
+export type ConnectionMethod = "extension" | "credentials" | "cookie";
 export type ProxyMode = "bundled" | "own";
 
 export interface ProxyConfig {
@@ -20,14 +20,24 @@ export interface ProxyConfig {
 }
 
 export interface ConnectInput {
+  /**
+   * Connect method. The product exposes only `extension` (CLAUDE.md §6): the
+   * browser extension captures the user's real, already-authenticated LinkedIn
+   * session. `cookie` remains as the equivalent internal transport carrier (the
+   * extension feeds a li_at), so adapters treat the two identically.
+   */
   method: ConnectionMethod;
   /** ISO country of the account — proxy + session are matched to it. */
   country?: string;
   proxy?: ProxyConfig;
-  /** credentials method only; MUST never be logged. 2FA guidance is mandatory. */
-  credentials?: { email: string; password: string; twoFactorCode?: string };
-  /** extension method only: handle to the captured authenticated session. */
-  sessionToken?: string;
+  /**
+   * Session material captured by the extension: the LinkedIn `li_at` cookie plus
+   * the matching browser user-agent. The provider validates the session at
+   * connect time, so an expired/invalid li_at fails fast instead of saving a dead
+   * account; passing the source browser's user-agent is what keeps LinkedIn from
+   * logging the account out (CLAUDE.md §6/§14). SECRET — MUST never be logged.
+   */
+  cookie?: { liAt: string; userAgent?: string };
 }
 
 export interface AccountConnection {
@@ -36,6 +46,42 @@ export interface AccountConnection {
   status: AccountStatus;
   /** Provider-reported display name / handle, if available. */
   name?: string;
+}
+
+// --- Hosted auth (provider-hosted connect flow) ---------------------------
+// The lowest-friction connect path (CLAUDE.md §6): the user logs in once on the
+// provider's hosted page; the provider establishes + maintains the session in a
+// consistent browser/proxy context (the most logout-resistant option) and calls
+// our webhook on completion.
+
+export interface HostedAuthLinkParams {
+  /** "create" a new account, or "reconnect" an existing one. */
+  type: "create" | "reconnect";
+  /** Provider account id to reconnect (required when type === "reconnect"). */
+  reconnectProviderAccountId?: string;
+  /** Our one-time correlation token — echoed back in the completion callback. */
+  name: string;
+  /** Where the provider redirects the user's browser after success/failure. */
+  successRedirectUrl: string;
+  failureRedirectUrl: string;
+  /** Server webhook the provider calls when the account is connected. */
+  notifyUrl: string;
+  /** Link expiry (ISO 8601). Keep short (minutes). */
+  expiresAt: string;
+}
+
+export interface HostedAuthLink {
+  /** The provider-hosted URL to send the user to. */
+  url: string;
+  expiresAt: string;
+}
+
+export interface HostedAuthCallback {
+  /** Provider account id of the newly connected/reconnected account. */
+  providerAccountId: string;
+  /** The correlation token we passed as `name`. */
+  name: string;
+  status: "created" | "reconnected";
 }
 
 /**
@@ -212,6 +258,42 @@ export interface Conversation {
   lead: LeadRef;
   channel: MessageChannel;
   messages: Message[];
+}
+
+// --- Conversation sync (bulk "extract all conversations"; §8/§9) -----------
+
+/**
+ * One whole conversation thread pulled during an inbox sync (list-all-chats).
+ * Unlike `Conversation` (keyed by a known LeadRef), a synced thread carries the
+ * OTHER party's identity so the app can resolve it to — or create — a lead.
+ */
+export interface ConversationThread {
+  /** Provider chat/thread id, for correlation. */
+  providerChatId?: string;
+  channel: MessageChannel;
+  /** The other party in the thread (never the account owner). */
+  attendee: {
+    providerId?: string;
+    linkedinUrl?: string;
+    name?: string;
+    headline?: string;
+    /** 1 = 1st-degree, 2 = 2nd, 3 = 3rd. */
+    connectionDegree?: number;
+  };
+  messages: Message[];
+}
+
+export interface ListConversationsOptions {
+  /** Max threads to pull in this page. */
+  limit?: number;
+  /** Opaque pagination cursor from a previous ConversationPage.nextCursor. */
+  cursor?: string;
+}
+
+export interface ConversationPage {
+  threads: ConversationThread[];
+  /** Present when more threads remain; pass back as ListConversationsOptions.cursor. */
+  nextCursor?: string;
 }
 
 // --- Inbound events (webhook-driven) --------------------------------------

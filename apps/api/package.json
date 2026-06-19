@@ -8,13 +8,14 @@
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
-    "test": "echo \"@10xconnect/api: no tests yet\" && exit 0"
+    "test": "tsx --test src/common/crypto/secret-cipher.test.ts"
   },
   "dependencies": {
     "@10xconnect/adapters": "workspace:*",
     "@10xconnect/config": "workspace:*",
     "@10xconnect/core": "workspace:*",
     "@10xconnect/db": "workspace:*",
+    "@10xconnect/engine": "workspace:*",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
@@ -29,6 +30,7 @@
     "@nestjs/schematics": "^11.0.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
 }

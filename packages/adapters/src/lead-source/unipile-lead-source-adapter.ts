@@ -3,43 +3,164 @@ import type {
   LeadSourceAdapter,
   LeadSourceQuery,
   LeadSourceResult,
+  SourcedLead,
 } from "@10xconnect/core";
 
+import { mapHttpError } from "../unipile/mappers";
+import { UnipileClient } from "../unipile/unipile-client";
+import type {
+  UnipileConfig,
+  UnipileRelationsResponse,
+  UnipileSearchResponse,
+} from "../unipile/unipile-types";
+
+import {
+  buildSearchRequest,
+  extractPostActivityId,
+  mapRelationItemToSourcedLead,
+  mapSearchItemToSourcedLead,
+} from "./unipile-lead-source-mappers";
+
 /**
- * ┌──────────────────────────────────────────────────────────────────────────┐
- * │ STUB — for the Phase 2 (transport) tab to implement.                      │
- * └──────────────────────────────────────────────────────────────────────────┘
+ * Real LinkedIn lead sourcing over the Unipile REST API, behind the
+ * LeadSourceAdapter contract (packages/core). This is the ONLY place Unipile's
+ * HTTP/types are touched for sourcing (mirrors UnipileChannelAdapter, §4).
  *
- * Real LinkedIn lead sourcing over Unipile (search / sales-navigator / event /
- * post engagement / group / lead-finder), behind the LeadSourceAdapter contract
- * (packages/core). Phase 3 develops entirely against MockLeadSourceAdapter; this
- * class exists so the factory can select `unipile` once the transport is wired.
+ * Sources → Unipile surface:
+ *   - linkedin_search → POST /linkedin/search (api "classic", people).
+ *   - sales_navigator → POST /linkedin/search (api "sales_navigator", people).
+ *   - lead_finder     → POST /linkedin/search (classic, free-text keywords).
+ *   - post            → GET  /posts/{id}/reactions|comments (likers/commenters).
+ *   - event / group   → best-effort: the source URL is handed to classic search;
+ *                       to confirm in live test (LinkedIn may need a dedicated path).
  *
- * IMPLEMENTATION NOTES (Phase 2 tab):
- *  - Provider SDK imports belong ONLY in packages/adapters (CLAUDE.md §4). Reuse
- *    the existing Unipile client/config from packages/adapters/src/unipile.
- *  - Translate each LeadSourceKind to the matching Unipile search endpoint and
- *    map provider rows → SourcedLead. Page via LeadSourceResult.nextCursor.
- *  - Respect account safety: the orchestration/import layer clamps totals; this
- *    adapter only fetches what it is asked for.
- *  - Do NOT throw raw provider errors past this boundary — surface clean messages.
+ * Errors NEVER cross this boundary raw: provider failures are mapped to a clean
+ * message and re-thrown, so the import engine records a readable job error
+ * instead of leaking Unipile internals. The orchestration/import layer clamps
+ * totals for account safety (§6); this adapter fetches only what it is asked for.
  */
-export interface UnipileLeadSourceConfig {
-  apiKey: string;
-  dsn: string;
+export class UnipileLeadSourceAdapter implements LeadSourceAdapter {
+  private readonly client: UnipileClient;
+
+  constructor(config: UnipileConfig) {
+    this.client = new UnipileClient(config);
+  }
+
+  async fetchLeads(
+    account: LeadSourceAccountRef,
+    query: LeadSourceQuery,
+  ): Promise<LeadSourceResult> {
+    try {
+      if (query.kind === "connections") {
+        return await this.fetchRelations(account, query);
+      }
+      if (query.kind === "post") {
+        return await this.fetchPostEngagement(account, query);
+      }
+      return await this.fetchSearch(account, query);
+    } catch (err) {
+      // Surface a clean message (e.g. "unipile: account not found") — the import
+      // engine stores this as the job error. No raw provider payloads leak out.
+      throw new Error(mapHttpError(err).message);
+    }
+  }
+
+  // --- search (classic / sales-nav / lead-finder / event / group) -----------
+
+  private async fetchSearch(
+    account: LeadSourceAccountRef,
+    query: LeadSourceQuery,
+  ): Promise<LeadSourceResult> {
+    const body = buildSearchRequest(query);
+    const res = await this.client.postJson<UnipileSearchResponse>(
+      "/api/v1/linkedin/search",
+      body,
+      { account_id: this.acc(account), cursor: query.cursor, limit: pageLimit(query.limit) },
+    );
+    return toResult(res);
+  }
+
+  // --- connections (the account owner's 1st-degree relations) ----------------
+
+  private async fetchRelations(
+    account: LeadSourceAccountRef,
+    query: LeadSourceQuery,
+  ): Promise<LeadSourceResult> {
+    const res = await this.client.getJson<UnipileRelationsResponse>("/api/v1/users/relations", {
+      account_id: this.acc(account),
+      cursor: query.cursor,
+      limit: pageLimit(query.limit),
+    });
+    const leads: SourcedLead[] = [];
+    for (const item of res.items ?? []) {
+      const lead = mapRelationItemToSourcedLead(item);
+      if (lead) {
+        leads.push(lead);
+      }
+    }
+    const result: LeadSourceResult = { leads };
+    if (res.cursor) {
+      result.nextCursor = res.cursor;
+    }
+    const total = res.paging?.total_count ?? res.paging?.total;
+    if (typeof total === "number") {
+      result.total = total;
+    }
+    return result;
+  }
+
+  // --- post engagement (likers / commenters) --------------------------------
+
+  private async fetchPostEngagement(
+    account: LeadSourceAccountRef,
+    query: LeadSourceQuery,
+  ): Promise<LeadSourceResult> {
+    const postId = query.url ? extractPostActivityId(query.url) : undefined;
+    if (!postId) {
+      throw new Error("unipile: could not extract a post id from the provided URL");
+    }
+    const path =
+      query.engagement === "commenters"
+        ? `/api/v1/posts/${encodeURIComponent(postId)}/comments`
+        : `/api/v1/posts/${encodeURIComponent(postId)}/reactions`;
+    const res = await this.client.getJson<UnipileSearchResponse>(path, {
+      account_id: this.acc(account),
+      cursor: query.cursor,
+      limit: pageLimit(query.limit),
+    });
+    return toResult(res);
+  }
+
+  /** The Unipile account id the API addresses (provider handle, else our id). */
+  private acc(account: LeadSourceAccountRef): string {
+    return account.providerAccountId ?? account.accountId;
+  }
 }
 
-export class UnipileLeadSourceAdapter implements LeadSourceAdapter {
-  // Config is accepted but unused until the Phase 2 tab wires the real transport.
-  constructor(_config: UnipileLeadSourceConfig) {}
-
-  fetchLeads(
-    _account: LeadSourceAccountRef,
-    _query: LeadSourceQuery,
-  ): Promise<LeadSourceResult> {
-    throw new Error(
-      "UnipileLeadSourceAdapter.fetchLeads is not implemented yet (Phase 2 transport tab). " +
-        "Use ADAPTER=mock for lead sourcing until the Unipile sourcing transport is wired.",
-    );
+/** Map a raw Unipile search/engagement response to our paged LeadSourceResult. */
+function toResult(res: UnipileSearchResponse): LeadSourceResult {
+  const leads: SourcedLead[] = [];
+  for (const item of res.items ?? []) {
+    const lead = mapSearchItemToSourcedLead(item);
+    if (lead) {
+      leads.push(lead);
+    }
   }
+  const result: LeadSourceResult = { leads };
+  if (res.cursor) {
+    result.nextCursor = res.cursor;
+  }
+  const total = res.paging?.total_count ?? res.paging?.total;
+  if (typeof total === "number") {
+    result.total = total;
+  }
+  return result;
+}
+
+/** Bound a single page request (account safety §6); the engine pages the rest. */
+function pageLimit(limit: number | undefined): string | undefined {
+  if (!limit || !Number.isFinite(limit) || limit <= 0) {
+    return undefined;
+  }
+  return String(Math.min(Math.floor(limit), 100));
 }

@@ -1,0 +1,18 @@
+{
+  "name": "@10xconnect/extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "10xConnect browser extension (MV3): connect a LinkedIn account via the user's real, signed-in session — no password, no third-party account.",
+  "scripts": {
+    "build": "echo \"@10xconnect/extension: static MV3 bundle, nothing to build\" && exit 0",
+    "gen-icons": "node scripts/gen-icons.mjs",
+    "package": "node scripts/gen-icons.mjs && node scripts/package.mjs",
+    "lint": "echo \"@10xconnect/extension: no lint\" && exit 0",
+    "typecheck": "echo \"@10xconnect/extension: no typecheck\" && exit 0",
+    "test": "echo \"@10xconnect/extension: no tests\" && exit 0"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1",
+    "sharp": "^0.34.5"
+  }
+}

@@ -23,7 +23,10 @@ export type ImportSource =
   | "post"
   | "group"
   | "list"
-  | "lead_finder";
+  | "lead_finder"
+  // Manually-entered LinkedIn profile URLs (also backs "import selected
+  // connections", which feeds the same pipeline). Column is `text`, no migration.
+  | "profile_urls";
 
 /** Column with a DB default → optional on insert, present on select. */
 type WithDefault<T> = ColumnType<T, T | undefined, T>;
@@ -50,9 +53,104 @@ export interface ImportJobsTable {
   updated_at: WithDefault<string>;
 }
 
+// ---------------------------------------------------------------------------
+// MVP M0 tables (orchestration brain, sequence engine, inbox, AI).
+// ---------------------------------------------------------------------------
+
+export type ChannelType = "linkedin" | "email";
+
+export interface LeadEventsTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  lead_id: NullableWithDefault<string>;
+  account_id: NullableWithDefault<string>;
+  campaign_id: NullableWithDefault<string>;
+  type: ColumnType<string, string, string>;
+  provider_event_id: NullableWithDefault<string>;
+  channel: WithDefault<ChannelType>;
+  occurred_at: WithDefault<string>;
+  metadata: WithDefault<Json>;
+  created_at: WithDefault<string>;
+}
+
+export interface SavedResponsesTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  title: ColumnType<string, string, string>;
+  body: ColumnType<string, string, string>;
+  created_by: NullableWithDefault<string>;
+  created_at: WithDefault<string>;
+  updated_at: WithDefault<string>;
+}
+
+export interface AiPromptsTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  name: ColumnType<string, string, string>;
+  template: ColumnType<string, string, string>;
+  is_default: WithDefault<boolean>;
+  run_count: WithDefault<number>;
+  created_by: NullableWithDefault<string>;
+  created_at: WithDefault<string>;
+  updated_at: WithDefault<string>;
+}
+
+export interface AiPromptFavoritesTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  user_id: ColumnType<string, string, string>;
+  prompt_ref: ColumnType<string, string, string>;
+  created_at: WithDefault<string>;
+}
+
+export interface DoNotContactTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  linkedin_url: NullableWithDefault<string>;
+  email: NullableWithDefault<string>;
+  reason: NullableWithDefault<string>;
+  created_by: NullableWithDefault<string>;
+  created_at: WithDefault<string>;
+}
+
+export interface NotificationsTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  type: ColumnType<string, string, string>;
+  title: ColumnType<string, string, string>;
+  body: NullableWithDefault<string>;
+  account_id: NullableWithDefault<string>;
+  read: WithDefault<boolean>;
+  created_at: WithDefault<string>;
+}
+
+export type AccountLinkRequestType = "create" | "reconnect";
+export type AccountLinkRequestStatus = "pending" | "completed" | "expired";
+
+/** Pending hosted-auth (provider-hosted connect) requests, keyed by a one-time token. */
+export interface AccountLinkRequestsTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  token: ColumnType<string, string, string>;
+  type: ColumnType<AccountLinkRequestType, AccountLinkRequestType, AccountLinkRequestType>;
+  reconnect_provider_account_id: NullableWithDefault<string>;
+  country: ColumnType<string, string, string>;
+  status: WithDefault<AccountLinkRequestStatus>;
+  expires_at: ColumnType<string, string, string>;
+  created_at: WithDefault<string>;
+  updated_at: WithDefault<string>;
+}
+
 /** Extra Kysely tables intersected into DB (see kysely.ts). */
 export interface AppExtraTables {
   import_jobs: ImportJobsTable;
+  lead_events: LeadEventsTable;
+  saved_responses: SavedResponsesTable;
+  ai_prompts: AiPromptsTable;
+  ai_prompt_favorites: AiPromptFavoritesTable;
+  do_not_contact: DoNotContactTable;
+  notifications: NotificationsTable;
+  account_link_requests: AccountLinkRequestsTable;
 }
 
 /** Plain SELECT shape of an import_jobs row (for API view mapping). */

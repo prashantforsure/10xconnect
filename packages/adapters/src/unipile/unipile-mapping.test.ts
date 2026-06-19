@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { mapAccountStatus, mapConnectionDegree, mapHttpError } from "./mappers";
+import { buildConnectProxy, mapAccountStatus, mapConnectionDegree, mapHttpError, parseProxyUrl } from "./mappers";
 import { UnipileHttpError } from "./unipile-client";
 import { normalizeWebhook } from "./webhook-normalizer";
 
@@ -34,6 +34,40 @@ test("mapHttpError classifies HTTP statuses into the error taxonomy", () => {
   const network = mapHttpError(new Error("connect ETIMEDOUT"));
   assert.equal(network.code, "timeout");
   assert.equal(network.retriable, true);
+});
+
+test("parseProxyUrl handles url and host:port[:user:pass] forms", () => {
+  assert.deepEqual(parseProxyUrl("http://user:pass@host.com:1080"), {
+    host: "host.com",
+    port: 1080,
+    username: "user",
+    password: "pass",
+  });
+  assert.deepEqual(parseProxyUrl("socks5://1.2.3.4:9000"), { host: "1.2.3.4", port: 9000 });
+  assert.deepEqual(parseProxyUrl("proxy.com:1123:bob:s3cr3t"), {
+    host: "proxy.com",
+    port: 1123,
+    username: "bob",
+    password: "s3cr3t",
+  });
+  assert.deepEqual(parseProxyUrl("proxy.com:8080"), { host: "proxy.com", port: 8080 });
+  assert.equal(parseProxyUrl("not-a-proxy"), undefined);
+  assert.equal(parseProxyUrl(""), undefined);
+});
+
+test("buildConnectProxy: own → proxy object, bundled → region country, else empty", () => {
+  assert.deepEqual(
+    buildConnectProxy({ country: "IN", proxy: { mode: "own", url: "host:1123:u:p" } }),
+    { proxy: { host: "host", port: 1123, username: "u", password: "p" } },
+  );
+  // bundled uses the account country (region-matched residential IP)
+  assert.deepEqual(buildConnectProxy({ country: "in", proxy: { mode: "bundled", region: "IN" } }), {
+    country: "IN",
+  });
+  // bundled with no usable country → nothing (Unipile default)
+  assert.deepEqual(buildConnectProxy({ proxy: { mode: "bundled" } }), {});
+  // own with an unparseable url → nothing rather than a broken proxy
+  assert.deepEqual(buildConnectProxy({ country: "US", proxy: { mode: "own", url: "garbage" } }), {});
 });
 
 test("mapConnectionDegree parses network distance", () => {
