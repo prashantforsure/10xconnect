@@ -81,6 +81,21 @@ export const ACTION_NODES: NodeDef[] = [
       AI_PROMPT_FIELD,
     ],
   },
+  {
+    type: "reply_comment",
+    kind: "action",
+    label: "Reply to comment",
+    description: "Reply to the lead's comment on a post — AI varies the wording per lead.",
+    fields: [
+      {
+        key: "postUrl",
+        label: "Post URL",
+        type: "text",
+        placeholder: "https://www.linkedin.com/posts/…",
+        help: "The post whose comment you're replying to. The reply text + AI variation are set in the composer.",
+      },
+    ],
+  },
   { type: "like_last_post", kind: "action", label: "Like last post", description: "Like the lead's most recent post.", fields: [] },
   { type: "visit_profile", kind: "action", label: "Visit profile", description: "View the lead's profile (warms up the relationship).", fields: [] },
   {

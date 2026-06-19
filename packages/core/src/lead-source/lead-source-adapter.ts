@@ -55,8 +55,8 @@ export interface LeadSourceQuery {
   keywords?: string;
   /** Structured filters (lead_finder). */
   filters?: LeadFinderFilters;
-  /** For kind: "post" — whether to pull people who liked or commented. */
-  engagement?: "likers" | "commenters";
+  /** For kind: "post" — pull people who liked, commented, or both. */
+  engagement?: "likers" | "commenters" | "both";
   /** Max leads to return in this page. */
   limit?: number;
   /** Opaque pagination cursor from a previous LeadSourceResult.nextCursor. */

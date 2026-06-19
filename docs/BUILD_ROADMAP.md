@@ -102,7 +102,7 @@ Builds: new-account escalation from reduced caps to full over 4–6 weeks, integ
 Done when: a fresh account cannot send at full volume on day 1. Needs: 16
 
 **Step 18 — Scheduler**
-Builds: per-weekday working-hours windows (UTC), randomized ~15-min jittered dispatch spacing, timezone handling.
+Builds: per-weekday working-hours windows (UTC), randomized ~6-min (4–8 min) jittered dispatch spacing, timezone handling.
 Done when: actions only fire inside the window with no bursts. Needs: 16
 
 **Step 19 — Dispatch worker + job queue**

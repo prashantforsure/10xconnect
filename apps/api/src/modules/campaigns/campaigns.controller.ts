@@ -122,6 +122,11 @@ export class CampaignsController {
     return this.run.nodeCounts(workspaceId, id);
   }
 
+  @Get(":id/sequence/node-stats")
+  nodeStats(@WorkspaceId() workspaceId: string, @Param("id") id: string) {
+    return this.run.nodeStats(workspaceId, id);
+  }
+
   @Get(":id/preview-samples")
   previewSamples(@WorkspaceId() workspaceId: string, @Param("id") id: string) {
     return this.run.previewSamples(workspaceId, id);

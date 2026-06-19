@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { aboveTheFold, auditAccountProfile, lintMessage } from "./guardrails";
-import { resolvePromptTemplate, varietyWarning } from "./prompts";
+import { COMMUNITY_PROMPTS, resolvePromptTemplate, varietyWarning } from "./prompts";
 import {
   extractAiPrompt,
   isBodyConfigured,
@@ -144,6 +144,21 @@ test("isBodyConfigured reflects whether the body has meaningful content", () => 
 });
 
 // --- prompt template + variety (E2) -----------------------------------------
+
+test("COMMUNITY_PROMPTS are well-formed and uniquely namespaced", () => {
+  const refs = new Set<string>();
+  for (const c of COMMUNITY_PROMPTS) {
+    assert.ok(c.ref.startsWith("community:"), `ref must be namespaced: ${c.ref}`);
+    assert.ok(!refs.has(c.ref), `duplicate ref: ${c.ref}`);
+    refs.add(c.ref);
+    assert.ok(c.title.trim().length > 0, `empty title: ${c.ref}`);
+    assert.ok(c.template.trim().length > 0, `empty template: ${c.ref}`);
+    assert.equal(c.readOnly, true);
+    assert.equal(c.author, "10xConnect");
+  }
+  // 4 original + the profile-scanning additions.
+  assert.ok(COMMUNITY_PROMPTS.length >= 10, "expected an expanded curated library");
+});
 
 test("resolvePromptTemplate fills {{Label}} and {{key}} tokens, dropping empties", () => {
   const vars = { headline: "Head of Growth", company: "Acme", role: "Head of Growth" };

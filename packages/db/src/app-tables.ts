@@ -53,6 +53,26 @@ export interface ImportJobsTable {
   updated_at: WithDefault<string>;
 }
 
+export type ImportSourceStatus = "active" | "paused";
+
+/** Recurring "live import" source definitions (continuous/auto-refresh import). */
+export interface ImportSourcesTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  source: ColumnType<ImportSource, ImportSource, ImportSource>;
+  params: WithDefault<Json>;
+  list_id: NullableWithDefault<string>;
+  campaign_id: NullableWithDefault<string>;
+  interval_minutes: WithDefault<number>;
+  status: WithDefault<ImportSourceStatus>;
+  last_run_at: NullableWithDefault<string>;
+  next_run_at: WithDefault<string>;
+  last_job_id: NullableWithDefault<string>;
+  created_by: NullableWithDefault<string>;
+  created_at: WithDefault<string>;
+  updated_at: WithDefault<string>;
+}
+
 // ---------------------------------------------------------------------------
 // MVP M0 tables (orchestration brain, sequence engine, inbox, AI).
 // ---------------------------------------------------------------------------
@@ -144,6 +164,7 @@ export interface AccountLinkRequestsTable {
 /** Extra Kysely tables intersected into DB (see kysely.ts). */
 export interface AppExtraTables {
   import_jobs: ImportJobsTable;
+  import_sources: ImportSourcesTable;
   lead_events: LeadEventsTable;
   saved_responses: SavedResponsesTable;
   ai_prompts: AiPromptsTable;

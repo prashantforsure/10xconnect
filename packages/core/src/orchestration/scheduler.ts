@@ -1,7 +1,8 @@
 // Scheduler (CLAUDE.md §6, roadmap Step 18). Dispatches only inside the account's
-// working-hours window, with randomized ~15-min average spacing (jittered — never
-// burst). Pure: computes the next dispatch instant; the worker persists it as
-// actions.scheduled_at. Randomness is injectable for deterministic tests.
+// working-hours window, with randomized ~6-min average spacing (4–8 min; jittered
+// — never burst). Daily caps remain the hard ceiling. Pure: computes the next
+// dispatch instant; the worker persists it as actions.scheduled_at. Randomness is
+// injectable for deterministic tests.
 
 import { type WeekSchedule, nextWorkingTime } from "../safety/schedule";
 
@@ -9,7 +10,7 @@ export interface NextDispatchInput {
   schedule: WeekSchedule;
   /** Compute the next slot relative to this instant (usually the last dispatch). */
   from: Date;
-  /** Base spacing between actions (ms). Default-safe ~15 min in config. */
+  /** Base spacing between actions (ms). Default-safe 4 min in config. */
   minSpacingMs: number;
   /** Extra random spacing added on top (ms) so cadence is jittered, not fixed. */
   jitterMs: number;

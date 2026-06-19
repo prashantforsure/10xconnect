@@ -36,6 +36,23 @@ function errorMessage(err: unknown, fallback: string): string {
   return (err as ApiError)?.message ?? (err instanceof Error ? err.message : fallback);
 }
 
+interface LiveImport {
+  id: string;
+  source: string;
+  status: string;
+  intervalMinutes: number;
+  nextRunAt: string;
+  lastRunAt: string | null;
+}
+
+const INTERVAL_OPTIONS: { value: number; label: string }[] = [
+  { value: 15, label: "every 15 min" },
+  { value: 30, label: "every 30 min" },
+  { value: 60, label: "every hour" },
+  { value: 240, label: "every 4 hours" },
+  { value: 1440, label: "once a day" },
+];
+
 /**
  * Normalize a pasted LinkedIn profile reference to a full URL, or null if it
  * isn't a LinkedIn URL. Accepts a bare "linkedin.com/in/.." (scheme prepended).
@@ -75,22 +92,27 @@ export function ImportModal({
   onClose,
   lists,
   campaigns,
+  lockedCampaign,
   onImported,
 }: {
   open: boolean;
   onClose: () => void;
   lists: ListView[];
   campaigns: CampaignSummary[];
+  /** When set, the import is pinned to this campaign and defaults to creating no list. */
+  lockedCampaign?: { id: string; name: string };
   onImported: () => void | Promise<void>;
 }) {
   const api = useApi();
   const [source, setSource] = useState<ImportSourceKind>("csv");
 
-  // Common target fields.
-  const [listMode, setListMode] = useState<"existing" | "new">(lists.length ? "existing" : "new");
+  // Common target fields. "none" = import without creating/linking a contact list.
+  const [listMode, setListMode] = useState<"existing" | "new" | "none">(
+    lockedCampaign ? "none" : lists.length ? "existing" : "new",
+  );
   const [listId, setListId] = useState<string>(lists[0]?.id ?? "");
   const [listName, setListName] = useState("");
-  const [campaignId, setCampaignId] = useState<string>("");
+  const [campaignId, setCampaignId] = useState<string>(lockedCampaign?.id ?? "");
   const [tags, setTags] = useState("");
 
   // CSV state.
@@ -104,8 +126,11 @@ export function ImportModal({
   // LinkedIn / lead-finder state.
   const [url, setUrl] = useState("");
   const [keywords, setKeywords] = useState("");
-  const [engagement, setEngagement] = useState<"likers" | "commenters">("likers");
+  const [engagement, setEngagement] = useState<"likers" | "commenters" | "both">("likers");
   const [limit, setLimit] = useState(50);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [intervalMinutes, setIntervalMinutes] = useState(60);
+  const [liveSources, setLiveSources] = useState<LiveImport[]>([]);
   const [title, setTitle] = useState("");
   const [company, setCompany] = useState("");
   const [location, setLocation] = useState("");
@@ -132,6 +157,8 @@ export function ImportModal({
     setCompany("");
     setLocation("");
     setLimit(50);
+    setAutoRefresh(false);
+    setIntervalMinutes(60);
     setTags("");
     setUrls([]);
     setUrlInput("");
@@ -139,6 +166,27 @@ export function ImportModal({
     setError(null);
     setSubmitting(false);
   }, []);
+
+  const fetchSources = useCallback(async () => {
+    try {
+      setLiveSources(await api.request<LiveImport[]>("/leads/import-sources"));
+    } catch {
+      setLiveSources([]);
+    }
+  }, [api]);
+
+  const sourceAction = async (id: string, action: "pause" | "resume" | "delete"): Promise<void> => {
+    try {
+      if (action === "delete") {
+        await api.request(`/leads/import-sources/${id}`, { method: "DELETE" });
+      } else {
+        await api.request(`/leads/import-sources/${id}/${action}`, { method: "POST" });
+      }
+      await fetchSources();
+    } catch (err) {
+      setError(errorMessage(err, "Could not update live import"));
+    }
+  };
 
   // Parse free text (single URL, comma- or newline-separated list) into
   // normalized LinkedIn profile URLs, appended without duplicates.
@@ -179,10 +227,12 @@ export function ImportModal({
   // being stuck on "+ New list…".
   useEffect(() => {
     if (!open) return;
-    setListMode(lists.length ? "existing" : "new");
+    setListMode(lockedCampaign ? "none" : lists.length ? "existing" : "new");
     setListId(lists[0]?.id ?? "");
     setSourceListId(lists[0]?.id ?? "");
-  }, [open, lists]);
+    if (lockedCampaign) setCampaignId(lockedCampaign.id);
+    void fetchSources();
+  }, [open, lists, lockedCampaign, fetchSources]);
 
   const onFile = async (file: File): Promise<void> => {
     const text = await file.text();
@@ -201,7 +251,9 @@ export function ImportModal({
 
   const buildBody = (): Record<string, unknown> | null => {
     const target: Record<string, unknown> = {};
-    if (listMode === "existing") {
+    if (listMode === "none") {
+      target.skipList = true;
+    } else if (listMode === "existing") {
       if (!listId) {
         setError("Choose a list to import into.");
         return null;
@@ -213,6 +265,8 @@ export function ImportModal({
     if (campaignId) target.campaignId = campaignId;
     const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
     if (tagList.length) target.tags = tagList;
+    // Continuous import (LinkedIn sources only — guarded by the toggle's visibility).
+    const refreshFields = autoRefresh ? { autoRefresh: true, intervalMinutes } : {};
 
     if (source === "csv") {
       if (!csvText || headers.length === 0) {
@@ -255,6 +309,7 @@ export function ImportModal({
         keywords: keywords.trim() || undefined,
         filters: Object.keys(filters).length ? filters : undefined,
         limit,
+        ...refreshFields,
         ...target,
       };
     }
@@ -268,6 +323,7 @@ export function ImportModal({
       url: url.trim(),
       ...(source === "post" ? { engagement } : {}),
       limit,
+      ...refreshFields,
       ...target,
     };
   };
@@ -304,6 +360,9 @@ export function ImportModal({
       const job = await api.request<ImportJobView>("/leads/import", { method: "POST", body });
       await pollJob(job.id);
       await onImported();
+      if (autoRefresh) {
+        void fetchSources();
+      }
     } catch (err) {
       setError(errorMessage(err, "Import failed"));
     } finally {
@@ -321,11 +380,44 @@ export function ImportModal({
     <Modal
       open={open}
       onClose={close}
-      title="Import contacts"
-      description="Bring in leads from a CSV or a LinkedIn source. Duplicates are removed automatically."
+      title={lockedCampaign ? "Import leads into this campaign" : "Import contacts"}
+      description={
+        lockedCampaign
+          ? "Bring in new leads and enroll them straight into this campaign. Duplicates are removed automatically."
+          : "Bring in leads from a CSV or a LinkedIn source. Duplicates are removed automatically."
+      }
       className="max-w-2xl"
     >
       <form onSubmit={onSubmit} className="space-y-5">
+        {liveSources.length > 0 ? (
+          <div className="space-y-2 rounded-xl border bg-secondary/30 p-3">
+            <p className="text-xs font-semibold text-muted-foreground">Live imports</p>
+            {liveSources.map((s) => (
+              <div key={s.id} className="flex items-center gap-2 rounded-lg bg-card px-2.5 py-1.5 text-xs">
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-medium capitalize">{s.source.replace(/_/g, " ")}</span>
+                  {" · "}
+                  {INTERVAL_OPTIONS.find((o) => o.value === s.intervalMinutes)?.label ?? `every ${s.intervalMinutes}m`}
+                  {" · "}
+                  <span className={s.status === "active" ? "text-success" : "text-muted-foreground"}>{s.status}</span>
+                </span>
+                {s.status === "active" ? (
+                  <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => void sourceAction(s.id, "pause")}>
+                    Pause
+                  </button>
+                ) : (
+                  <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => void sourceAction(s.id, "resume")}>
+                    Resume
+                  </button>
+                )}
+                <button type="button" className="text-muted-foreground hover:text-destructive" onClick={() => void sourceAction(s.id, "delete")}>
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         {/* Source picker */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {IMPORT_SOURCES.map((s) => (
@@ -473,10 +565,11 @@ export function ImportModal({
                 <Select
                   id="src-eng"
                   value={engagement}
-                  onChange={(e) => setEngagement(e.target.value as "likers" | "commenters")}
+                  onChange={(e) => setEngagement(e.target.value as "likers" | "commenters" | "both")}
                 >
                   <option value="likers">People who liked the post</option>
                   <option value="commenters">People who commented</option>
+                  <option value="both">Both — likers and commenters</option>
                 </Select>
               </div>
             ) : null}
@@ -522,21 +615,68 @@ export function ImportModal({
           </div>
         ) : null}
 
+        {/* Continuous import toggle (LinkedIn sources) */}
+        {isUrlSource || source === "lead_finder" ? (
+          <div className="space-y-2 rounded-xl border bg-secondary/40 p-4">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+                className="size-4 accent-primary"
+              />
+              Keep importing new leads (live import)
+            </label>
+            <p className="text-xs text-muted-foreground">
+              Re-checks this source on a schedule and auto-imports only NEW likes/comments/results after setup.
+            </p>
+            {autoRefresh ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Check</span>
+                <Select
+                  value={String(intervalMinutes)}
+                  onChange={(e) => setIntervalMinutes(Number(e.target.value))}
+                  className="h-8 w-40 text-xs"
+                >
+                  {INTERVAL_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* Target list + campaign + tags */}
         <div className="space-y-3 rounded-xl border bg-secondary/40 p-4">
+          {lockedCampaign ? (
+            <div className="space-y-1.5">
+              <Label>Enrolling into</Label>
+              <div className="flex flex-wrap items-center gap-x-2 rounded-lg border bg-card px-3 py-2 text-sm">
+                <span className="font-medium">{lockedCampaign.name}</span>
+                <span className="text-muted-foreground">— new leads are added straight to this campaign</span>
+              </div>
+            </div>
+          ) : null}
           <div className="space-y-1.5">
             <Label>Import into</Label>
             <Select
-              value={listMode === "existing" ? listId : "__new__"}
+              value={listMode === "none" ? "__none__" : listMode === "existing" ? listId : "__new__"}
               onChange={(e) => {
-                if (e.target.value === "__new__") {
+                const v = e.target.value;
+                if (v === "__none__") {
+                  setListMode("none");
+                } else if (v === "__new__") {
                   setListMode("new");
                 } else {
                   setListMode("existing");
-                  setListId(e.target.value);
+                  setListId(v);
                 }
               }}
             >
+              <option value="__none__">Don&apos;t add to a list (Contacts only)</option>
               {lists.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
@@ -551,19 +691,26 @@ export function ImportModal({
                 placeholder="New list name (optional — auto-named if blank)"
               />
             ) : null}
+            {listMode === "none" ? (
+              <p className="text-xs text-muted-foreground">
+                Leads are added to your Contacts{lockedCampaign ? " and this campaign" : ""} — no new list is created.
+              </p>
+            ) : null}
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="enroll">Enroll in campaign (optional)</Label>
-              <Select id="enroll" value={campaignId} onChange={(e) => setCampaignId(e.target.value)}>
-                <option value="">No campaign</option>
-                {campaigns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
+          <div className={`grid grid-cols-1 gap-3 ${lockedCampaign ? "" : "sm:grid-cols-2"}`}>
+            {lockedCampaign ? null : (
+              <div className="space-y-1.5">
+                <Label htmlFor="enroll">Enroll in campaign (optional)</Label>
+                <Select id="enroll" value={campaignId} onChange={(e) => setCampaignId(e.target.value)}>
+                  <option value="">No campaign</option>
+                  {campaigns.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="def-tags">Tags (optional)</Label>
               <Input id="def-tags" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="vip, q3-outbound" />

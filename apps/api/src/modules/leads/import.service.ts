@@ -51,6 +51,20 @@ export interface ImportJobView {
   updatedAt: string;
 }
 
+export interface ImportSourceView {
+  id: string;
+  source: string;
+  status: string;
+  listId: string | null;
+  campaignId: string | null;
+  params: unknown;
+  intervalMinutes: number;
+  lastRunAt: string | null;
+  nextRunAt: string;
+  lastJobId: string | null;
+  createdAt: string;
+}
+
 interface PersistResult {
   createdLeadIds: string[];
   /** All resolved lead ids (created + matched existing), for list + enroll. */
@@ -80,7 +94,7 @@ export class ImportService {
   /** Create a pending import job, enqueue it, and return it immediately. */
   async startImport(
     workspaceId: string,
-    userId: string,
+    userId: string | null,
     request: ImportRequestDto,
   ): Promise<ImportJobView> {
     // Validate references up front so the caller gets a clean error (not a job
@@ -95,21 +109,47 @@ export class ImportService {
       await this.requireList(workspaceId, request.sourceListId);
     }
 
+    // Continuous import: pin a stable target list NOW so every re-run lands in the
+    // same list, then register the recurring source after the first job is queued.
+    let effective: ImportRequestDto = request;
+    if (
+      request.source !== "csv" &&
+      request.source !== "list" &&
+      request.source !== "profile_urls" &&
+      request.autoRefresh &&
+      !request.listId
+    ) {
+      const listId = await this.resolveTargetList(workspaceId, request);
+      // null = skipList: leave it unpinned so each tick stays list-free too.
+      if (listId) {
+        effective = { ...request, listId };
+      }
+    }
+
     const job = await this.db
       .insertInto("import_jobs")
       .values({
         workspace_id: workspaceId,
-        source: request.source as ImportSource,
+        source: effective.source as ImportSource,
         status: "pending",
-        list_id: request.listId ?? null,
-        campaign_id: request.campaignId ?? null,
-        params: JSON.stringify(this.describeParams(request)),
+        list_id: effective.listId ?? null,
+        campaign_id: effective.campaignId ?? null,
+        params: JSON.stringify(this.describeParams(effective)),
         created_by: userId,
       })
       .returning(IMPORT_JOB_COLUMNS)
       .executeTakeFirstOrThrow();
 
-    this.queue.enqueue(job.id, () => this.runJob(job.id, workspaceId, request));
+    this.queue.enqueue(job.id, () => this.runJob(job.id, workspaceId, effective));
+
+    if (
+      effective.source !== "csv" &&
+      effective.source !== "list" &&
+      effective.source !== "profile_urls" &&
+      effective.autoRefresh
+    ) {
+      await this.createImportSource(workspaceId, userId, effective, job.id);
+    }
     return toJobView(job);
   }
 
@@ -135,6 +175,140 @@ export class ImportService {
       throw new NotFoundException("Import job not found");
     }
     return toJobView(row);
+  }
+
+  // --- continuous / auto-refresh sources ------------------------------------
+
+  /** Register a recurring "live import" source (continuous import). */
+  private async createImportSource(
+    workspaceId: string,
+    userId: string | null,
+    request: Extract<ImportRequestDto, { source: LeadSourceKind }>,
+    jobId: string,
+  ): Promise<void> {
+    const interval = Math.max(15, request.intervalMinutes ?? 60);
+    const params = {
+      url: request.url,
+      keywords: request.keywords,
+      filters: request.filters,
+      engagement: request.engagement,
+      accountId: request.accountId,
+      limit: request.limit,
+      tags: request.tags,
+    };
+    await this.db
+      .insertInto("import_sources")
+      .values({
+        workspace_id: workspaceId,
+        source: request.source as ImportSource,
+        params: JSON.stringify(params),
+        list_id: request.listId ?? null,
+        campaign_id: request.campaignId ?? null,
+        interval_minutes: interval,
+        status: "active",
+        next_run_at: new Date(Date.now() + interval * 60_000).toISOString(),
+        last_job_id: jobId,
+        created_by: userId,
+      })
+      .execute();
+    this.logger.log(`Registered live import source (${request.source}, every ${interval}m) for ws ${workspaceId}`);
+  }
+
+  async listSources(workspaceId: string): Promise<ImportSourceView[]> {
+    const rows = await this.db
+      .selectFrom("import_sources")
+      .select(IMPORT_SOURCE_COLUMNS)
+      .where("workspace_id", "=", workspaceId)
+      .orderBy("created_at", "desc")
+      .limit(50)
+      .execute();
+    return rows.map(toSourceView);
+  }
+
+  async pauseSource(workspaceId: string, id: string): Promise<{ status: string }> {
+    await this.setSourceStatus(workspaceId, id, "paused");
+    return { status: "paused" };
+  }
+
+  async resumeSource(workspaceId: string, id: string): Promise<{ status: string }> {
+    const updated = await this.db
+      .updateTable("import_sources")
+      .set({ status: "active", next_run_at: new Date().toISOString() })
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", id)
+      .returning("id")
+      .executeTakeFirst();
+    if (!updated) {
+      throw new NotFoundException("Live import not found");
+    }
+    return { status: "active" };
+  }
+
+  async deleteSource(workspaceId: string, id: string): Promise<{ deleted: true }> {
+    const deleted = await this.db
+      .deleteFrom("import_sources")
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", id)
+      .returning("id")
+      .executeTakeFirst();
+    if (!deleted) {
+      throw new NotFoundException("Live import not found");
+    }
+    return { deleted: true };
+  }
+
+  private async setSourceStatus(
+    workspaceId: string,
+    id: string,
+    status: "active" | "paused",
+  ): Promise<void> {
+    const updated = await this.db
+      .updateTable("import_sources")
+      .set({ status })
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", id)
+      .returning("id")
+      .executeTakeFirst();
+    if (!updated) {
+      throw new NotFoundException("Live import not found");
+    }
+  }
+
+  /**
+   * Run every due, active import source (called by the continuous-import poller on
+   * an interval). Each tick spawns a normal import job; workspace dedupe means only
+   * NEW leads persist. `next_run_at` is always advanced so a failure can't hot-loop.
+   */
+  async runDueSources(): Promise<number> {
+    const nowIso = new Date().toISOString();
+    const due = await this.db
+      .selectFrom("import_sources")
+      .select(IMPORT_SOURCE_COLUMNS)
+      .where("status", "=", "active")
+      .where("next_run_at", "<=", nowIso)
+      .orderBy("next_run_at", "asc")
+      .limit(10)
+      .execute();
+
+    for (const src of due) {
+      const next = new Date(Date.now() + Math.max(15, src.interval_minutes) * 60_000).toISOString();
+      try {
+        const job = await this.startImport(src.workspace_id, src.created_by, requestFromSource(src));
+        await this.db
+          .updateTable("import_sources")
+          .set({ last_run_at: nowIso, next_run_at: next, last_job_id: job.id })
+          .where("id", "=", src.id)
+          .execute();
+      } catch (err) {
+        this.logger.warn(`Live import ${src.id} tick failed: ${String(err)}`);
+        await this.db
+          .updateTable("import_sources")
+          .set({ last_run_at: nowIso, next_run_at: next })
+          .where("id", "=", src.id)
+          .execute();
+      }
+    }
+    return due.length;
   }
 
   // --- execution ------------------------------------------------------------
@@ -257,7 +431,7 @@ export class ImportService {
     workspaceId: string,
     candidates: Candidate[],
     defaultTags: string[],
-    listId: string,
+    listId: string | null,
   ): Promise<PersistResult> {
     const keyed = new Map<string, Candidate>();
     const unkeyed: Candidate[] = [];
@@ -366,7 +540,7 @@ export class ImportService {
   private async importFromList(
     workspaceId: string,
     sourceListId: string,
-    targetListId: string,
+    targetListId: string | null,
   ): Promise<PersistResult & { total: number }> {
     const rows = await this.db
       .selectFrom("list_leads")
@@ -394,10 +568,10 @@ export class ImportService {
   /** Link leads to a list (idempotent). Returns how many memberships were new. */
   private async addLeadsToList(
     workspaceId: string,
-    listId: string,
+    listId: string | null,
     leadIds: string[],
   ): Promise<number> {
-    if (leadIds.length === 0) {
+    if (!listId || leadIds.length === 0) {
       return 0;
     }
     const inserted = await this.db
@@ -446,9 +620,14 @@ export class ImportService {
   private async resolveTargetList(
     workspaceId: string,
     request: ImportRequestDto,
-  ): Promise<string> {
+  ): Promise<string | null> {
     if (request.listId) {
       return request.listId;
+    }
+    // Opt-out of list creation entirely (e.g. in-campaign import): leads still
+    // land in the Contacts pool + campaign, but no contact group is spawned.
+    if (request.skipList && !request.listName) {
+      return null;
     }
     const name = request.listName?.trim() || this.defaultListName(request);
     const created = await this.db
@@ -628,4 +807,69 @@ function toJobView(row: {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+const IMPORT_SOURCE_COLUMNS = [
+  "id",
+  "workspace_id",
+  "source",
+  "status",
+  "list_id",
+  "campaign_id",
+  "params",
+  "interval_minutes",
+  "last_run_at",
+  "next_run_at",
+  "last_job_id",
+  "created_by",
+  "created_at",
+] as const;
+
+interface ImportSourceRow {
+  id: string;
+  workspace_id: string;
+  source: string;
+  status: string;
+  list_id: string | null;
+  campaign_id: string | null;
+  params: unknown;
+  interval_minutes: number;
+  last_run_at: string | null;
+  next_run_at: string;
+  last_job_id: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+function toSourceView(row: ImportSourceRow): ImportSourceView {
+  return {
+    id: row.id,
+    source: row.source,
+    status: row.status,
+    listId: row.list_id,
+    campaignId: row.campaign_id,
+    params: row.params,
+    intervalMinutes: row.interval_minutes,
+    lastRunAt: row.last_run_at,
+    nextRunAt: row.next_run_at,
+    lastJobId: row.last_job_id,
+    createdAt: row.created_at,
+  };
+}
+
+/** Rebuild an import request from a saved recurring source (no autoRefresh → no re-register). */
+function requestFromSource(row: ImportSourceRow): ImportRequestDto {
+  const p = (row.params ?? {}) as Record<string, unknown>;
+  return {
+    source: row.source,
+    url: typeof p.url === "string" ? p.url : undefined,
+    keywords: typeof p.keywords === "string" ? p.keywords : undefined,
+    filters: p.filters,
+    engagement: p.engagement,
+    accountId: typeof p.accountId === "string" ? p.accountId : undefined,
+    limit: typeof p.limit === "number" ? p.limit : undefined,
+    listId: row.list_id ?? undefined,
+    campaignId: row.campaign_id ?? undefined,
+    tags: Array.isArray(p.tags) ? (p.tags as string[]) : undefined,
+  } as ImportRequestDto;
 }

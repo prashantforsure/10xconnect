@@ -1,62 +1,47 @@
 "use client";
 
-import { type GenNode, isBodyConfigured } from "@10xconnect/core";
-import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, GitBranch, Layers, MessageSquare, Play, Plus, Sparkles, Trash2, Users, Wand2, Zap } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { type GenNode } from "@10xconnect/core";
+import { Sparkles, Wand2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BuildWithAiModal } from "./build-with-ai";
+import { SequenceCanvas } from "./builder/canvas";
+import { type BuilderContextValue, BuilderProvider, type NodeStatsResponse } from "./builder/context";
 import { ComposerPanel } from "./composer/composer-panel";
 import type { PreviewSample } from "./composer/preview-modal";
 import type { SenderAccount } from "./composer/sender-select";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
+import { configForTypeChange, defaultConfigFor, isComposerType } from "@/lib/campaigns/composer";
 import {
-  configForTypeChange,
-  hasTextBody,
-  isComposerType,
-  readComposer,
-} from "@/lib/campaigns/composer";
-import { ACTION_NODES, CONDITION_NODES, nodeDef } from "@/lib/campaigns/nodes";
+  byId,
+  createNode,
+  type Edge,
+  type GraphNode,
+  insertChainAtEdge,
+  insertNodeAtEdge,
+  linearChain,
+  moveNode,
+  removeNode as removeNodeFromGraph,
+  rootId,
+  setNodeConfig,
+  changeNodeType,
+  toSavePayload,
+} from "@/lib/campaigns/graph";
+import { buildTemplate, type TemplateKind } from "@/lib/campaigns/templates";
 import { useWorkspace } from "@/lib/workspace/context";
 
-interface GraphNode {
-  id: string;
-  kind: "action" | "condition";
-  type: string;
-  config: Record<string, unknown>;
-  next: string | null;
-  true: string | null;
-  false: string | null;
-  delayDays: number | null;
-}
-
-interface Step {
-  id: string;
-  kind: "action" | "condition";
-  type: string;
-  config: Record<string, unknown>;
-}
-
-let localCounter = 0;
-const localId = (): string => `n${Date.now()}_${localCounter++}`;
+const AUTOSAVE_DEBOUNCE_MS = 1200;
 
 function errorMessage(err: unknown, fallback: string): string {
   return (err as ApiError)?.message ?? (err instanceof Error ? err.message : fallback);
 }
 
-// Used when the campaign has no leads so Preview always shows something. The second
-// lead has empty Biography/Company Overview to demonstrate fallback + skip-on-empty.
+// Demo preview leads when the campaign has none yet (second lead has empty
+// Biography/Company Overview to demonstrate fallback + skip-on-empty).
 const DEMO_SAMPLES: PreviewSample[] = [
   {
     leadId: "demo-1",
@@ -88,66 +73,18 @@ const DEMO_SAMPLES: PreviewSample[] = [
   },
 ];
 
-/** Follow the saved chain (next / true edges) into an ordered step list. */
-function linearize(nodes: GraphNode[]): Step[] {
-  if (nodes.length === 0) {
-    return [];
-  }
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const targeted = new Set<string>();
-  for (const n of nodes) {
-    for (const e of [n.next, n.true, n.false]) {
-      if (e) {
-        targeted.add(e);
-      }
-    }
-  }
-  let cur: GraphNode | undefined = nodes.find((n) => !targeted.has(n.id)) ?? nodes[0];
-  const steps: Step[] = [];
-  const seen = new Set<string>();
-  while (cur && !seen.has(cur.id)) {
-    seen.add(cur.id);
-    steps.push({ id: cur.id, kind: cur.kind, type: cur.type, config: cur.config ?? {} });
-    const nextId: string | null = cur.kind === "condition" ? cur.true : cur.next;
-    cur = nextId ? byId.get(nextId) : undefined;
-  }
-  return steps;
-}
-
-const TEMPLATE: Step[] = [
-  { id: localId(), kind: "action", type: "like_last_post", config: {} },
-  { id: localId(), kind: "action", type: "send_connection_request", config: {} },
-  { id: localId(), kind: "condition", type: "invite_accepted", config: {} },
-  { id: localId(), kind: "action", type: "wait_x_days", config: { days: 1 } },
+// Recommended starter sequence (linear; the user can fork it afterwards).
+const TEMPLATE_FLAT: { kind: "action" | "condition"; type: string; config: Record<string, unknown> }[] = [
+  { kind: "action", type: "like_last_post", config: {} },
+  { kind: "action", type: "send_connection_request", config: {} },
+  { kind: "condition", type: "invite_accepted", config: {} },
+  { kind: "action", type: "wait_x_days", config: { days: 1 } },
   {
-    id: localId(),
     kind: "action",
     type: "send_message",
     config: { body: "Hi {first_name}, thanks for connecting! What are you focused on at {company} this quarter?" },
   },
 ];
-
-// Follow-up discipline templates (§7). Ids are assigned when inserted.
-function engagementNurtureSteps(): Step[] {
-  return [
-    { id: "", kind: "action", type: "like_last_post", config: {} },
-    { id: "", kind: "action", type: "wait_x_days", config: { days: 2 } },
-    { id: "", kind: "action", type: "visit_profile", config: {} },
-    { id: "", kind: "action", type: "wait_x_days", config: { days: 2 } },
-    { id: "", kind: "action", type: "comment_last_post", config: {} },
-  ];
-}
-function revisitSteps(): Step[] {
-  return [
-    { id: "", kind: "action", type: "wait_x_days", config: { days: 60 } },
-    {
-      id: "",
-      kind: "action",
-      type: "send_message",
-      config: { body: "Hi {first_name}, circling back with a fresh angle — worth a quick chat about {company}?" },
-    },
-  ];
-}
 
 export function BuilderTab({
   campaignId,
@@ -160,32 +97,52 @@ export function BuilderTab({
 }) {
   const api = useApi();
   const { activeWorkspaceId } = useWorkspace();
-  const [steps, setSteps] = useState<Step[]>([]);
+  const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [nodeCounts, setNodeCounts] = useState<Record<string, number>>({});
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [stats, setStats] = useState<NodeStatsResponse | null>(null);
   const [buildOpen, setBuildOpen] = useState(false);
   const [refineText, setRefineText] = useState("");
   const [refining, setRefining] = useState(false);
+
+  // Autosave bookkeeping (debounced silent PUT; survives tab switch / reload).
+  const nodesRef = useRef<GraphNode[]>(nodes);
+  const dirtyRef = useRef(dirty);
+  const runningRef = useRef(running);
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savingRef = useRef(false);
+  const pendingRef = useRef(false);
+  const editGenRef = useRef(0);
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
+  useEffect(() => {
+    runningRef.current = running;
+  }, [running]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.request<{ nodes: GraphNode[] }>(`/campaigns/${campaignId}/sequence`);
-      setSteps(linearize(res.nodes));
+      setNodes(res.nodes ?? []);
       setDirty(false);
-      try {
-        const counts = await api.request<Record<string, number>>(
-          `/campaigns/${campaignId}/sequence/node-counts`,
-        );
-        setNodeCounts(counts ?? {});
-      } catch {
-        setNodeCounts({});
-      }
+      // Live stats — best-effort; the canvas renders without them.
+      void api
+        .request<Record<string, number>>(`/campaigns/${campaignId}/sequence/node-counts`)
+        .then((c) => setCounts(c ?? {}))
+        .catch(() => setCounts({}));
+      void api
+        .request<NodeStatsResponse>(`/campaigns/${campaignId}/sequence/node-stats`)
+        .then(setStats)
+        .catch(() => setStats(null));
     } catch (err) {
       setError(errorMessage(err, "Could not load sequence"));
     } finally {
@@ -197,39 +154,71 @@ export function BuilderTab({
     void load();
   }, [load]);
 
-  const mutate = (next: Step[]): void => {
-    setSteps(next);
+  const mutate = useCallback((next: GraphNode[]): void => {
+    editGenRef.current += 1;
+    setNodes(next);
     setDirty(true);
-    setSaved(false);
-  };
-  const addStep = (kind: "action" | "condition", type: string): void => {
-    const id = localId();
-    const added: Step[] = [{ id, kind, type, config: type === "wait_x_days" ? { days: 3 } : {} }];
+    scheduleAutosave();
+  }, []);
+
+  // --- builder handlers ----------------------------------------------------
+
+  const insertNode = (edge: Edge, kind: "action" | "condition", type: string): void => {
+    const node = createNode(kind, type, defaultConfigFor(type));
+    let next = insertNodeAtEdge(nodes, edge, node);
     // Voice notes auto-append a short "quick voice note for context" message (§7).
     if (type === "send_voice_note") {
-      added.push({
-        id: localId(),
-        kind: "action",
-        type: "send_message",
-        config: { body: "Quick voice note for context 🎙️" },
-      });
+      const msg = createNode("action", "send_message", { body: "Quick voice note for context 🎙️" });
+      next = insertNodeAtEdge(next, { parentId: node.id, slot: "next" }, msg);
     }
-    mutate([...steps, ...added]);
+    mutate(next);
     if (isComposerType(type)) {
-      setSelectedId(id);
+      setSelectedId(node.id);
     }
-  };
-  const insertTemplate = (which: "nurture" | "revisit"): void => {
-    const tpl = which === "nurture" ? engagementNurtureSteps() : revisitSteps();
-    mutate([...steps, ...tpl.map((s) => ({ ...s, id: localId() }))]);
   };
 
-  // AI generator (E4): replace the canvas with the generated graph. Editable +
-  // never auto-launched — the user reviews then clicks Run it!.
-  const applyGenerated = (nodes: GenNode[]): void => {
-    setSelectedId(null);
-    mutate(nodes.map((n) => ({ id: localId(), kind: n.kind, type: n.type, config: n.config })));
+  const insertTemplate = (edge: Edge, which: TemplateKind): void => {
+    const { chain, entryId, tailNodeId } = buildTemplate(which);
+    mutate(insertChainAtEdge(nodes, edge, chain, entryId, tailNodeId));
   };
+
+  const remove = (id: string): void => {
+    if (selectedId === id) {
+      setSelectedId(null);
+    }
+    mutate(removeNodeFromGraph(nodes, id));
+  };
+
+  const move = (id: string, dir: -1 | 1): void => {
+    mutate(moveNode(nodes, id, dir));
+  };
+
+  const updateConfig = (id: string, key: string, value: unknown): void => {
+    const node = byId(nodes).get(id);
+    if (!node) {
+      return;
+    }
+    mutate(setNodeConfig(nodes, id, { ...node.config, [key]: value }));
+  };
+
+  const setConfig = (id: string, config: Record<string, unknown>): void => {
+    mutate(setNodeConfig(nodes, id, config));
+  };
+
+  const changeType = (id: string, type: string): void => {
+    const node = byId(nodes).get(id);
+    if (!node) {
+      return;
+    }
+    mutate(changeNodeType(nodes, id, type, configForTypeChange(node.config, type)));
+  };
+
+  // AI generator + recommended template replace the canvas with a linear chain.
+  const applyGenerated = (gen: GenNode[]): void => {
+    setSelectedId(null);
+    mutate(linearChain(gen.map((n) => ({ kind: n.kind, type: n.type, config: n.config }))));
+  };
+
   const refine = async (): Promise<void> => {
     const instruction = refineText.trim();
     if (!instruction || refining) {
@@ -238,7 +227,7 @@ export function BuilderTab({
     setRefining(true);
     setError(null);
     try {
-      const currentGraph = steps.map((s) => ({ kind: s.kind, type: s.type, config: s.config }));
+      const currentGraph = nodes.map((s) => ({ kind: s.kind, type: s.type, config: s.config }));
       const res = await api.request<{ nodes: GenNode[] }>(`/campaigns/${campaignId}/generate`, {
         method: "POST",
         body: { instruction, currentGraph },
@@ -251,34 +240,6 @@ export function BuilderTab({
       setRefining(false);
     }
   };
-  const setConfig = (id: string, config: Record<string, unknown>): void => {
-    mutate(steps.map((s) => (s.id === id ? { ...s, config } : s)));
-  };
-  const updateConfig = (id: string, key: string, value: unknown): void => {
-    mutate(steps.map((s) => (s.id === id ? { ...s, config: { ...s.config, [key]: value } } : s)));
-  };
-  const changeType = (id: string, type: string): void => {
-    mutate(
-      steps.map((s) =>
-        s.id === id ? { ...s, type, config: configForTypeChange(s.config, type) } : s,
-      ),
-    );
-  };
-  const remove = (id: string): void => {
-    if (selectedId === id) {
-      setSelectedId(null);
-    }
-    mutate(steps.filter((s) => s.id !== id));
-  };
-  const move = (index: number, dir: -1 | 1): void => {
-    const j = index + dir;
-    if (j < 0 || j >= steps.length) {
-      return;
-    }
-    const next = [...steps];
-    [next[index], next[j]] = [next[j], next[index]];
-    mutate(next);
-  };
 
   const loadSamples = useCallback(async (): Promise<PreviewSample[]> => {
     try {
@@ -289,43 +250,105 @@ export function BuilderTab({
     }
   }, [api, campaignId]);
 
-  const save = async (): Promise<void> => {
-    setSaving(true);
-    setError(null);
-    try {
-      const nodes = steps.map((s, i) => {
-        const nextLocal = steps[i + 1]?.id ?? null;
-        return {
-          id: s.id,
-          kind: s.kind,
-          type: s.type,
-          config: s.config,
-          next: s.kind === "action" ? nextLocal : null,
-          true: s.kind === "condition" ? nextLocal : null,
-          false: null,
-          delayDays: s.type === "wait_x_days" ? Number(s.config.days) || 1 : null,
-        };
-      });
-      const res = await api.request<{ nodes: GraphNode[] }>(`/campaigns/${campaignId}/sequence`, {
-        method: "PUT",
-        body: { nodes },
-      });
-      setSteps(linearize(res.nodes));
-      setSelectedId(null); // node ids are reassigned on save
-      setDirty(false);
-      setSaved(true);
-    } catch (err) {
-      setError(errorMessage(err, "Could not save sequence"));
-    } finally {
-      setSaving(false);
+  // --- autosave (silent, debounced full-replace PUT) -----------------------
+
+  const autosave = useCallback(async (): Promise<void> => {
+    if (runningRef.current || !dirtyRef.current) {
+      return;
     }
-  };
+    if (savingRef.current) {
+      pendingRef.current = true;
+      return;
+    }
+    savingRef.current = true;
+    const gen = editGenRef.current;
+    setSaving(true);
+    try {
+      await api.request(`/campaigns/${campaignId}/sequence`, {
+        method: "PUT",
+        body: { nodes: toSavePayload(nodesRef.current) },
+      });
+      setLastSavedAt(Date.now());
+      setError(null);
+      if (editGenRef.current === gen) {
+        dirtyRef.current = false;
+        setDirty(false);
+      }
+    } catch (err) {
+      setError(errorMessage(err, "Autosave failed — your edits are kept here; click Save now to retry"));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+      if (pendingRef.current) {
+        pendingRef.current = false;
+        void autosaveRef.current();
+      }
+    }
+  }, [api, campaignId]);
+
+  const autosaveRef = useRef(autosave);
+  autosaveRef.current = autosave;
+
+  const scheduleAutosave = useCallback((): void => {
+    if (autosaveTimer.current) {
+      clearTimeout(autosaveTimer.current);
+    }
+    autosaveTimer.current = setTimeout(() => void autosaveRef.current(), AUTOSAVE_DEBOUNCE_MS);
+  }, []);
+
+  const flushSave = useCallback((): void => {
+    if (autosaveTimer.current) {
+      clearTimeout(autosaveTimer.current);
+    }
+    void autosaveRef.current();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (autosaveTimer.current) {
+        clearTimeout(autosaveTimer.current);
+      }
+      void autosaveRef.current();
+    };
+  }, []);
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+      if (dirtyRef.current && !runningRef.current) {
+        void autosaveRef.current();
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
+  const ctx: BuilderContextValue = useMemo(
+    () => ({
+      running,
+      nodeMap: byId(nodes),
+      root: rootId(nodes),
+      counts,
+      stats,
+      selectedId,
+      insertNode,
+      insertTemplate,
+      remove,
+      move,
+      updateConfig,
+      selectComposer: setSelectedId,
+    }),
+    // Handlers close over `nodes`; recompute when the graph or stats change.
+    [nodes, counts, stats, selectedId, running],
+  );
 
   if (loading) {
     return <p className="text-sm text-muted-foreground">Loading sequence…</p>;
   }
 
-  const selected = steps.find((s) => s.id === selectedId && isComposerType(s.type)) ?? null;
+  const selected = nodes.find((n) => n.id === selectedId && isComposerType(n.type)) ?? null;
+  const stepCount = nodes.length;
 
   return (
     <div className="space-y-4">
@@ -336,31 +359,34 @@ export function BuilderTab({
       ) : null}
 
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          {steps.length} step{steps.length === 1 ? "" : "s"}
-        </p>
+        <div className="text-sm text-muted-foreground">
+          <p>
+            {stepCount} step{stepCount === 1 ? "" : "s"}
+          </p>
+          {!running ? <SaveStatus saving={saving} dirty={dirty} lastSavedAt={lastSavedAt} /> : null}
+        </div>
         <div className="flex gap-2">
-          {steps.length === 0 && !running ? (
+          {stepCount === 0 && !running ? (
             <>
               <Button variant="outline" onClick={() => setBuildOpen(true)}>
                 <Wand2 />
                 Build with AI
               </Button>
-              <Button variant="outline" onClick={() => mutate(TEMPLATE.map((s) => ({ ...s, id: localId() })))}>
+              <Button variant="outline" onClick={() => applyGenerated(TEMPLATE_FLAT as GenNode[])}>
                 <Sparkles />
                 Use recommended template
               </Button>
             </>
           ) : null}
-          <Button onClick={() => void save()} disabled={!dirty || saving || running}>
-            {saving ? "Saving…" : saved && !dirty ? "Saved" : "Save sequence"}
+          <Button onClick={flushSave} disabled={!dirty || saving || running}>
+            {saving ? "Saving…" : "Save now"}
           </Button>
         </div>
       </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-      {steps.length > 0 && !running ? (
+      {stepCount > 0 && !running ? (
         <div className="flex items-center gap-2 rounded-xl border bg-secondary/40 px-3 py-2">
           <Wand2 className="size-4 shrink-0 text-primary" />
           <Input
@@ -381,187 +407,18 @@ export function BuilderTab({
         </div>
       ) : null}
 
-      <BuildWithAiModal
-        open={buildOpen}
-        onClose={() => setBuildOpen(false)}
-        campaignId={campaignId}
-        onApply={applyGenerated}
-      />
+      <BuildWithAiModal open={buildOpen} onClose={() => setBuildOpen(false)} campaignId={campaignId} onApply={applyGenerated} />
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_minmax(340px,380px)] lg:items-start">
-        <div
-          className="rounded-2xl border bg-background px-4 py-7"
-          style={{
-            backgroundImage: "radial-gradient(hsl(30 20% 20% / 0.08) 1px, transparent 1px)",
-            backgroundSize: "22px 22px",
-            backgroundPosition: "11px 11px",
-          }}
-        >
-          <div className="flex flex-col items-stretch">
-            {/* Campaign start */}
-            <div className="mx-auto inline-flex items-center gap-2.5 rounded-xl border bg-card px-4 py-3 font-display text-sm font-semibold shadow-soft">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Play className="size-3.5" />
-              </span>
-              Campaign start
-            </div>
+      {/* Canvas keeps a fixed-size viewport; the composer docks beside it (and is
+          collapsible) only when a text-bearing step is selected. minmax(0,1fr) lets
+          the canvas scroll internally instead of growing the page when zoomed. */}
+      <div className={`grid gap-4 lg:items-start ${selected ? "lg:grid-cols-[minmax(0,1fr)_minmax(340px,380px)]" : "lg:grid-cols-1"}`}>
+        <BuilderProvider value={ctx}>
+          <SequenceCanvas />
+        </BuilderProvider>
 
-          {steps.map((step, i) => {
-            const def = nodeDef(step.type);
-            const composer = isComposerType(step.type);
-            const isSelected = selectedId === step.id && composer;
-            const count = nodeCounts[step.id] ?? 0;
-            const misconfigured = composer
-              ? hasTextBody(step.type)
-                ? !isBodyConfigured(readComposer(step.type, step.config).body)
-                : step.type === "send_voice_note" &&
-                  !readComposer(step.type, step.config).audioRef.trim()
-              : false;
-            return (
-              <div key={step.id} className="relative">
-                <div className="mx-auto h-4 w-px bg-border" />
-                <div
-                  className={
-                    "surface-card p-4 transition-shadow" +
-                    (composer ? " cursor-pointer" : "") +
-                    (isSelected ? " ring-2 ring-primary/40" : "")
-                  }
-                  onClick={composer ? () => setSelectedId(step.id) : undefined}
-                >
-                  <div className="flex items-start gap-3">
-                    <span
-                      className={
-                        step.kind === "condition"
-                          ? "mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-tint-violet text-[hsl(265_45%_45%)]"
-                          : "mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-                      }
-                    >
-                      {step.kind === "condition" ? (
-                        <GitBranch className="size-4" />
-                      ) : composer ? (
-                        <MessageSquare className="size-4" />
-                      ) : (
-                        <Zap className="size-4" />
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-medium">{def?.label ?? step.type}</div>
-                        {misconfigured ? (
-                          <Badge variant="warning">
-                            <AlertTriangle className="size-3" />
-                            Action required
-                          </Badge>
-                        ) : null}
-                        <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
-                          <Users className="size-3.5" />
-                          {count}
-                        </span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">{def?.description}</div>
-
-                      {composer ? (
-                        <p className="mt-2 text-[11px] text-muted-foreground">
-                          {isSelected ? "Editing in the composer →" : "Click to open the composer"}
-                        </p>
-                      ) : def && def.fields.length > 0 ? (
-                        <div className="mt-3 space-y-2">
-                          {def.fields.map((f) => (
-                            <div key={f.key} className="space-y-1">
-                              <label className="text-xs font-medium text-muted-foreground">{f.label}</label>
-                              {f.type === "textarea" ? (
-                                <Textarea
-                                  value={String(step.config[f.key] ?? "")}
-                                  onChange={(e) => updateConfig(step.id, f.key, e.target.value)}
-                                  placeholder={f.placeholder}
-                                  disabled={running}
-                                />
-                              ) : (
-                                <Input
-                                  type={f.type === "number" ? "number" : "text"}
-                                  value={String(step.config[f.key] ?? "")}
-                                  onChange={(e) =>
-                                    updateConfig(
-                                      step.id,
-                                      f.key,
-                                      f.type === "number" ? Number(e.target.value) : e.target.value,
-                                    )
-                                  }
-                                  placeholder={f.placeholder}
-                                  disabled={running}
-                                />
-                              )}
-                              {f.help ? <p className="text-[11px] text-muted-foreground">{f.help}</p> : null}
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      {step.kind === "condition" ? (
-                        <p className="mt-2 text-[11px] text-muted-foreground">
-                          On <span className="font-medium text-success">yes</span> → continue to the next
-                          step. On <span className="font-medium text-destructive">no</span> → stop.
-                        </p>
-                      ) : null}
-                    </div>
-
-                    {!running ? (
-                      <div
-                        className="flex shrink-0 gap-1"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Button variant="ghost" size="icon" onClick={() => move(i, -1)} aria-label="Move up">
-                          <ArrowUp className="size-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => move(i, 1)} aria-label="Move down">
-                          <ArrowDown className="size-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => remove(step.id)}
-                          aria-label="Delete step"
-                          className="text-destructive"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-          {!running ? (
-            <>
-              <div className="mx-auto h-4 w-px bg-border" />
-              <div className="flex flex-wrap justify-center gap-2">
-                <AddMenu label="Add action" icon={<Plus className="size-4" />} items={ACTION_NODES} onPick={(t) => addStep("action", t)} />
-                <AddMenu
-                  label="Add condition"
-                  icon={<GitBranch className="size-4" />}
-                  items={CONDITION_NODES}
-                  onPick={(t) => addStep("condition", t)}
-                />
-                <AddMenu
-                  label="Insert template"
-                  icon={<Layers className="size-4" />}
-                  items={[
-                    { type: "nurture", label: "Engagement nurture", description: "like → wait → visit → wait → comment" },
-                    { type: "revisit", label: "Revisit later", description: "long wait, then a fresh-angle message" },
-                  ]}
-                  onPick={(t) => insertTemplate(t as "nurture" | "revisit")}
-                />
-              </div>
-            </>
-          ) : null}
-          </div>
-        </div>
-
-        {/* Composer panel (docked right on lg, stacked below otherwise) */}
-        <div className="lg:sticky lg:top-4">
-          {selected ? (
+        {selected ? (
+          <div className="lg:sticky lg:top-4">
             <div className="surface-card p-4">
               <ComposerPanel
                 key={selected.id}
@@ -569,53 +426,37 @@ export function BuilderTab({
                 config={selected.config}
                 onConfigChange={(config) => setConfig(selected.id, config)}
                 onChangeType={(t) => changeType(selected.id, t)}
+                onCollapse={() => setSelectedId(null)}
                 accounts={accounts}
                 workspaceId={activeWorkspaceId ?? ""}
                 campaignId={campaignId}
-                leadCount={nodeCounts[selected.id] ?? 0}
+                leadCount={counts[selected.id] ?? 0}
                 running={running}
                 loadSamples={loadSamples}
               />
             </div>
-          ) : (
-            <div className="surface-card hidden border-dashed p-6 text-center text-sm text-muted-foreground lg:block">
-              Select a message, voice note, InMail, open-profile, or comment step to open the composer.
-            </div>
-          )}
-        </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function AddMenu({
-  label,
-  icon,
-  items,
-  onPick,
+function SaveStatus({
+  saving,
+  dirty,
+  lastSavedAt,
 }: {
-  label: string;
-  icon: React.ReactNode;
-  items: { type: string; label: string; description: string }[];
-  onPick: (type: string) => void;
+  saving: boolean;
+  dirty: boolean;
+  lastSavedAt: number | null;
 }) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline">
-          {icon}
-          {label}
-          <ChevronDown className="size-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="max-h-80 w-64 overflow-auto">
-        {items.map((it) => (
-          <DropdownMenuItem key={it.type} onSelect={() => onPick(it.type)} className="flex-col items-start">
-            <span className="text-sm font-medium">{it.label}</span>
-            <span className="text-xs text-muted-foreground">{it.description}</span>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+  const text = saving
+    ? "Saving…"
+    : dirty
+      ? "Unsaved changes — autosaving…"
+      : lastSavedAt
+        ? "All changes saved"
+        : "Autosaves as you edit";
+  return <p className="mt-0.5 text-xs text-muted-foreground/80">{text}</p>;
 }

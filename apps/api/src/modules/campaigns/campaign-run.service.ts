@@ -173,6 +173,82 @@ export class CampaignRunService {
     return out;
   }
 
+  /**
+   * Per-node + campaign-summary stats for the builder's connector stat chips.
+   * Everything is real (from lead_campaign_state + actions + leads) and mock-safe
+   * — zeros/empty before a campaign has run. `leads` = leads parked at the node;
+   * `done`/`failed` = executed transport actions for the node.
+   */
+  async nodeStats(
+    workspaceId: string,
+    campaignId: string,
+  ): Promise<{
+    summary: { leads: number; enrichedPct: number };
+    nodes: Record<string, { leads: number; done: number; failed: number }>;
+  }> {
+    await this.campaigns.getRowOr404(workspaceId, campaignId);
+
+    // Leads parked at each node + total enrolled.
+    const stateRows = await this.db
+      .selectFrom("lead_campaign_state")
+      .select(["current_node_id"])
+      .select((eb) => eb.fn.count("lead_id").as("count"))
+      .where("workspace_id", "=", workspaceId)
+      .where("campaign_id", "=", campaignId)
+      .groupBy("current_node_id")
+      .execute();
+
+    const nodes: Record<string, { leads: number; done: number; failed: number }> = {};
+    let totalLeads = 0;
+    for (const r of stateRows) {
+      const c = Number(r.count);
+      totalLeads += c;
+      if (r.current_node_id) {
+        nodes[r.current_node_id] = { leads: c, done: 0, failed: 0 };
+      }
+    }
+
+    // Executed actions per node (success vs failed).
+    const actionRows = await this.db
+      .selectFrom("actions")
+      .select(["node_id", "status"])
+      .select((eb) => eb.fn.count("id").as("count"))
+      .where("workspace_id", "=", workspaceId)
+      .where("campaign_id", "=", campaignId)
+      .where("node_id", "is not", null)
+      .where("status", "in", ["success", "failed"])
+      .groupBy(["node_id", "status"])
+      .execute();
+    for (const r of actionRows) {
+      if (!r.node_id) {
+        continue;
+      }
+      const bucket = (nodes[r.node_id] ??= { leads: 0, done: 0, failed: 0 });
+      if (r.status === "success") bucket.done += Number(r.count);
+      else bucket.failed += Number(r.count);
+    }
+
+    // Enriched fraction across enrolled leads (drives "N leads · X% enriched").
+    const enrichRow = await this.db
+      .selectFrom("lead_campaign_state as lcs")
+      .innerJoin("leads as l", "l.id", "lcs.lead_id")
+      .select((eb) => [
+        eb.fn.countAll<string>().as("total"),
+        eb.fn
+          .count<string>("l.id")
+          .filterWhere("l.enrich_status", "=", "enriched")
+          .as("enriched"),
+      ])
+      .where("lcs.workspace_id", "=", workspaceId)
+      .where("lcs.campaign_id", "=", campaignId)
+      .executeTakeFirst();
+    const enrolled = Number(enrichRow?.total ?? 0);
+    const enriched = Number(enrichRow?.enriched ?? 0);
+    const enrichedPct = enrolled > 0 ? Math.round((enriched / enrolled) * 100) : 0;
+
+    return { summary: { leads: totalLeads, enrichedPct }, nodes };
+  }
+
   /** Up to `limit` sample leads with rendered variables for the composer Preview. */
   async previewSamples(
     workspaceId: string,

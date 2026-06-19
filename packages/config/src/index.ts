@@ -108,13 +108,16 @@ const envSchema = z.object({
   TTS_API_KEY: optionalString,
 
   // Dispatch engine cadence (orchestration brain). Defaults are SAFE for real
-  // accounts: poll every 15s, ~15-min average spacing with ±5-min jitter, respect
-  // working hours. The demo-only knobs (small spacing / ignore working hours) make
-  // a campaign visibly run in minutes on the MOCK adapter — never on a real account.
+  // accounts: poll every 15s, 4–8 min spacing (4-min base + up to 4-min jitter,
+  // ~6 min average — jittered so it never bursts), respect working hours. The
+  // per-account DAILY CAPS remain the hard safety ceiling regardless of spacing —
+  // this cadence just lets an account actually reach those caps within its window.
+  // The demo-only knobs (tiny spacing / ignore working hours) make a campaign
+  // visibly run in seconds on the MOCK adapter — never on a real account.
   DISPATCH_ENABLED: booleanWithDefault(true),
   DISPATCH_TICK_MS: numberWithDefault(15_000),
-  DISPATCH_MIN_SPACING_MS: numberWithDefault(900_000),
-  DISPATCH_JITTER_MS: numberWithDefault(300_000),
+  DISPATCH_MIN_SPACING_MS: numberWithDefault(240_000),
+  DISPATCH_JITTER_MS: numberWithDefault(240_000),
   DISPATCH_IGNORE_WORKING_HOURS: booleanWithDefault(false),
 
   // Payments (Phase 9+)

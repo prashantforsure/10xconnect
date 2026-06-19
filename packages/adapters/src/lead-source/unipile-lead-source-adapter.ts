@@ -119,6 +119,9 @@ export class UnipileLeadSourceAdapter implements LeadSourceAdapter {
     if (!postId) {
       throw new Error("unipile: could not extract a post id from the provided URL");
     }
+    if (query.engagement === "both") {
+      return this.fetchPostBoth(account, postId, query);
+    }
     const path =
       query.engagement === "commenters"
         ? `/api/v1/posts/${encodeURIComponent(postId)}/comments`
@@ -129,6 +132,43 @@ export class UnipileLeadSourceAdapter implements LeadSourceAdapter {
       limit: pageLimit(query.limit),
     });
     return toResult(res);
+  }
+
+  /**
+   * engagement: "both" — page through reactions fully, THEN comments, using a
+   * phase-prefixed cursor ("r:"/"c:"). The import engine's per-workspace dedupe
+   * collapses anyone who both liked and commented, so the merged set has no dups.
+   */
+  private async fetchPostBoth(
+    account: LeadSourceAccountRef,
+    postId: string,
+    query: LeadSourceQuery,
+  ): Promise<LeadSourceResult> {
+    const reactions = `/api/v1/posts/${encodeURIComponent(postId)}/reactions`;
+    const comments = `/api/v1/posts/${encodeURIComponent(postId)}/comments`;
+    const cursor = query.cursor;
+    const params = (c: string | undefined) => ({
+      account_id: this.acc(account),
+      cursor: c,
+      limit: pageLimit(query.limit),
+    });
+
+    if (cursor?.startsWith("c:")) {
+      const res = await this.client.getJson<UnipileSearchResponse>(comments, params(cursor.slice(2) || undefined));
+      const out = toResult(res);
+      out.nextCursor = res.cursor ? `c:${res.cursor}` : undefined;
+      return out;
+    }
+
+    const reactCursor = cursor?.startsWith("r:") ? cursor.slice(2) || undefined : cursor;
+    const res = await this.client.getJson<UnipileSearchResponse>(reactions, params(reactCursor));
+    const out = toResult(res);
+    // Reactions exhausted with nothing on this page → roll straight into comments.
+    if (out.leads.length === 0 && !res.cursor) {
+      return this.fetchPostBoth(account, postId, { ...query, cursor: "c:" });
+    }
+    out.nextCursor = res.cursor ? `r:${res.cursor}` : "c:";
+    return out;
   }
 
   /** The Unipile account id the API addresses (provider handle, else our id). */

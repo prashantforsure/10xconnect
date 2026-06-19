@@ -21,15 +21,20 @@ function asObject(value: unknown): Record<string, unknown> {
 export function profileFromLead(lead: LeadRow): PersonalizationProfile {
   const e = asObject(lead.enrichment);
   const posts = Array.isArray(e.recentPosts) ? (e.recentPosts as { text?: string }[]) : [];
+  const recentPosts = posts
+    .map((p) => (typeof p?.text === "string" ? p.text.trim() : ""))
+    .filter(Boolean)
+    .slice(0, 3);
   return {
     firstName: typeof e.firstName === "string" ? e.firstName : undefined,
     lastName: typeof e.lastName === "string" ? e.lastName : undefined,
     headline: typeof e.headline === "string" ? e.headline : undefined,
     about: typeof e.about === "string" ? e.about : undefined,
     company: typeof e.company === "string" ? e.company : undefined,
+    companyOverview: typeof e.companyOverview === "string" ? e.companyOverview : undefined,
     role: typeof e.role === "string" ? e.role : undefined,
     location: typeof e.location === "string" ? e.location : undefined,
-    recentPostText: posts[0]?.text,
+    recentPosts: recentPosts.length > 0 ? recentPosts : undefined,
   };
 }
 

@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { ConnectionsService } from "./connections.service";
+import { ContinuousImportService } from "./continuous-import.service";
 import { EnrichmentService } from "./enrichment.service";
 import { importJobQueueProvider } from "./import-queue";
 import { ImportService } from "./import.service";
@@ -18,6 +19,7 @@ import { LeadsService } from "./leads.service";
   providers: [
     LeadsService,
     ImportService,
+    ContinuousImportService,
     ConnectionsService,
     EnrichmentService,
     importJobQueueProvider,

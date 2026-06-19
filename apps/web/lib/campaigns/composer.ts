@@ -19,6 +19,7 @@ export const COMPOSER_TYPES = new Set([
   "inmail",
   "send_message_to_open_profile",
   "comment_last_post",
+  "reply_comment",
 ]);
 
 export function isComposerType(type: string): boolean {
@@ -32,8 +33,25 @@ export function hasTextBody(type: string): boolean {
 
 /** Legacy string config keys for a node's text, in priority order. */
 export function legacyTextKeys(type: string): string[] {
-  return type === "comment_last_post" ? ["text", "comment", "body"] : ["body", "message"];
+  return type === "comment_last_post" || type === "reply_comment"
+    ? ["text", "comment", "body"]
+    : ["body", "message"];
 }
+
+/** Config keys the composer manages (body/AI/etc.) — NOT shown as inline card fields. */
+export const COMPOSER_MANAGED_KEYS = new Set([
+  "body",
+  "text",
+  "message",
+  "comment",
+  "aiPrompt",
+  "subject",
+  "messageBody",
+  "audioRef",
+  "senders",
+  "attachments",
+  "sendCondition",
+]);
 
 /** Types the user can switch a composer node to via the "Change" control. */
 export const CHANGEABLE_TYPES = [
@@ -41,8 +59,23 @@ export const CHANGEABLE_TYPES = [
   "inmail",
   "send_message_to_open_profile",
   "comment_last_post",
+  "reply_comment",
   "send_voice_note",
 ] as const;
+
+// Default AI-variation prompt so comment replies never look copy-pasted (§2/E2).
+const REPLY_VARIATION_PROMPT =
+  "Reply briefly and warmly to their comment. Vary the wording naturally across leads " +
+  "(e.g. \"here it is\", \"there you go\", \"sent it over\") — never identical, never salesy.";
+
+/** Seed config for a freshly-added node (e.g. reply_comment's AI-variation body). */
+export function defaultConfigFor(type: string): Record<string, unknown> {
+  if (type === "reply_comment") {
+    const body: MessageBody = { v: 1, segments: [{ type: "ai", prompt: REPLY_VARIATION_PROMPT }] };
+    return { ...bodyConfigPatch(type, body), postUrl: "" };
+  }
+  return {};
+}
 
 function isSendCondition(value: unknown): value is SendCondition {
   return (

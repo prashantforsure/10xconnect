@@ -64,7 +64,7 @@ export function AnalyticsTab({ campaignId }: { campaignId: string }) {
         <CardHeader className="flex-row items-center justify-between">
           <CardTitle className="text-base">Past actions</CardTitle>
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Clock className="size-3.5" />~15-min intervals
+            <Clock className="size-3.5" />4–8 min intervals
           </span>
         </CardHeader>
         <CardContent>

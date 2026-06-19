@@ -24,29 +24,45 @@ export interface PersonalizationProfile {
   headline?: string;
   about?: string;
   company?: string;
+  companyOverview?: string;
   role?: string;
   location?: string;
-  recentPostText?: string;
+  /** Most-recent-first post texts — the strongest "what they're up to" signal. */
+  recentPosts?: string[];
 }
 
 const SYSTEM_PROMPT =
   "You write first-line observations and short outreach messages for B2B LinkedIn outreach. " +
-  "Rules: be specific to the person, never salesy, no pitching. Prefer a genuine observation plus a soft, " +
-  "low-friction question. Keep it to 1-2 sentences. Output ONLY the message text — no preamble, no quotes.";
+  "Rules: be specific to THIS person — prefer referencing their recent posts or current focus over generic facts. " +
+  "Never salesy, no pitching. Prefer a genuine observation plus a soft, low-friction question. " +
+  "Keep it to 1-2 sentences. Output ONLY the message text — no preamble, no quotes.";
+
+/** How many recent posts to surface to the model (most-recent-first). */
+const MAX_RECENT_POSTS = 3;
 
 /** Build the personalization prompt for one lead from editable instructions. */
 export function buildPersonalizationPrompt(
   instructions: string,
   profile: PersonalizationProfile,
 ): TextGenerationInput {
+  const posts = (profile.recentPosts ?? [])
+    .map((p) => p?.trim())
+    .filter((p): p is string => Boolean(p))
+    .slice(0, MAX_RECENT_POSTS);
+  const recentPosts =
+    posts.length > 0
+      ? `Recent posts:\n${posts.map((p) => `- ${truncate(p, 300)}`).join("\n")}`
+      : undefined;
+
   const facts = [
     profile.firstName && `First name: ${profile.firstName}`,
     profile.role && `Role: ${profile.role}`,
     profile.company && `Company: ${profile.company}`,
+    profile.companyOverview && `Company overview: ${truncate(profile.companyOverview, 300)}`,
     profile.headline && `Headline: ${profile.headline}`,
     profile.location && `Location: ${profile.location}`,
     profile.about && `About: ${truncate(profile.about, 400)}`,
-    profile.recentPostText && `Recent post: ${truncate(profile.recentPostText, 300)}`,
+    recentPosts,
   ]
     .filter(Boolean)
     .join("\n");

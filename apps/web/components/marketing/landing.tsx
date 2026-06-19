@@ -80,7 +80,7 @@ const STEPS = [
 const SAFETY: { icon: LucideIcon; label: string; value: string }[] = [
   { icon: Gauge, label: "Per-account daily caps", value: "Clamped to safe maxima" },
   { icon: Activity, label: "Live health score", value: "Acceptance + reply tracking" },
-  { icon: Clock, label: "Working-hours scheduler", value: "~15-min human spacing" },
+  { icon: Clock, label: "Working-hours scheduler", value: "4–8 min human spacing" },
   { icon: ShieldCheck, label: "Auto-pause on risk", value: "Within one dispatch cycle" },
 ];
 

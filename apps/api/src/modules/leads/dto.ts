@@ -24,6 +24,12 @@ const tagsSchema = z.array(z.string().trim().min(1).max(60)).max(50);
 const targetFields = {
   listId: z.string().uuid().optional(),
   listName: z.string().trim().min(1).max(120).optional(),
+  /**
+   * Opt-in: import without creating/linking a contact list. Leads still land in
+   * the workspace Contacts pool (and any campaign via campaignId), but no list is
+   * spawned. Used by the in-campaign import so it doesn't keep creating groups.
+   */
+  skipList: z.boolean().optional(),
   campaignId: z.string().uuid().optional(),
   tags: tagsSchema.optional(),
 };
@@ -81,10 +87,13 @@ const linkedinImportSchema = z
     url: z.string().url().max(2000).optional(),
     keywords: z.string().trim().max(200).optional(),
     filters: leadFinderFiltersSchema.optional(),
-    engagement: z.enum(["likers", "commenters"]).optional(),
+    engagement: z.enum(["likers", "commenters", "both"]).optional(),
     /** Sending account whose LinkedIn session performs the search. */
     accountId: z.string().uuid().optional(),
     limit: z.number().int().min(1).max(IMPORT_LIMIT_MAX).optional(),
+    /** Continuous/auto-refresh: re-check the source on a schedule, importing NEW leads. */
+    autoRefresh: z.boolean().optional(),
+    intervalMinutes: z.number().int().min(15).max(1440).optional(),
     ...targetFields,
   })
   .strict()

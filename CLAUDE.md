@@ -87,7 +87,7 @@ Execution model (the dispatch engine — heart of the product)
 
 Actions queued per sending account.
 Rate governor enforces per-account, per-action-type daily caps, aggregated across ALL campaigns for that account (not per campaign).
-Scheduler dispatches only inside the account's working-hours window, with randomized ~15-minute average spacing (jittered — never burst). UI copy: "Campaigns run automatically in 15-minute intervals on average to avoid detection."
+Scheduler dispatches only inside the account's working-hours window, with randomized ~6-minute average spacing (4–8 min: 4-min base + up to 4-min jitter — jittered so it never bursts). The per-account daily caps remain the hard ceiling; this cadence just lets an account reach those caps within its window. Tunable via DISPATCH_MIN_SPACING_MS / DISPATCH_JITTER_MS. UI copy: "Campaigns run automatically every 4–8 minutes (randomized) to stay human and avoid detection."
 Warm-up state machine ramps new accounts from reduced caps to full over 4–6 weeks.
 Inbound events (reply, accepted invite, open) arrive via webhooks → update LeadCampaignState → auto-stop the lead's sequence on reply.
 Idempotent: each action has a unique key; retries never double-send.
@@ -157,7 +157,7 @@ revisit later with a new angle (months)
 
 At every step a reply auto-stops the sequence and routes the lead to the inbox for human takeover. Dispatch always respects the account schedule + rate governor.
 
-Message composer (text-bearing nodes: send_message, send_voice_note, inmail, send_message_to_open_profile, comment_last_post)
+Message composer (text-bearing nodes: send_message, send_voice_note, inmail, send_message_to_open_profile, comment_last_post, reply_comment — reply_comment also carries an inline `postUrl` field and seeds a default AI-variation prompt so replies never look copy-pasted)
 
 Clicking a text-bearing node opens the composer panel (apps/web/components/campaigns/composer/). It writes structured config into the node's `config` jsonb (no schema migration — `config` is permissive):
 - messageBody — the canonical body: `{ v:1, segments: Segment[] }` where Segment = `{type:'text',text}` | `{type:'variable',key,fallback?}` | `{type:'ai',promptId?,prompt?}`. The composer is an inline chip editor (free text interleaved with variable + AI chips). Defined + rendered in packages/core/src/composer (segments.ts, render.ts) — PURE and shared so the web Preview and the engine dispatch render identically.
@@ -232,7 +232,7 @@ EMAIL: POST /mailboxes/connect, GET /mailboxes/:id/health, POST /mailboxes/:id/w
 Lead sourcing & contacts (CRM)
 
 
-POST /leads/import — import from a source: list | linkedin_search | sales_navigator | csv | event | post | group | lead_finder. Optionally enroll directly into a campaign ("Add contacts to campaign"). Triggers async enrichment + dedupe.
+POST /leads/import — import from a source: list | linkedin_search | sales_navigator | csv | event | post | group | lead_finder | profile_urls. Optionally enroll directly into a campaign ("Add contacts to campaign"). Triggers async enrichment + dedupe. A LinkedIn `post` source takes `engagement` = likers | commenters | both. CONTINUOUS IMPORT: pass `autoRefresh:true` + `intervalMinutes` on a LinkedIn source to register a recurring "live import" (import_sources) — an in-process poller (ContinuousImportService; the Phase-4 BullMQ swap seam) re-runs it on schedule and imports only NEW leads (workspace dedupe makes each tick idempotent). Manage via GET /leads/import-sources, POST /leads/import-sources/:id/pause|resume, DELETE /leads/import-sources/:id.
 POST /leads/find — built-in lead finder: filters + keywords over LinkedIn-derived data.
 GET /leads — list/search contacts; supports filters + column selection (list & board views).
 GET /leads/:id — contact detail: enrichment, tags, custom columns, campaign membership, conversation.
@@ -254,6 +254,7 @@ DELETE /campaigns/:id — delete campaign.
 GET /campaigns/:id/sequence — return the node graph (actions + conditions + edges + delays).
 PUT /campaigns/:id/sequence — save the builder graph (incl. composer node config: messageBody, senders, attachments, sendCondition — see §7).
 GET /campaigns/:id/sequence/node-counts — per-node enrolled-lead counts (lead_campaign_state grouped by current_node_id); drives the builder's per-node counter.
+GET /campaigns/:id/sequence/node-stats — per-node + campaign-summary stats for the builder's connector STAT CHIPS ({ summary:{leads,enrichedPct}, nodes:{ [nodeId]:{leads,done,failed} } }); real from lead_campaign_state + actions + leads, mock-safe zeros before a run.
 GET /campaigns/:id/preview-samples — up to N sample leads with rendered variables ({leadId,name,vars}) for the composer Preview.
 POST /campaigns/:id/start — "Run it!" → enqueue leads, begin dispatch within schedule + caps.
 POST /campaigns/:id/stop — stop dispatch.
@@ -332,8 +333,8 @@ GET /affiliate — affiliate program dashboard (referral link, payouts).
 /campaigns                         # campaigns list w/ status badges; Create campaign (empty state CTA)
 /campaigns/:id                     # campaign workspace, tabbed:
    ?tab=leads                      #   Leads: imported leads + stage; Import contacts (8 sources); Add contacts to campaign
-   ?tab=builder                    #   Builder: linear node list, "Start the campaign" root; +Add action / +Add condition menus; Run it!; Share. Clicking a text-bearing node opens the docked composer panel (sender select; AI Prompt / Contact Variables (+fallback) / Add media / Preview; inline chip body editor; send-condition; Change action type; Action-required badge; per-node lead counter) — see §7
-   ?tab=analytics                  #   per-campaign metrics + Past Actions log + 15-min interval notice
+   ?tab=builder                    #   Builder: VISUAL BRANCHING CANVAS (light dotted bg). "⚡ Campaign start" pill → recursive node flow that FORKS at condition nodes into two labeled branch columns (e.g. is_first_level → "Connected"/"Not connected"; invite_accepted → "Accepted"/"Not accepted"; message_replied → "Replied"/"No reply"); each branch is independently buildable and can end in a "× End of sequence" chip. Node cards carry a tinted icon + title + a badge (violet "Action" / amber "Logic"), a per-node lead counter, reorder/delete, inline non-composer fields (e.g. Connection-request "Note (optional)" + reply_comment "Post URL"), and an Action-required badge. wait_x_days renders as a "🕐 N day" connector pill; "+" insert buttons sit on every connector (Add action / Add condition / Insert template incl. "Connected vs not connected"); connector STAT CHIPS show per-step analytics (leads · % enriched, N sent/visited/…) with placeholders when empty; a floating top-right SENT/ACCEPTED/REPLIED summary card. Run it!; Share. Clicking a text-bearing node (incl. reply_comment) opens the docked composer panel (sender select; AI Prompt / Contact Variables (+fallback) / Add media / Preview; inline chip body editor; send-condition; Change action type; voice notes record ONCE in-browser → uploaded to campaign-media, sent to every lead) — see §7. The branch model lives in apps/web/lib/campaigns/graph.ts (pure, unit-tested); the engine already executes true/false edges (sequence_nodes.true_node_id/false_node_id), so this is a builder-only change — existing linear campaigns load unchanged.
+   ?tab=analytics                  #   per-campaign metrics + Past Actions log + 4–8 min interval notice
    ?tab=settings                   #   General (name, skip-already-contacted, exclude-conn-req-from-reply-rate, delete), Frequency (caps), Schedule (per-day UTC hours)
 /contacts                          # CRM: MY LIST sidebar, search, View all contacts, Create new list; Filters; Columns (visibility); list/board view toggle; Import contacts
 /contacts/lists/:id                # a single list's contacts

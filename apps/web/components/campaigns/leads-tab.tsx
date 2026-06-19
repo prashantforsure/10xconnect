@@ -1,8 +1,9 @@
 "use client";
 
-import { Trash2, UserPlus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Trash2, Upload, UserPlus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ImportModal } from "@/components/contacts/import-modal";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import { nodeLabel } from "@/lib/campaigns/nodes";
+import type { ListView } from "@/lib/contacts/types";
 
 interface LeadRow {
   leadId: string;
@@ -43,12 +45,14 @@ function errorMessage(err: unknown, fallback: string): string {
   return (err as ApiError)?.message ?? (err instanceof Error ? err.message : fallback);
 }
 
-export function LeadsTab({ campaignId }: { campaignId: string }) {
+export function LeadsTab({ campaignId, campaignName }: { campaignId: string; campaignName: string }) {
   const api = useApi();
   const [leads, setLeads] = useState<LeadRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [enrollOpen, setEnrollOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [lists, setLists] = useState<ListView[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -60,6 +64,20 @@ export function LeadsTab({ campaignId }: { campaignId: string }) {
       setLoading(false);
     }
   }, [api, campaignId]);
+
+  const openImport = useCallback(async () => {
+    setImportOpen(true);
+    try {
+      setLists(await api.request<ListView[]>("/lists"));
+    } catch {
+      // Non-fatal — the modal still works with the default "no list" option.
+    }
+  }, [api]);
+
+  const lockedCampaign = useMemo(
+    () => ({ id: campaignId, name: campaignName }),
+    [campaignId, campaignName],
+  );
 
   useEffect(() => {
     void load();
@@ -84,17 +102,23 @@ export function LeadsTab({ campaignId }: { campaignId: string }) {
         <p className="text-sm text-muted-foreground">
           {leads.length} lead{leads.length === 1 ? "" : "s"} enrolled
         </p>
-        <Button onClick={() => setEnrollOpen(true)}>
-          <UserPlus />
-          Enroll leads
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => void openImport()}>
+            <Upload />
+            Import leads
+          </Button>
+          <Button onClick={() => setEnrollOpen(true)}>
+            <UserPlus />
+            Enroll leads
+          </Button>
+        </div>
       </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       {leads.length === 0 ? (
         <div className="surface-card border-dashed p-10 text-center text-sm text-muted-foreground">
-          No leads yet. Enroll a contact list to start outreach.
+          No leads yet. Import new leads or enroll a contact list to start outreach.
         </div>
       ) : (
         <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
@@ -129,6 +153,15 @@ export function LeadsTab({ campaignId }: { campaignId: string }) {
           api.request<EnrollResult>(`/campaigns/${campaignId}/leads`, { method: "POST", body: { listId } })
         }
         onEnrolled={load}
+      />
+
+      <ImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        lists={lists}
+        campaigns={[]}
+        lockedCampaign={lockedCampaign}
+        onImported={load}
       />
     </div>
   );

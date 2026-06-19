@@ -17,6 +17,14 @@ const OPENERS = [
   "great to see momentum at",
 ];
 
+// Used when a recent post is available, so mock previews reflect activity.
+const POST_OPENERS = [
+  "saw your recent post —",
+  "caught your note on this —",
+  "your take here landed —",
+  "interesting post —",
+];
+
 function hash(value: string): number {
   let h = 2166136261;
   for (let i = 0; i < value.length; i += 1) {
@@ -32,6 +40,26 @@ function fact(prompt: string, label: string): string | undefined {
   return m?.[1]?.split("\n")[0]?.trim() || undefined;
 }
 
+/** Recent-post bullet lines from the "Recent posts:" facts block. */
+function recentPosts(prompt: string): string[] {
+  return prompt
+    .split("\n")
+    .filter((l) => l.startsWith("- "))
+    .map((l) => l.slice(2).trim())
+    .filter(Boolean);
+}
+
+/** First clause of a post, lowercased, capped to a short fragment. */
+function postSnippet(post: string): string {
+  return post
+    .toLowerCase()
+    .replace(/[.!?—].*$/, "")
+    .split(/\s+/)
+    .slice(0, 9)
+    .join(" ")
+    .trim();
+}
+
 export class MockTextAdapter implements TextGenerationAdapter {
   generate(input: TextGenerationInput): Promise<string> {
     const p = input.prompt;
@@ -39,8 +67,21 @@ export class MockTextAdapter implements TextGenerationAdapter {
     const role = fact(p, "Role");
     const headline = fact(p, "Headline");
     const first = fact(p, "First name");
-    const topic = company ?? role ?? headline ?? first ?? "your space";
     const seed = hash(`${first ?? ""}|${company ?? ""}|${role ?? ""}|${headline ?? ""}`);
+
+    // Prefer reacting to a (seed-selected) recent post so output reads like the
+    // sender actually scanned their activity. Falls back to role/company facts.
+    const posts = recentPosts(p);
+    if (posts.length > 0) {
+      const post = posts[seed % posts.length];
+      const opener = POST_OPENERS[seed % POST_OPENERS.length];
+      const out = `${opener} ${postSnippet(post)}`.replace(/\s+/g, " ").trim();
+      if (out.length > opener.length + 1) {
+        return Promise.resolve(out);
+      }
+    }
+
+    const topic = company ?? role ?? headline ?? first ?? "your space";
     const opener = OPENERS[seed % OPENERS.length];
     // Keep it short, lowercase, no hard pitch — matches the methodology defaults.
     return Promise.resolve(`${opener} ${topic.toLowerCase()}`.replace(/\s+/g, " ").trim());

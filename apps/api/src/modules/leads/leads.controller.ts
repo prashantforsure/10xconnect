@@ -33,7 +33,7 @@ import {
   updateLeadSchema,
 } from "./dto";
 import { EnrichmentService } from "./enrichment.service";
-import { type ImportJobView, ImportService } from "./import.service";
+import { type ImportJobView, type ImportSourceView, ImportService } from "./import.service";
 import { type LeadDetail, type LeadListResult, LeadsService } from "./leads.service";
 
 @UseGuards(WorkspaceScopeGuard)
@@ -70,6 +70,28 @@ export class LeadsController {
   @Get("import-jobs")
   listImportJobs(@WorkspaceId() workspaceId: string): Promise<ImportJobView[]> {
     return this.imports.listJobs(workspaceId);
+  }
+
+  // --- continuous / auto-refresh "live import" sources (CLAUDE.md §8) --------
+
+  @Get("import-sources")
+  listImportSources(@WorkspaceId() workspaceId: string): Promise<ImportSourceView[]> {
+    return this.imports.listSources(workspaceId);
+  }
+
+  @Post("import-sources/:id/pause")
+  pauseImportSource(@WorkspaceId() workspaceId: string, @Param("id", ParseUUIDPipe) id: string) {
+    return this.imports.pauseSource(workspaceId, id);
+  }
+
+  @Post("import-sources/:id/resume")
+  resumeImportSource(@WorkspaceId() workspaceId: string, @Param("id", ParseUUIDPipe) id: string) {
+    return this.imports.resumeSource(workspaceId, id);
+  }
+
+  @Delete("import-sources/:id")
+  deleteImportSource(@WorkspaceId() workspaceId: string, @Param("id", ParseUUIDPipe) id: string) {
+    return this.imports.deleteSource(workspaceId, id);
   }
 
   @Get("import-jobs/:id")

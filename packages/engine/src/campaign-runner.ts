@@ -1,7 +1,7 @@
 // Campaign lifecycle + per-lead graph progression. enroll/start/stop create
 // lead_campaign_state and the first due action; advanceLead moves a lead to its
 // next node and schedules that node's action (respecting wait_x_days, working
-// hours, and ~15-min jitter). The worker tick executes the scheduled actions.
+// hours, and ~6-min jitter). The worker tick executes the scheduled actions.
 
 import { computeFirstDispatchAt, computeNextDispatchAt } from "@10xconnect/core";
 import type { DB } from "@10xconnect/db";
@@ -179,7 +179,7 @@ export async function advanceLead(
 
 /**
  * The next free dispatch slot on the campaign's sending account. First actions
- * across newly-enrolled leads are staggered by the jittered ~15-min spacing so a
+ * across newly-enrolled leads are staggered by the jittered ~6-min spacing so a
  * campaign start (or bulk enroll) NEVER bursts — the #1 account-safety rule
  * (CLAUDE.md §5/§6: "never burst"). Spacing aggregates across ALL campaigns on
  * the account (matching the rate governor): we chain off the latest already-

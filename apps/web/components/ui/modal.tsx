@@ -54,7 +54,7 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         className={cn(
-          "relative w-full max-w-md animate-fade-in rounded-2xl border bg-card p-6 shadow-soft-lg",
+          "relative flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col animate-fade-in rounded-2xl border bg-card p-6 shadow-soft-lg",
           className,
         )}
         onClick={(e) => e.stopPropagation()}
@@ -67,9 +67,10 @@ export function Modal({
         >
           <X className="size-4" />
         </button>
-        <h2 className="font-display text-lg font-semibold tracking-tight">{title}</h2>
-        {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
-        <div className="mt-4">{children}</div>
+        {/* Title + description stay pinned; only the body scrolls when content is tall. */}
+        <h2 className="shrink-0 pr-8 font-display text-lg font-semibold tracking-tight">{title}</h2>
+        {description ? <p className="mt-1 shrink-0 text-sm text-muted-foreground">{description}</p> : null}
+        <div className="-mr-2 mt-4 min-h-0 overflow-y-auto pr-2">{children}</div>
       </div>
     </div>,
     document.body,

@@ -7,7 +7,7 @@ import {
   renderMessageBody,
   varietyWarning,
 } from "@10xconnect/core";
-import { AlertTriangle, Eye, RefreshCw, Users } from "lucide-react";
+import { AlertTriangle, Eye, PanelRightClose, RefreshCw, Users } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { AiPromptButton } from "./ai-prompt-button";
@@ -62,6 +62,7 @@ export function ComposerPanel({
   config,
   onConfigChange,
   onChangeType,
+  onCollapse,
   accounts,
   workspaceId,
   campaignId,
@@ -73,6 +74,8 @@ export function ComposerPanel({
   config: Record<string, unknown>;
   onConfigChange: (config: Record<string, unknown>) => void;
   onChangeType: (type: string) => void;
+  /** Collapse/close the docked panel (hides it and frees the canvas width). */
+  onCollapse?: () => void;
   accounts: SenderAccount[];
   workspaceId: string;
   campaignId: string;
@@ -159,29 +162,42 @@ export function ComposerPanel({
           <div className="truncate text-sm font-semibold">{nodeLabel(type)}</div>
           <p className="text-xs text-muted-foreground">Configure this step</p>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" disabled={running}>
-              <RefreshCw className="size-4" />
-              Change
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {CHANGEABLE_TYPES.map((t) => (
-              <DropdownMenuItem
-                key={t}
-                onSelect={() => {
-                  if (t !== type) {
-                    onChangeType(t);
-                  }
-                }}
-              >
-                {nodeLabel(t)}
-                {t === type ? <span className="ml-auto text-xs text-primary">current</span> : null}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={running}>
+                <RefreshCw className="size-4" />
+                Change
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {CHANGEABLE_TYPES.map((t) => (
+                <DropdownMenuItem
+                  key={t}
+                  onSelect={() => {
+                    if (t !== type) {
+                      onChangeType(t);
+                    }
+                  }}
+                >
+                  {nodeLabel(t)}
+                  {t === type ? <span className="ml-auto text-xs text-primary">current</span> : null}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {onCollapse ? (
+            <button
+              type="button"
+              onClick={onCollapse}
+              aria-label="Collapse panel"
+              title="Collapse panel"
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <PanelRightClose className="size-4" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {/* Sender */}
@@ -251,7 +267,13 @@ export function ComposerPanel({
       ) : (
         // Voice note — recorded/clone mode, ≤30s meter, tips, audio ref (§6 voice).
         <div className="space-y-2">
-          <VoiceNoteFields config={config} onChange={update} disabled={running} />
+          <VoiceNoteFields
+            config={config}
+            onChange={update}
+            disabled={running}
+            workspaceId={workspaceId}
+            campaignId={campaignId}
+          />
           <AttachmentMenu
             attachments={state.attachments}
             onChange={(attachments) => update({ attachments })}

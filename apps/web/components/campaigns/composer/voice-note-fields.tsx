@@ -1,32 +1,122 @@
 "use client";
 
-import { Info, Mic, Sparkles } from "lucide-react";
+import { Info, Mic, Sparkles, Square } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 const MAX_MS = 30_000;
+const BUCKET = "campaign-media";
 
 /**
  * Voice-note config (CLAUDE.md §6/§7): recorded vs AI-clone mode, a ≤30s length
- * meter, helper tips, and the audio reference. Native voice notes feel human only
- * when they're short and natural.
+ * meter, helper tips, and the audio reference. In Recorded mode you record the
+ * note ONCE in the browser — the same clip is sent to every lead. The clip is
+ * uploaded to the private campaign-media bucket and its path stored as audioRef.
  */
 export function VoiceNoteFields({
   config,
   onChange,
   disabled,
+  workspaceId,
+  campaignId,
 }: {
   config: Record<string, unknown>;
   onChange: (partial: Record<string, unknown>) => void;
   disabled?: boolean;
+  workspaceId: string;
+  campaignId: string;
 }) {
+  const supabase = useMemo(() => createClient(), []);
   const mode = config.voiceMode === "ai_clone" ? "ai_clone" : "recorded";
   const audioRef = typeof config.audioRef === "string" ? config.audioRef : "";
   const durationMs = typeof config.durationMs === "number" ? config.durationMs : 0;
   const seconds = Math.round(durationMs / 1000);
   const over = durationMs > MAX_MS;
   const pct = Math.min(100, (durationMs / MAX_MS) * 100);
+
+  const recorder = useRef<MediaRecorder | null>(null);
+  const chunks = useRef<Blob[]>([]);
+  const startedAt = useRef<number>(0);
+  const [recording, setRecording] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Live elapsed timer while recording (auto-stops at 30s).
+  useEffect(() => {
+    if (!recording) {
+      return;
+    }
+    const t = setInterval(() => {
+      const ms = Date.now() - startedAt.current;
+      setElapsed(ms);
+      if (ms >= MAX_MS) {
+        stop();
+      }
+    }, 100);
+    return () => clearInterval(t);
+  }, [recording]);
+
+  const start = async (): Promise<void> => {
+    setError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      chunks.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.current.push(e.data);
+        }
+      };
+      mr.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const ms = Date.now() - startedAt.current;
+        void upload(new Blob(chunks.current, { type: mr.mimeType || "audio/webm" }), ms);
+      };
+      recorder.current = mr;
+      startedAt.current = Date.now();
+      mr.start();
+      setRecording(true);
+      setElapsed(0);
+    } catch {
+      setError("Microphone access was blocked. Allow it, or paste an audio ref below.");
+    }
+  };
+
+  const stop = (): void => {
+    if (recorder.current && recorder.current.state !== "inactive") {
+      recorder.current.stop();
+    }
+    setRecording(false);
+  };
+
+  const upload = async (blob: Blob, ms: number): Promise<void> => {
+    setUploading(true);
+    setError(null);
+    try {
+      const path = `${workspaceId}/${campaignId}/${crypto.randomUUID()}-voice.webm`;
+      const { error: upErr } = await supabase.storage
+        .from(BUCKET)
+        .upload(path, blob, { upsert: false, contentType: blob.type || "audio/webm" });
+      if (upErr) {
+        throw upErr;
+      }
+      const { data: signed } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600);
+      setPreviewUrl(signed?.signedUrl ?? null);
+      onChange({ audioRef: path, durationMs: Math.min(ms, 45_000), voiceMode: "recorded" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save the recording");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const liveSeconds = Math.round(elapsed / 1000);
 
   return (
     <div className="space-y-3">
@@ -57,12 +147,33 @@ export function VoiceNoteFields({
         </button>
       </div>
 
+      {mode === "recorded" ? (
+        <div className="space-y-2 rounded-lg border bg-secondary/30 p-3">
+          <div className="flex items-center gap-2">
+            {recording ? (
+              <Button type="button" variant="destructive" size="sm" onClick={stop} disabled={disabled}>
+                <Square className="size-4" />
+                Stop · {liveSeconds}s
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" size="sm" onClick={() => void start()} disabled={disabled || uploading}>
+                <Mic className="size-4" />
+                {uploading ? "Saving…" : audioRef ? "Re-record" : "Record"}
+              </Button>
+            )}
+            <span className="text-[11px] text-muted-foreground">Record once — the same note is sent to every lead.</span>
+          </div>
+          {previewUrl ? <audio controls src={previewUrl} className="h-8 w-full" /> : null}
+          {error ? <p className="text-[11px] text-destructive">{error}</p> : null}
+        </div>
+      ) : null}
+
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Audio reference</label>
         <Input
           value={audioRef}
           onChange={(e) => onChange({ audioRef: e.target.value })}
-          placeholder={mode === "ai_clone" ? "voice profile id (Settings → Voice cloner)" : "recorded clip ref"}
+          placeholder={mode === "ai_clone" ? "voice profile id (Settings → Voice cloner)" : "recorded clip ref (auto-filled on record)"}
           disabled={disabled}
         />
       </div>

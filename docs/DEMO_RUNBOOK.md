@@ -72,6 +72,6 @@ Then:
 4. Build/enroll a small campaign and **Run it!** — verify one real action fires and a real reply (send yourself one from another account) lands in the Inbox and auto-stops the sequence.
 
 ## Safety notes (always on, both adapters)
-- Daily caps clamp to safe maxima; new accounts ramp via warm-up; the scheduler respects working hours + ~15-min jitter.
+- Daily caps clamp to safe maxima; new accounts ramp via warm-up; the scheduler respects working hours + ~6-min (4–8 min) jitter.
 - A detected restriction auto-pauses the account within one dispatch tick and raises a notification.
 - Connection requests default to **no note**; a reply auto-stops the sequence; all dispatch + webhook handling is idempotent (no double-sends).

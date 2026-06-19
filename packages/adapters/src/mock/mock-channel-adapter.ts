@@ -272,6 +272,16 @@ export class MockChannelAdapter
           text: "We just shipped a new onboarding flow — early numbers look great.",
           postedAt: this.clock(),
         },
+        {
+          postId: this.nextId("post"),
+          text: "Hiring two growth engineers this quarter — DMs open if you know anyone sharp.",
+          postedAt: this.clock(),
+        },
+        {
+          postId: this.nextId("post"),
+          text: "Hot take: most B2B activation problems are really onboarding-copy problems.",
+          postedAt: this.clock(),
+        },
       ],
     };
   }

@@ -64,6 +64,98 @@ export const COMMUNITY_PROMPTS: readonly PromptCard[] = [
     runCount: 1340,
     readOnly: true,
   },
+  // --- Profile-scanning personalization (reference what they're actually up to).
+  // These lean on the per-lead facts the engine feeds the model (recent posts,
+  // bio, role, company); keep them framework-correct (§2): observation + soft
+  // question, specific, never salesy.
+  {
+    ref: "community:comment-on-recent-post",
+    title: "Comment on their recent post",
+    template:
+      "Look at their most recent post. In 1 short sentence, react to the specific idea in it " +
+      "the way a peer would, then ask one genuine, low-friction question about it. " +
+      "Casual, lowercase ok. No compliments-for-compliments-sake, no pitch, no links. " +
+      "If there is no recent post, react to their current focus instead.",
+    author: "10xConnect",
+    runCount: 6210,
+    readOnly: true,
+  },
+  {
+    ref: "community:what-theyre-building",
+    title: "What they're building right now",
+    template:
+      "From their role, bio and recent posts, infer the one thing they seem most focused on " +
+      "building or improving right now. Name it specifically in under 15 words and ask a " +
+      "curious question about how it's going. No generic praise, no pitch.",
+    author: "10xConnect",
+    runCount: 4480,
+    readOnly: true,
+  },
+  {
+    ref: "community:detail-from-bio",
+    title: "Reference a specific detail from their bio",
+    template:
+      "Pick ONE concrete, non-obvious detail from their bio or headline (a project, niche, " +
+      "belief or background) and reference it in a single warm sentence, then a soft question. " +
+      "Must be specific enough that it could only be sent to this person. Lowercase ok, no pitch.",
+    author: "10xConnect",
+    runCount: 3920,
+    readOnly: true,
+  },
+  {
+    ref: "community:recent-move-nudge",
+    title: "Recent role / company move",
+    template:
+      "If their role or headline suggests a recent move (new role, new company, scaling a team), " +
+      "acknowledge it naturally in under 12 words and ask one light question about the transition. " +
+      "If nothing suggests a move, comment on their current focus instead. No congratulations cliché, no pitch.",
+    author: "10xConnect",
+    runCount: 2870,
+    readOnly: true,
+  },
+  {
+    ref: "community:focus-area-question",
+    title: "Their focus area + soft question",
+    template:
+      "Identify the challenge or theme they clearly care about (from posts, bio, role) and ask one " +
+      "specific, low-friction question about how they're approaching it. Sound like a curious peer, " +
+      "not a vendor. 1-2 short sentences, no links, no CTA.",
+    author: "10xConnect",
+    runCount: 2540,
+    readOnly: true,
+  },
+  {
+    ref: "community:mutual-topic-opener",
+    title: "Mutual-topic opener from their activity",
+    template:
+      "Find a topic they've recently posted or written about and open with a genuine point of view " +
+      "or small insight on that same topic, then invite their take. Conversational, specific, never salesy. " +
+      "Max 2 short sentences.",
+    author: "10xConnect",
+    runCount: 1980,
+    readOnly: true,
+  },
+  {
+    ref: "community:industry-curious-line",
+    title: "Industry-curious one-liner",
+    template:
+      "In under 12 words, reference something timely or specific to their industry given their role and " +
+      "company, framed as curiosity. Lowercase ok, no buzzwords, no pitch, no links.",
+    author: "10xConnect",
+    runCount: 1610,
+    readOnly: true,
+  },
+  {
+    ref: "community:connection-note-personal",
+    title: "Connection-request note (personal, ≤12 words)",
+    template:
+      "Write a connection-request note of 12 words or fewer that references one specific thing about them " +
+      "(recent post, focus, or background) so it never reads as a template. No reason-to-connect pitch, " +
+      "no link, lowercase ok. Default to no note unless this is genuinely specific.",
+    author: "10xConnect",
+    runCount: 3310,
+    readOnly: true,
+  },
 ];
 
 const TOKEN_RE = /\{\{\s*([^}]+?)\s*\}\}/g;

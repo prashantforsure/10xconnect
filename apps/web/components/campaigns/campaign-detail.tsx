@@ -248,7 +248,8 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
 
       <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
         <Clock className="size-3" />
-        Campaigns run automatically in ~15-minute intervals on average to avoid detection.
+        Campaigns run automatically every 4–8 minutes (randomized) to stay human and avoid detection. Your
+        daily limits per account are always respected.
       </p>
 
       {actionError ? (
@@ -285,11 +286,11 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
           ))}
         </TabsList>
 
-        <TabsContent value="builder">
+        <TabsContent value="builder" forceMount>
           <BuilderTab campaignId={campaignId} running={isRunning} accounts={accounts} />
         </TabsContent>
         <TabsContent value="leads">
-          <LeadsTab campaignId={campaignId} />
+          <LeadsTab campaignId={campaignId} campaignName={campaign?.name ?? ""} />
         </TabsContent>
         <TabsContent value="analytics">
           <AnalyticsTab campaignId={campaignId} />
