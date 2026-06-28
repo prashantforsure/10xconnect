@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   Check,
   Circle,
+  DollarSign,
   Inbox,
   ShieldCheck,
 } from "lucide-react";
@@ -23,6 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CHART_COLORS } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApi } from "@/lib/api/client";
+import { formatUsd, type UnitEconomics } from "@/lib/campaigns/unit-economics";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/lib/workspace/context";
 
@@ -111,6 +113,7 @@ export function DashboardClient({ greetingName }: { greetingName: string }) {
   const [campaigns, setCampaigns] = useState<CampaignLite[]>([]);
   const [hasConversation, setHasConversation] = useState(false);
   const [analytics, setAnalytics] = useState<WorkspaceAnalytics | null>(null);
+  const [econ, setEcon] = useState<UnitEconomics | null>(null);
   const [range, setRange] = useState<Range>("30d");
   const [loading, setLoading] = useState(true);
   // Time-of-day greeting is resolved after mount to avoid a server/client clock mismatch.
@@ -147,6 +150,11 @@ export function DashboardClient({ greetingName }: { greetingName: string }) {
     } catch {
       // keep last-known analytics
     }
+    // Unit economics is non-blocking — the dashboard renders without it.
+    api
+      .request<UnitEconomics>(`/analytics/unit-economics?range=${range}`)
+      .then(setEcon)
+      .catch(() => undefined);
   }, [api, activeWorkspaceId, range]);
 
   useEffect(() => {
@@ -392,6 +400,41 @@ export function DashboardClient({ greetingName }: { greetingName: string }) {
                     Connect one
                   </Link>
                   .
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Unit economics — AI spend per outcome (is the engine profitable?). */}
+          <Card>
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle>Unit economics</CardTitle>
+              <DollarSign className="size-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              {econ && econ.totalSpendUsd > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex items-end justify-between gap-2">
+                    <div>
+                      <div className="font-display text-[28px] font-bold leading-none tracking-tight text-primary">
+                        {formatUsd(econ.costPerBookedMeetingUsd)}
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">per booked meeting</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-display text-lg font-bold">{formatUsd(econ.costPerConversationUsd)}</div>
+                      <div className="text-[11px] text-muted-foreground">per conversation</div>
+                    </div>
+                  </div>
+                  <div className="flex justify-between border-t pt-2 text-xs text-muted-foreground">
+                    <span>{formatUsd(econ.totalSpendUsd)} AI spend</span>
+                    <span>{econ.bookedMeetings.toLocaleString()} booked</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No AI spend in this period yet. Cost per booked meeting appears once the AI engages
+                  replies and conversations reach the booked stage.
                 </p>
               )}
             </CardContent>

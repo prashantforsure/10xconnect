@@ -102,11 +102,27 @@ export const generateCampaignSchema = z
     intake: genIntakeSchema.optional(),
     instruction: z.string().trim().min(1).max(500).optional(),
     currentGraph: z.array(genNodeSchema).max(60).optional(),
+    /** Phase 6: emit a FULL campaign blueprint (graph + brain + KB seed), not just the graph. */
+    full: z.boolean().optional(),
+    /** Skip the clarifying-question flow and generate from the (possibly thin) intake anyway. */
+    skipClarify: z.boolean().optional(),
   })
   .refine((v) => v.intake || (v.instruction && v.currentGraph), {
     message: "Provide an intake, or an instruction with the current graph.",
   });
 export type GenerateCampaignDto = z.infer<typeof generateCampaignSchema>;
+
+// --- Duplicate + A/B comparison (Phase 7.2) --------------------------------
+
+export const duplicateCampaignSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+});
+export type DuplicateCampaignDto = z.infer<typeof duplicateCampaignSchema>;
+
+export const abCompareSchema = z.object({
+  campaignIds: z.array(z.string().uuid()).min(2).max(10),
+});
+export type AbCompareDto = z.infer<typeof abCompareSchema>;
 
 // --- Enroll leads ----------------------------------------------------------
 

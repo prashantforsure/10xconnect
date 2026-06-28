@@ -5,3 +5,4 @@ export * from "./warmup";
 export * from "./rate-governor";
 export * from "./scheduler";
 export * from "./health";
+export * from "./throttle";

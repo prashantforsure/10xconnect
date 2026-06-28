@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { buildConnectProxy, mapAccountStatus, mapConnectionDegree, mapHttpError, parseProxyUrl } from "./mappers";
+import {
+  buildConnectProxy,
+  mapAccountStatus,
+  mapConnectionDegree,
+  mapHttpError,
+  mapRecentPosts,
+  parseProxyUrl,
+} from "./mappers";
 import { UnipileHttpError } from "./unipile-client";
 import { normalizeWebhook } from "./webhook-normalizer";
 
@@ -68,6 +75,30 @@ test("buildConnectProxy: own → proxy object, bundled → region country, else 
   assert.deepEqual(buildConnectProxy({ proxy: { mode: "bundled" } }), {});
   // own with an unparseable url → nothing rather than a broken proxy
   assert.deepEqual(buildConnectProxy({ country: "US", proxy: { mode: "own", url: "garbage" } }), {});
+});
+
+test("mapRecentPosts reads varied post shapes defensively + skips empty/idless", () => {
+  const posts = mapRecentPosts({
+    items: [
+      { social_id: "p1", text: "Shipped our new onboarding flow this week 🚀", date: "2026-06-20T00:00:00Z", share_url: "https://x/p1" },
+      { id: "p2", commentary: "Hiring two data scientists", parsed_datetime: "2026-06-18T00:00:00Z" }, // alt field names
+      { id: "p3", text: "   " }, // empty text → skipped
+      { text: "no id here" }, // no postId → skipped
+    ],
+  });
+  assert.equal(posts.length, 2);
+  assert.deepEqual(posts[0], {
+    postId: "p1",
+    text: "Shipped our new onboarding flow this week 🚀",
+    postedAt: "2026-06-20T00:00:00Z",
+    url: "https://x/p1",
+  });
+  assert.equal(posts[1]!.postId, "p2");
+  assert.equal(posts[1]!.text, "Hiring two data scientists");
+  assert.equal(posts[1]!.postedAt, "2026-06-18T00:00:00Z");
+  // limit + empty list
+  assert.equal(mapRecentPosts({ items: [{ id: "a", text: "x" }, { id: "b", text: "y" }] }, 1).length, 1);
+  assert.deepEqual(mapRecentPosts(undefined), []);
 });
 
 test("mapConnectionDegree parses network distance", () => {

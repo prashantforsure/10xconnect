@@ -23,7 +23,10 @@ interface RequestOptions {
 
 /** Low-level typed fetch against the NestJS API with auth + workspace headers. */
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  // FormData uploads must NOT set Content-Type — the browser adds the multipart
+  // boundary itself — and the body is passed through unserialized.
+  const isForm = typeof FormData !== "undefined" && options.body instanceof FormData;
+  const headers: Record<string, string> = isForm ? {} : { "Content-Type": "application/json" };
   if (options.token) {
     headers.Authorization = `Bearer ${options.token}`;
   }
@@ -36,7 +39,12 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     response = await fetch(`${API_BASE}${path}`, {
       method: options.method ?? "GET",
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body:
+        options.body === undefined
+          ? undefined
+          : isForm
+            ? (options.body as FormData)
+            : JSON.stringify(options.body),
     });
   } catch (cause) {
     // fetch only rejects on a network-level failure (server down, DNS, CORS,

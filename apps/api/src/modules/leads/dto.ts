@@ -1,4 +1,4 @@
-import { LEAD_FIELD_KEYS } from "@10xconnect/core";
+import { isSalesNavigatorSearchUrl, LEAD_FIELD_KEYS } from "@10xconnect/core";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
@@ -103,7 +103,13 @@ const linkedinImportSchema = z
         ? Boolean(v.keywords || v.filters)
         : Boolean(v.url),
     { message: "url is required for this source (or keywords/filters for lead_finder)" },
-  );
+  )
+  // A Sales Navigator import must carry a real Sales Nav SEARCH url (not a profile/
+  // feed link) — caught up front so a bad URL never queues a job (Phase 7.3).
+  .refine((v) => v.source !== "sales_navigator" || (v.url ? isSalesNavigatorSearchUrl(v.url) : false), {
+    message: "Provide a Sales Navigator search URL (linkedin.com/sales/search/people?...).",
+    path: ["url"],
+  });
 
 export const importRequestSchema = z.union([
   csvImportSchema,

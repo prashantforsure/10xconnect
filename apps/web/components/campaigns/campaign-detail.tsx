@@ -1,15 +1,27 @@
 "use client";
 
-import { auditAccountProfile, type ProfileAuditItem } from "@10xconnect/core";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, Info, Play, Share2, Square } from "lucide-react";
+import {
+  auditAccountProfile,
+  computeRequiredInputs,
+  type GenNode,
+  hasCampaignBrain,
+  launchReadiness,
+  type ProfileAuditItem,
+  type RequiredInput,
+} from "@10xconnect/core";
+import { AlertTriangle, ArrowLeft, BookmarkPlus, CheckCircle2, Clock, CopyPlus, Info, Play, Share2, Square } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AnalyticsTab } from "@/components/campaigns/analytics-tab";
 import { BuilderTab } from "@/components/campaigns/builder-tab";
+import { ContextTab } from "@/components/campaigns/context-tab";
+import { DuplicateCampaignModal } from "@/components/campaigns/duplicate-campaign-modal";
 import { LeadsTab } from "@/components/campaigns/leads-tab";
 import { SettingsTab } from "@/components/campaigns/settings-tab";
 import { type CampaignStatus, CampaignStatusBadge } from "@/components/campaigns/status-badge";
+import { SaveAsTemplateModal } from "@/components/campaigns/templates";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
@@ -40,11 +52,12 @@ interface CampaignMetricsSummary {
   replies: { count: number; pct: number };
 }
 
-const TABS = ["builder", "leads", "analytics", "settings"] as const;
+const TABS = ["builder", "leads", "context", "analytics", "settings"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABEL: Record<Tab, string> = {
   builder: "Sequence",
   leads: "Leads",
+  context: "Context",
   analytics: "Analytics",
   settings: "Settings",
 };
@@ -55,6 +68,7 @@ function errorMessage(err: unknown, fallback: string): string {
 
 export function CampaignDetail({ campaignId }: { campaignId: string }) {
   const api = useApi();
+  const router = useRouter();
   const { activeWorkspaceId } = useWorkspace();
 
   const [campaign, setCampaign] = useState<CampaignDetailView | null>(null);
@@ -68,6 +82,13 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditItems, setAuditItems] = useState<ProfileAuditItem[]>([]);
+  const [aiOff, setAiOff] = useState<boolean | null>(null);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [readiness, setReadiness] = useState<{ ready: boolean; missing: RequiredInput[] } | null>(null);
+  // Latest campaign for the readiness check without re-creating the callback.
+  const campaignRef = useRef<CampaignDetailView | null>(null);
+  campaignRef.current = campaign;
 
   const load = useCallback(async () => {
     if (!activeWorkspaceId) {
@@ -97,6 +118,68 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Compute the AI-off banner + launch readiness from the LIVE campaign state.
+  // hasCampaignBrain mirrors the inbound gate (does the AI engage replies?);
+  // launchReadiness mirrors the blueprint gate (account + contacts + grounding
+  // before launch). Re-checked on tab change and whenever account/leadCount change.
+  const checkGate = useCallback(async () => {
+    try {
+      const [brain, seq, kbs] = await Promise.all([
+        api.request<{ objective: unknown; knowledgeBaseId: string | null; voiceProfileId: string | null }>(
+          `/campaigns/${campaignId}/brain`,
+        ),
+        api.request<{ nodes: { kind: "action" | "condition"; type: string; config: Record<string, unknown> }[] }>(
+          `/campaigns/${campaignId}/sequence`,
+        ),
+        api.request<{ id: string; chunks: number }[]>("/knowledge-bases"),
+      ]);
+      setAiOff(!hasCampaignBrain({ objective: brain.objective, knowledgeBaseId: brain.knowledgeBaseId }));
+      const graph: GenNode[] = seq.nodes.map((n) => ({ kind: n.kind, type: n.type, config: n.config }));
+      const linkedKb = kbs.find((k) => k.id === brain.knowledgeBaseId);
+      const c = campaignRef.current;
+      setReadiness(
+        launchReadiness(computeRequiredInputs(graph), {
+          sender_account: Boolean(c?.accountId),
+          contacts: (c?.leadCount ?? 0) > 0,
+          // A knowledge base only counts once it has real facts (chunks), not just a shell.
+          knowledge_base: Boolean(linkedKb && linkedKb.chunks > 0),
+          voice_profile: Boolean(brain.voiceProfileId),
+        }),
+      );
+    } catch {
+      setReadiness(null);
+    }
+  }, [api, campaignId]);
+  useEffect(() => {
+    void checkGate();
+  }, [tab, checkGate, campaign?.accountId, campaign?.leadCount]);
+
+  // Inline fix-it links for a missing launch input.
+  const readinessAction = (key: RequiredInput["key"]): React.ReactNode => {
+    if (key === "contacts") {
+      return (
+        <button type="button" onClick={() => setTab("leads")} className="text-primary hover:underline">
+          Add contacts
+        </button>
+      );
+    }
+    if (key === "knowledge_base") {
+      return (
+        <button type="button" onClick={() => setTab("context")} className="text-primary hover:underline">
+          Add facts
+        </button>
+      );
+    }
+    if (key === "voice_profile") {
+      return (
+        <Link href="/settings/voice-cloner" className="text-primary hover:underline">
+          Set up voice
+        </Link>
+      );
+    }
+    return null; // sender_account: the account selector is in the header above
+  };
 
   const bindAccount = async (accountId: string): Promise<void> => {
     setActionError(null);
@@ -196,6 +279,14 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
               </option>
             ))}
           </Select>
+          <Button variant="outline" onClick={() => setDuplicateOpen(true)}>
+            <CopyPlus />
+            Duplicate
+          </Button>
+          <Button variant="outline" onClick={() => setSaveTemplateOpen(true)}>
+            <BookmarkPlus />
+            Save as template
+          </Button>
           <Button variant="outline" onClick={() => void share()}>
             <Share2 />
             Share
@@ -206,7 +297,16 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
               Stop
             </Button>
           ) : (
-            <Button onClick={requestRun} disabled={busy}>
+            <Button
+              onClick={requestRun}
+              // Fail closed: stay disabled until readiness is known AND ready.
+              disabled={busy || !readiness?.ready}
+              title={
+                readiness && !readiness.ready
+                  ? "Add the required inputs below before launching"
+                  : undefined
+              }
+            >
               <Play />
               Run it!
             </Button>
@@ -246,9 +346,27 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
         </div>
       </Modal>
 
+      <SaveAsTemplateModal
+        open={saveTemplateOpen}
+        onClose={() => setSaveTemplateOpen(false)}
+        campaignId={campaignId}
+        defaultName={campaign.name}
+      />
+
+      <DuplicateCampaignModal
+        open={duplicateOpen}
+        onClose={() => setDuplicateOpen(false)}
+        campaignId={campaignId}
+        defaultName={`${campaign.name} (copy)`}
+        onDuplicated={(newId) => {
+          setDuplicateOpen(false);
+          router.push(`/campaigns/${newId}`);
+        }}
+      />
+
       <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
         <Clock className="size-3" />
-        Campaigns run automatically every 4–8 minutes (randomized) to stay human and avoid detection. Your
+        Testing mode: campaigns run automatically every ~15 seconds so you can see results fast. Your
         daily limits per account are always respected.
       </p>
 
@@ -276,6 +394,43 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
         <MetricCell label="Replies" value={(metrics?.replies.count ?? 0).toLocaleString()} tone="primary" />
       </div>
 
+      {/* Launch readiness — the campaign can't go live until these are supplied (§13). */}
+      {!isRunning && readiness && !readiness.ready ? (
+        <div className="mt-4 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertTriangle className="size-4 shrink-0 text-warning-foreground" />
+            Before you can launch, add:
+          </div>
+          <ul className="mt-1.5 space-y-1">
+            {readiness.missing.map((m) => (
+              <li key={m.key} className="flex flex-wrap items-center gap-x-2">
+                <span className="text-muted-foreground">• {m.label}</span>
+                {readinessAction(m.key)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {/* AI-off indicator — the AI won't engage replies until a brain is set (§5.7).
+          Hidden on the Context tab, which shows its own in-tab banner. */}
+      {aiOff && tab !== "context" ? (
+        <button
+          type="button"
+          onClick={() => setTab("context")}
+          className="mt-4 flex w-full items-start gap-2 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-left text-sm transition-colors hover:bg-warning/20"
+        >
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
+          <span>
+            <span className="font-medium">AI replies are off.</span>{" "}
+            <span className="text-muted-foreground">
+              This campaign has no aim or knowledge base, so the AI won&apos;t engage replies. Open the
+              Context tab to configure it →
+            </span>
+          </span>
+        </button>
+      ) : null}
+
       {/* Tabs */}
       <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} className="mt-6">
         <TabsList>
@@ -287,10 +442,24 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
         </TabsList>
 
         <TabsContent value="builder" forceMount>
-          <BuilderTab campaignId={campaignId} running={isRunning} accounts={accounts} />
+          {/* A graph change (incl. Build-with-AI apply) refreshes the gate from the saved sequence. */}
+          <BuilderTab
+            campaignId={campaignId}
+            running={isRunning}
+            accounts={accounts}
+            onChanged={() => void checkGate()}
+          />
         </TabsContent>
         <TabsContent value="leads">
-          <LeadsTab campaignId={campaignId} campaignName={campaign?.name ?? ""} />
+          {/* Enrolling/removing contacts changes leadCount → reload so the gate updates. */}
+          <LeadsTab
+            campaignId={campaignId}
+            campaignName={campaign?.name ?? ""}
+            onChanged={() => void load()}
+          />
+        </TabsContent>
+        <TabsContent value="context">
+          <ContextTab campaignId={campaignId} />
         </TabsContent>
         <TabsContent value="analytics">
           <AnalyticsTab campaignId={campaignId} />

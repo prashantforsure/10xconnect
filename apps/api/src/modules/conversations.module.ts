@@ -31,11 +31,19 @@ import { KYSELY_DB } from "../database/database.module";
 
 const PIPELINE_STAGES = ["new", "in_conversation", "qualified", "booked", "lost"] as const;
 
+const CONVERSATION_FILTERS = ["all", "reply_required", "important", "mine"] as const;
+type ConversationFilter = (typeof CONVERSATION_FILTERS)[number];
+
 const updateConversationSchema = z
   .object({
     pipelineStage: z.enum(PIPELINE_STAGES).optional(),
     tags: z.array(z.string().trim().min(1).max(40)).max(50).optional(),
     snoozeUntil: z.string().datetime().nullable().optional(),
+    isImportant: z.boolean().optional(),
+    needsAttention: z.boolean().optional(),
+    // Assign to the current user (true) or clear/assign explicitly (uuid|null).
+    assignToMe: z.boolean().optional(),
+    assignedTo: z.string().uuid().nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: "No fields to update" });
 type UpdateConversationDto = z.infer<typeof updateConversationSchema>;
@@ -78,7 +86,7 @@ export class ConversationsService {
     @Inject(CHANNEL_ADAPTER) private readonly adapter: ChannelAdapter,
   ) {}
 
-  async list(workspaceId: string, stage?: string) {
+  async list(workspaceId: string, currentUserId: string, filter: ConversationFilter = "all") {
     let q = this.db
       .selectFrom("conversations as c")
       .leftJoin("leads as l", "l.id", "c.lead_id")
@@ -89,6 +97,9 @@ export class ConversationsService {
         "c.pipeline_stage as pipelineStage",
         "c.snooze_until as snoozeUntil",
         "c.tags as tags",
+        "c.needs_attention as needsAttention",
+        "c.is_important as isImportant",
+        "c.assigned_to as assignedTo",
         "c.updated_at as updatedAt",
         "l.enrichment as enrichment",
         "l.email as email",
@@ -96,8 +107,13 @@ export class ConversationsService {
       ])
       .where("c.workspace_id", "=", workspaceId)
       .orderBy("c.updated_at", "desc");
-    if (stage) {
-      q = q.where("c.pipeline_stage", "=", stage as (typeof PIPELINE_STAGES)[number]);
+    // Inbox label filters (the human cockpit). "all" applies no extra predicate.
+    if (filter === "reply_required") {
+      q = q.where("c.needs_attention", "=", true);
+    } else if (filter === "important") {
+      q = q.where("c.is_important", "=", true);
+    } else if (filter === "mine") {
+      q = q.where("c.assigned_to", "=", currentUserId);
     }
     const rows = await q.execute();
 
@@ -112,6 +128,9 @@ export class ConversationsService {
       pipelineStage: r.pipelineStage,
       snoozeUntil: r.snoozeUntil,
       tags: r.tags,
+      needsAttention: r.needsAttention,
+      isImportant: r.isImportant,
+      assignedToMe: r.assignedTo === currentUserId,
       updatedAt: r.updatedAt,
       lastMessage: lastByConvo.get(r.id) ?? null,
     }));
@@ -333,7 +352,7 @@ export class ConversationsService {
     return row.id;
   }
 
-  async detail(workspaceId: string, id: string) {
+  async detail(workspaceId: string, id: string, currentUserId: string) {
     const c = await this.db
       .selectFrom("conversations as c")
       .leftJoin("leads as l", "l.id", "c.lead_id")
@@ -345,6 +364,9 @@ export class ConversationsService {
         "c.pipeline_stage as pipelineStage",
         "c.snooze_until as snoozeUntil",
         "c.tags as tags",
+        "c.needs_attention as needsAttention",
+        "c.is_important as isImportant",
+        "c.assigned_to as assignedTo",
         "l.enrichment as enrichment",
         "l.email as email",
         "l.linkedin_url as linkedinUrl",
@@ -363,6 +385,47 @@ export class ConversationsService {
       .orderBy("created_at", "asc")
       .execute();
 
+    // The latest AI suggestion awaiting a human (pending draft or escalation).
+    const draftRow = await this.db
+      .selectFrom("message_drafts")
+      .select(["id", "status", "body", "confidence", "reasoning"])
+      .where("conversation_id", "=", id)
+      .where("status", "in", ["pending", "escalated"])
+      .orderBy("created_at", "desc")
+      .executeTakeFirst();
+    const draft = draftRow
+      ? {
+          id: draftRow.id,
+          status: draftRow.status,
+          body: draftRow.body,
+          confidence: draftRow.confidence,
+          reason: (asObject(draftRow.reasoning).reason as string | undefined) ?? null,
+          action: (asObject(draftRow.reasoning).action as string | undefined) ?? null,
+          // Hot-lead handoff briefing (Phase 4), when present.
+          summary: (asObject(draftRow.reasoning).summary as string | undefined) ?? null,
+          nextStep: (asObject(draftRow.reasoning).nextStep as string | undefined) ?? null,
+        }
+      : null;
+
+    // Relationship axis (Phase 1/4) — stage + hot-lead summary for the cockpit.
+    const relRow = c.leadId
+      ? await this.db
+          .selectFrom("relationship_state")
+          .select(["stage", "intent_score as intentScore", "summary", "next_action as nextAction", "do_not_reply as doNotReply"])
+          .where("lead_id", "=", c.leadId)
+          .executeTakeFirst()
+      : undefined;
+    const relationship = relRow
+      ? {
+          stage: relRow.stage,
+          intentScore: relRow.intentScore,
+          summary: relRow.summary,
+          nextAction: relRow.nextAction,
+          aiPaused: relRow.doNotReply,
+          isHot: relRow.stage === "hot_lead",
+        }
+      : null;
+
     const e = asObject(c.enrichment);
     return {
       id: c.id,
@@ -371,6 +434,11 @@ export class ConversationsService {
       pipelineStage: c.pipelineStage,
       snoozeUntil: c.snoozeUntil,
       tags: c.tags,
+      needsAttention: c.needsAttention,
+      isImportant: c.isImportant,
+      assignedToMe: c.assignedTo === currentUserId,
+      draft,
+      relationship,
       lead: {
         name: leadName(c.enrichment, c.email, c.linkedinUrl),
         headline: typeof e.headline === "string" ? e.headline : null,
@@ -384,23 +452,18 @@ export class ConversationsService {
     };
   }
 
+  /**
+   * Enqueue a manual reply as a node-less `conversation_reply` action. It is NOT
+   * sent here — the dispatch worker picks it up and sends it through the safety
+   * spine (adapter + idempotency), exactly the path future AI replies reuse.
+   * Never calls a transport provider directly.
+   */
   async reply(workspaceId: string, id: string, dto: ReplyDto) {
     const c = await this.db
-      .selectFrom("conversations as c")
-      .leftJoin("leads as l", "l.id", "c.lead_id")
-      .leftJoin("sending_accounts as a", "a.id", "c.account_id")
-      .select([
-        "c.id as id",
-        "c.channel as channel",
-        "c.lead_id as leadId",
-        "c.account_id as accountId",
-        "a.provider_account_id as providerAccountId",
-        "l.linkedin_url as linkedinUrl",
-        "l.email as email",
-        "l.enrichment as enrichment",
-      ])
-      .where("c.workspace_id", "=", workspaceId)
-      .where("c.id", "=", id)
+      .selectFrom("conversations")
+      .select(["id", "channel", "lead_id as leadId", "account_id as accountId"])
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", id)
       .executeTakeFirst();
     if (!c) {
       throw new NotFoundException("Conversation not found");
@@ -410,34 +473,6 @@ export class ConversationsService {
     }
 
     const idempotencyKey = `reply:${id}:${randomUUID()}`;
-    const e = asObject(c.enrichment);
-    const result = await this.adapter.sendMessage(
-      { accountId: c.accountId, providerAccountId: c.providerAccountId ?? undefined },
-      {
-        ...(c.leadId ? { leadId: c.leadId } : {}),
-        ...(c.linkedinUrl ? { linkedinUrl: c.linkedinUrl } : {}),
-        ...(typeof e.providerId === "string" ? { providerId: e.providerId } : {}),
-        ...(c.email ? { email: c.email } : {}),
-      },
-      { body: dto.body },
-      { idempotencyKey },
-    );
-
-    if (result.status !== "success") {
-      throw new BadGatewayException(result.error.message);
-    }
-
-    await this.db
-      .insertInto("messages")
-      .values({
-        workspace_id: workspaceId,
-        conversation_id: id,
-        direction: "outbound",
-        channel: c.channel,
-        body: dto.body,
-      })
-      .execute();
-    // Record for analytics/audit (idempotency-keyed).
     await this.db
       .insertInto("actions")
       .values({
@@ -445,14 +480,18 @@ export class ConversationsService {
         account_id: c.accountId,
         lead_id: c.leadId,
         type: "message",
-        status: "success",
+        status: "pending",
         idempotency_key: idempotencyKey,
-        executed_at: new Date().toISOString(),
-        result: JSON.stringify(result),
+        scheduled_at: new Date().toISOString(),
+        config: JSON.stringify({
+          kind: "conversation_reply",
+          conversationId: id,
+          body: dto.body,
+          channel: c.channel,
+        }),
       })
-      .onConflict((oc) => oc.column("idempotency_key").doNothing())
       .execute();
-    // Touch the conversation so it surfaces to the top.
+    // Surface the thread to the top of the human pipeline.
     await this.db
       .updateTable("conversations")
       .set({ pipeline_stage: "in_conversation" })
@@ -460,25 +499,38 @@ export class ConversationsService {
       .where("pipeline_stage", "=", "new")
       .execute();
 
-    return { sent: true };
+    return { queued: true };
   }
 
-  async update(workspaceId: string, id: string, dto: UpdateConversationDto) {
+  async update(workspaceId: string, id: string, currentUserId: string, dto: UpdateConversationDto) {
     const updated = await this.db
       .updateTable("conversations")
       .set({
         ...(dto.pipelineStage ? { pipeline_stage: dto.pipelineStage } : {}),
         ...(dto.tags ? { tags: dto.tags } : {}),
         ...(dto.snoozeUntil !== undefined ? { snooze_until: dto.snoozeUntil } : {}),
+        ...(dto.isImportant !== undefined ? { is_important: dto.isImportant } : {}),
+        ...(dto.needsAttention !== undefined ? { needs_attention: dto.needsAttention } : {}),
+        // assignToMe wins if both are sent; assignedTo can explicitly clear (null).
+        ...(dto.assignToMe ? { assigned_to: currentUserId } : {}),
+        ...(dto.assignedTo !== undefined ? { assigned_to: dto.assignedTo } : {}),
       })
       .where("workspace_id", "=", workspaceId)
       .where("id", "=", id)
-      .returning(["id", "pipeline_stage as pipelineStage", "tags", "snooze_until as snoozeUntil"])
+      .returning([
+        "id",
+        "pipeline_stage as pipelineStage",
+        "tags",
+        "snooze_until as snoozeUntil",
+        "needs_attention as needsAttention",
+        "is_important as isImportant",
+        "assigned_to as assignedTo",
+      ])
       .executeTakeFirst();
     if (!updated) {
       throw new NotFoundException("Conversation not found");
     }
-    return updated;
+    return { ...updated, assignedToMe: updated.assignedTo === currentUserId };
   }
 
   listSavedResponses(workspaceId: string) {
@@ -505,8 +557,15 @@ export class ConversationsController {
   constructor(private readonly conversations: ConversationsService) {}
 
   @Get("conversations")
-  list(@WorkspaceId() workspaceId: string, @Query("stage") stage?: string) {
-    return this.conversations.list(workspaceId, stage);
+  list(
+    @WorkspaceId() workspaceId: string,
+    @CurrentUser() user: AuthUser,
+    @Query("filter") filter?: string,
+  ) {
+    const f = (CONVERSATION_FILTERS as readonly string[]).includes(filter ?? "")
+      ? (filter as ConversationFilter)
+      : "all";
+    return this.conversations.list(workspaceId, user.id, f);
   }
 
   @Post("conversations/sync")
@@ -515,8 +574,12 @@ export class ConversationsController {
   }
 
   @Get("conversations/:id")
-  detail(@WorkspaceId() workspaceId: string, @Param("id") id: string) {
-    return this.conversations.detail(workspaceId, id);
+  detail(
+    @WorkspaceId() workspaceId: string,
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+  ) {
+    return this.conversations.detail(workspaceId, id, user.id);
   }
 
   @Post("conversations/:id/reply")
@@ -531,10 +594,11 @@ export class ConversationsController {
   @Patch("conversations/:id")
   update(
     @WorkspaceId() workspaceId: string,
+    @CurrentUser() user: AuthUser,
     @Param("id") id: string,
     @Body(new ZodValidationPipe(updateConversationSchema)) body: UpdateConversationDto,
   ) {
-    return this.conversations.update(workspaceId, id, body);
+    return this.conversations.update(workspaceId, id, user.id, body);
   }
 
   @Get("saved-responses")

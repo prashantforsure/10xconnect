@@ -148,14 +148,20 @@ export class EnrichmentService {
   private async resolveAccount(workspaceId: string): Promise<AccountRef> {
     const account = await this.db
       .selectFrom("sending_accounts")
-      .select(["id"])
+      .select(["id", "provider_account_id"])
       .where("workspace_id", "=", workspaceId)
       .where("type", "=", "linkedin")
       .where("status", "in", ["active", "warming"])
       .orderBy("created_at", "asc")
       .executeTakeFirst();
     if (account) {
-      return { accountId: account.id };
+      // Pass the provider handle — the real (Unipile) adapter addresses the API by
+      // provider_account_id, not our internal id. Omitting it made fetchProfile hit
+      // an unknown account and 404 (a real cause of enrich_status='failed').
+      return {
+        accountId: account.id,
+        ...(account.provider_account_id ? { providerAccountId: account.provider_account_id } : {}),
+      };
     }
     return { accountId: `ws-${workspaceId}-enrichment` };
   }

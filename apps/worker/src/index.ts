@@ -1,8 +1,13 @@
-import { createChannelAdapter, createTextAdapter, resolveAdapterKind } from "@10xconnect/adapters";
+import {
+  createChannelAdapter,
+  createEmbeddingAdapter,
+  createTextAdapter,
+  resolveAdapterKind,
+} from "@10xconnect/adapters";
 import { env } from "@10xconnect/config";
 import { createDb } from "@10xconnect/db";
 import {
-  createAiResolver,
+  createCachedAiResolver,
   type DispatchStats,
   type EngineDeps,
   dispatchConfigFromEnv,
@@ -37,14 +42,21 @@ function main(): void {
 
   const db = createDb();
   const textAdapter = createTextAdapter();
+  const embeddingAdapter = createEmbeddingAdapter();
   console.log(`AI personalization: ${textAdapter ? `on (${env.LLM_PROVIDER}/${env.LLM_MODEL})` : "off (no LLM_API_KEY)"}`);
+  console.log(`conversation brain: ${textAdapter && embeddingAdapter ? `on (embeds=${env.EMBEDDING_PROVIDER})` : "off (needs LLM + embeddings)"}`);
   const deps: EngineDeps = {
     db,
     adapter,
     config: dispatchConfigFromEnv(),
-    resolveContent: createAiResolver(textAdapter),
+    textAdapter,
+    embeddingAdapter,
+    // Model id for Phase 3 cost metering (mock is priced so the governor works offline).
+    modelLabel: env.LLM_PROVIDER === "mock" ? "mock" : env.LLM_MODEL,
     log: (msg) => console.log(`[dispatch] ${msg}`),
   };
+  // Phase 5: cache-aware resolver reuses the per-prospect preview (no 2nd LLM call).
+  deps.resolveContent = createCachedAiResolver(deps);
   console.log(
     `dispatch cadence: tick=${env.DISPATCH_TICK_MS}ms spacing=${deps.config.minSpacingMs}ms ` +
       `jitter=${deps.config.jitterMs}ms ignoreWorkingHours=${deps.config.ignoreWorkingHours}`,

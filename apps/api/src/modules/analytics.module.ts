@@ -1,5 +1,6 @@
 import { ageDaysSince, computeHealth, effectiveCaps } from "@10xconnect/core";
 import type { DB } from "@10xconnect/db";
+import { computeUnitEconomics } from "@10xconnect/engine";
 import { Controller, Get, Inject, Injectable, Module, Param, Query, UseGuards } from "@nestjs/common";
 import { type Kysely, sql } from "kysely";
 
@@ -407,6 +408,18 @@ export class AnalyticsService {
     }
     return out;
   }
+
+  /** Workspace unit economics: AI spend per outcome (cost-per-conversation / booked meeting). */
+  unitEconomics(workspaceId: string, range: AnalyticsRange) {
+    const windowDays = range === "7d" ? 7 : range === "30d" ? 30 : undefined;
+    return computeUnitEconomics(this.db, { workspaceId, windowDays });
+  }
+
+  /** Per-campaign unit economics — same metrics scoped to a single campaign. */
+  campaignUnitEconomics(workspaceId: string, campaignId: string, range: AnalyticsRange) {
+    const windowDays = range === "7d" ? 7 : range === "30d" ? 30 : undefined;
+    return computeUnitEconomics(this.db, { workspaceId, campaignId, windowDays });
+  }
 }
 
 @UseGuards(WorkspaceScopeGuard)
@@ -424,9 +437,23 @@ export class AnalyticsController {
     return this.analytics.campaign(workspaceId, id);
   }
 
+  @Get("campaign/:id/unit-economics")
+  campaignUnitEconomics(
+    @WorkspaceId() workspaceId: string,
+    @Param("id") id: string,
+    @Query("range") range?: string,
+  ) {
+    return this.analytics.campaignUnitEconomics(workspaceId, id, parseAnalyticsRange(range));
+  }
+
   @Get("accounts")
   accounts(@WorkspaceId() workspaceId: string) {
     return this.analytics.accounts(workspaceId);
+  }
+
+  @Get("unit-economics")
+  unitEconomics(@WorkspaceId() workspaceId: string, @Query("range") range?: string) {
+    return this.analytics.unitEconomics(workspaceId, parseAnalyticsRange(range));
   }
 }
 

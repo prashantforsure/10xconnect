@@ -91,3 +91,33 @@ test("executor routes AI-bearing bodies through resolveContent", async () => {
   );
   assert.equal(sink.body, "AI LINE");
 });
+
+/** Voice adapter spy: counts sends + reports a delivery capability. */
+function voiceAdapter(support: boolean, calls: { sent: number }): ChannelAdapter {
+  return {
+    voiceNoteSupport: () => ({ supported: support, reason: support ? undefined : "no native voice endpoint" }),
+    sendVoiceNote: async (_a: unknown, _l: unknown, _audio: unknown, opts: { idempotencyKey: string }) => {
+      calls.sent += 1;
+      return { status: "success", idempotencyKey: opts.idempotencyKey, at: new Date().toISOString() } as ActionResult;
+    },
+  } as unknown as ChannelAdapter;
+}
+
+test("executor REFUSES voice-note dispatch when the transport can't deliver (no send) — safety gate", async () => {
+  const calls = { sent: 0 };
+  const result = await executeTransportAction(
+    input({ adapter: voiceAdapter(false, calls), nodeType: "send_voice_note", config: { audioRef: "x", durationMs: 20_000 } }),
+  );
+  assert.equal(result.status, "failed", "dispatch refused in our layer");
+  assert.equal(result.status === "failed" && result.error.code, "invalid_request");
+  assert.equal(calls.sent, 0, "transport.sendVoiceNote NEVER called — the guarantee is ours, not the provider's");
+});
+
+test("executor sends a voice note only when the transport reports it can deliver", async () => {
+  const calls = { sent: 0 };
+  const result = await executeTransportAction(
+    input({ adapter: voiceAdapter(true, calls), nodeType: "send_voice_note", config: { audioRef: "x" } }),
+  );
+  assert.equal(result.status, "success");
+  assert.equal(calls.sent, 1, "send happens only behind an explicit capability");
+});

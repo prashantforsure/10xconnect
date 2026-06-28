@@ -45,7 +45,16 @@ function errorMessage(err: unknown, fallback: string): string {
   return (err as ApiError)?.message ?? (err instanceof Error ? err.message : fallback);
 }
 
-export function LeadsTab({ campaignId, campaignName }: { campaignId: string; campaignName: string }) {
+export function LeadsTab({
+  campaignId,
+  campaignName,
+  onChanged,
+}: {
+  campaignId: string;
+  campaignName: string;
+  /** Fired after enroll/import/remove so the parent can refresh launch readiness. */
+  onChanged?: () => void;
+}) {
   const api = useApi();
   const [leads, setLeads] = useState<LeadRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +73,12 @@ export function LeadsTab({ campaignId, campaignName }: { campaignId: string; cam
       setLoading(false);
     }
   }, [api, campaignId]);
+
+  // Reload our list AND notify the parent (campaign leadCount drives the gate).
+  const loadAndNotify = useCallback(async () => {
+    await load();
+    onChanged?.();
+  }, [load, onChanged]);
 
   const openImport = useCallback(async () => {
     setImportOpen(true);
@@ -86,7 +101,7 @@ export function LeadsTab({ campaignId, campaignName }: { campaignId: string; cam
   const remove = async (leadId: string): Promise<void> => {
     try {
       await api.request(`/campaigns/${campaignId}/leads/${leadId}`, { method: "DELETE" });
-      await load();
+      await loadAndNotify();
     } catch (err) {
       setError(errorMessage(err, "Could not remove lead"));
     }
@@ -152,7 +167,7 @@ export function LeadsTab({ campaignId, campaignName }: { campaignId: string; cam
         enroll={(listId) =>
           api.request<EnrollResult>(`/campaigns/${campaignId}/leads`, { method: "POST", body: { listId } })
         }
-        onEnrolled={load}
+        onEnrolled={loadAndNotify}
       />
 
       <ImportModal
@@ -161,7 +176,7 @@ export function LeadsTab({ campaignId, campaignName }: { campaignId: string; cam
         lists={lists}
         campaigns={[]}
         lockedCampaign={lockedCampaign}
-        onImported={load}
+        onImported={loadAndNotify}
       />
     </div>
   );

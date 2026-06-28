@@ -4,7 +4,12 @@
 // injection by default; AI personalization when deps.resolveContent is wired).
 
 import type { AccountRef, ActionResult, ChannelAdapter, LeadRef, SendOptions } from "@10xconnect/core";
-import { messageBodyToTemplate, readMessageBody, renderMessageBody } from "@10xconnect/core";
+import {
+  messageBodyToTemplate,
+  readMessageBody,
+  renderMessageBody,
+  voiceNoteDeliveryCapability,
+} from "@10xconnect/core";
 
 import type { ContentResolver, LeadRow } from "./types";
 import { injectVariables, leadVariables } from "./variables";
@@ -19,6 +24,9 @@ export interface ExecuteInput {
   idempotencyKey: string;
   lead: LeadRow;
   resolveContent?: ContentResolver;
+  /** Phase 5: node + campaign ids for the per-prospect preview cache. */
+  nodeId?: string;
+  campaignId?: string;
 }
 
 function failure(idempotencyKey: string, message: string): ActionResult {
@@ -44,6 +52,8 @@ async function text(input: ExecuteInput, keys: string[]): Promise<string> {
       template: messageBodyToTemplate(body),
       config: input.config,
       lead: input.lead,
+      nodeId: input.nodeId,
+      campaignId: input.campaignId,
     });
   }
   return renderMessageBody(body, leadVariables(input.lead));
@@ -72,7 +82,21 @@ export async function executeTransportAction(input: ExecuteInput): Promise<Actio
         { body: await text(input, ["body", "message"]) },
         opts,
       );
-    case "send_voice_note":
+    case "send_voice_note": {
+      // Orchestration-layer SAFETY GATE (CLAUDE.md §2): the "voice notes are not
+      // sent" guarantee is OURS, not an accident of the provider. We refuse the
+      // dispatch unless the transport reports it can natively deliver a voice note
+      // (voiceNoteSupport). No shipped real transport can today (Unipile has no
+      // endpoint), so this never executes a real send. Enabling real delivery is a
+      // deliberate act (a transport implementing voiceNoteSupport→true) and must
+      // additionally route through core prepareVoiceNote (consent + AI disclosure)
+      // before this gate is opened.
+      if (!voiceNoteDeliveryCapability(adapter).supported) {
+        return failure(
+          input.idempotencyKey,
+          "Voice-note delivery is not enabled on this transport (audio constructed, not sent).",
+        );
+      }
       return adapter.sendVoiceNote(
         accountRef,
         leadRef,
@@ -82,6 +106,7 @@ export async function executeTransportAction(input: ExecuteInput): Promise<Actio
         },
         opts,
       );
+    }
     case "inmail":
       return adapter.sendInMail(
         accountRef,

@@ -15,12 +15,14 @@ export interface BodyEditorHandle {
   insertVariable: (key: string, fallback?: string) => void;
   insertAi: (prompt?: string, promptId?: string) => void;
   insertText: (text: string) => void;
+  /** Replace the AI chip the user last clicked with an edited prompt (in place). */
+  updateEditingAi: (prompt?: string, promptId?: string) => void;
 }
 
 const VAR_CHIP_CLASS =
   "10xc-chip mx-0.5 inline-flex select-none items-center gap-1 rounded-md bg-tint-violet px-1.5 py-0.5 align-baseline text-xs font-medium text-[hsl(265_45%_45%)]";
 const AI_CHIP_CLASS =
-  "10xc-chip mx-0.5 inline-flex select-none items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 align-baseline text-xs font-medium text-primary";
+  "10xc-chip mx-0.5 inline-flex cursor-pointer select-none items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 align-baseline text-xs font-medium text-primary hover:bg-primary/20";
 
 function chipRemoveButton(): HTMLButtonElement {
   const x = document.createElement("button");
@@ -76,6 +78,7 @@ function createSegmentNode(seg: MessageSegment): Node {
   } else {
     span.className = AI_CHIP_CLASS;
     span.dataset.chip = "ai";
+    span.title = "Click to edit this AI prompt";
     if (seg.prompt) {
       span.dataset.prompt = seg.prompt;
     }
@@ -156,9 +159,13 @@ export const BodyEditor = forwardRef<
     onChange: (body: MessageBody) => void;
     disabled?: boolean;
     placeholder?: string;
+    /** Fired when the user clicks an existing AI chip (to reopen the prompt editor). */
+    onEditAi?: (current: { prompt?: string; promptId?: string }) => void;
   }
->(function BodyEditor({ value, onChange, disabled, placeholder }, ref) {
+>(function BodyEditor({ value, onChange, disabled, placeholder, onEditAi }, ref) {
   const elRef = useRef<HTMLDivElement>(null);
+  // The AI chip the user last clicked — the target of updateEditingAi().
+  const editingChipRef = useRef<HTMLElement | null>(null);
   // Tracks the last body we rendered/emitted so external updates re-render the DOM
   // but our own keystroke edits don't (which would reset the caret).
   const lastSerialized = useRef<string>("");
@@ -332,6 +339,20 @@ export const BodyEditor = forwardRef<
     insertVariable: (key, fallback) => insertNode(createSegmentNode({ type: "variable", key, fallback })),
     insertAi: (prompt, promptId) => insertNode(createSegmentNode({ type: "ai", prompt, promptId })),
     insertText: (text) => insertNode(document.createTextNode(text)),
+    updateEditingAi: (prompt, promptId) => {
+      const chip = editingChipRef.current;
+      if (!chip) {
+        return;
+      }
+      const fresh = createSegmentNode({
+        type: "ai",
+        ...(prompt ? { prompt } : {}),
+        ...(promptId ? { promptId } : {}),
+      });
+      chip.replaceWith(fresh);
+      editingChipRef.current = fresh as HTMLElement;
+      emit();
+    },
   }));
 
   const onClick = (e: React.MouseEvent): void => {
@@ -341,6 +362,14 @@ export const BodyEditor = forwardRef<
       e.preventDefault();
       remove.closest("[data-chip]")?.remove();
       emit();
+      return;
+    }
+    // Click an AI chip → reopen the prompt editor pre-filled (edit in place).
+    const aiChip = target.closest('[data-chip="ai"]') as HTMLElement | null;
+    if (aiChip && onEditAi) {
+      e.preventDefault();
+      editingChipRef.current = aiChip;
+      onEditAi({ prompt: aiChip.dataset.prompt, promptId: aiChip.dataset.promptId });
     }
   };
 

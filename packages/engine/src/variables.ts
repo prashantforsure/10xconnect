@@ -21,14 +21,19 @@ export function leadVariables(lead: LeadRow): Record<string, string> {
     first_name: str(e.firstName),
     last_name: str(e.lastName),
     full_name: [str(e.firstName), str(e.lastName)].filter(Boolean).join(" "),
-    company: str(e.company),
-    company_overview: str(e.companyOverview),
     role: str(e.role),
+    seniority: str(e.seniority),
     headline: str(e.headline),
     about: str(e.about),
     location: str(e.location),
     linkedin_url: str(lead.linkedin_url),
     email: str(lead.email),
+    connection_degree: lead.connection_degree == null ? "" : str(lead.connection_degree),
+    company: str(e.company),
+    company_overview: str(e.companyOverview),
+    industry: str(e.industry),
+    company_website: str(e.companyWebsite),
+    company_size: str(e.companySize),
   };
   for (const [k, v] of Object.entries(asObject(lead.custom_columns))) {
     vars[`custom.${k}`] = str(v);

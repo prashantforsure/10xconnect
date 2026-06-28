@@ -284,3 +284,7 @@ export function applyRefinement(graph: GenNode[], instruction: string): GenNode[
 
   return enforceSafety(next);
 }
+
+// Phase 6 — prompt-to-FULL-campaign blueprint (graph + brain + KB seed). Lives in
+// a sibling file; re-exported so `@10xconnect/core` exposes one campaign-gen API.
+export * from "./full-campaign";

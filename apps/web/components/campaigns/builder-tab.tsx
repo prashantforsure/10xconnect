@@ -90,10 +90,13 @@ export function BuilderTab({
   campaignId,
   running,
   accounts = [],
+  onChanged,
 }: {
   campaignId: string;
   running: boolean;
   accounts?: SenderAccount[];
+  /** Fired after "Build with AI" persists brain/cadence, so the parent can refresh. */
+  onChanged?: () => void;
 }) {
   const api = useApi();
   const { activeWorkspaceId } = useWorkspace();
@@ -270,6 +273,8 @@ export function BuilderTab({
       });
       setLastSavedAt(Date.now());
       setError(null);
+      // The graph changed (AI/voice nodes affect required inputs) → refresh the gate.
+      onChanged?.();
       if (editGenRef.current === gen) {
         dirtyRef.current = false;
         setDirty(false);
@@ -284,7 +289,7 @@ export function BuilderTab({
         void autosaveRef.current();
       }
     }
-  }, [api, campaignId]);
+  }, [api, campaignId, onChanged]);
 
   const autosaveRef = useRef(autosave);
   autosaveRef.current = autosave;
@@ -407,7 +412,13 @@ export function BuilderTab({
         </div>
       ) : null}
 
-      <BuildWithAiModal open={buildOpen} onClose={() => setBuildOpen(false)} campaignId={campaignId} onApply={applyGenerated} />
+      <BuildWithAiModal
+        open={buildOpen}
+        onClose={() => setBuildOpen(false)}
+        campaignId={campaignId}
+        onApply={applyGenerated}
+        onApplied={onChanged}
+      />
 
       {/* Canvas keeps a fixed-size viewport; the composer docks beside it (and is
           collapsible) only when a text-bearing step is selected. minmax(0,1fr) lets

@@ -3,12 +3,13 @@
 // next node and schedules that node's action (respecting wait_x_days, working
 // hours, and ~6-min jitter). The worker tick executes the scheduled actions.
 
-import { computeFirstDispatchAt, computeNextDispatchAt } from "@10xconnect/core";
+import { autonomyFrom, computeFirstDispatchAt, computeNextDispatchAt } from "@10xconnect/core";
 import type { DB } from "@10xconnect/db";
 import type { Kysely } from "kysely";
 
 import { isConditionType, nodeToActionType } from "./nodes";
 import { loadGraph } from "./repository";
+import { isLeadSuppressed } from "./suppression";
 import type { EngineDeps, HistoryEntry, LeadStateRow, SequenceNodeRow } from "./types";
 
 const DAY_MS = 86_400_000;
@@ -284,7 +285,7 @@ export async function enrollLeads(
       continue;
     }
 
-    if (await isSuppressed(deps.db, workspaceId, lead.linkedin_url, lead.email)) {
+    if (await isLeadSuppressed(deps.db, workspaceId, lead)) {
       result.skippedSuppressed += 1;
       continue;
     }
@@ -328,31 +329,6 @@ export async function enrollLeads(
   return result;
 }
 
-async function isSuppressed(
-  db: Kysely<DB>,
-  workspaceId: string,
-  linkedinUrl: string | null,
-  email: string | null,
-): Promise<boolean> {
-  if (!linkedinUrl && !email) {
-    return false;
-  }
-  const q = db.selectFrom("do_not_contact").select("id").where("workspace_id", "=", workspaceId);
-  const row = await q
-    .where((eb) => {
-      const ors = [];
-      if (email) {
-        ors.push(eb("email", "=", email));
-      }
-      if (linkedinUrl) {
-        ors.push(eb("linkedin_url", "=", linkedinUrl));
-      }
-      return eb.or(ors);
-    })
-    .executeTakeFirst();
-  return Boolean(row);
-}
-
 export interface StartResult {
   scheduled: number;
 }
@@ -373,6 +349,24 @@ export async function startCampaign(
   const { rootId, byId } = await loadGraph(deps.db, campaignId);
   if (!rootId) {
     throw new Error("Add at least one step to the sequence before starting.");
+  }
+
+  // Grounding gate (Phase 6 invariant 5): a campaign that REPLIES autonomously
+  // must have a knowledge base, or AI replies could answer factual questions
+  // ungrounded (inventing pricing/claims). approve_all is exempt — a human
+  // approves every reply. Outbound personalization writes from enrichment, so
+  // this gates only the autonomous-reply risk.
+  const brain = await deps.db
+    .selectFrom("campaigns")
+    .select(["autonomy", "knowledge_base_id"])
+    .where("workspace_id", "=", workspaceId)
+    .where("id", "=", campaignId)
+    .executeTakeFirst();
+  const mode = autonomyFrom(brain?.autonomy).mode;
+  if ((mode === "auto_easy_escalate_hard" || mode === "full_auto") && !brain?.knowledge_base_id) {
+    throw new Error(
+      "Add a knowledge base before launching an auto-replying campaign, so AI replies stay grounded.",
+    );
   }
 
   await deps.db

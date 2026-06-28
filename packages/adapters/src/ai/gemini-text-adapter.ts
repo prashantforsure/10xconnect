@@ -3,7 +3,11 @@
 // the Google Generative Language REST API directly (no SDK), so nothing leaks out
 // of this package but the core TextGenerationAdapter interface.
 
-import type { TextGenerationAdapter, TextGenerationInput } from "@10xconnect/core";
+import type {
+  TextGenerationAdapter,
+  TextGenerationInput,
+  TextGenerationResult,
+} from "@10xconnect/core";
 
 export interface GeminiConfig {
   apiKey: string;
@@ -13,6 +17,11 @@ export interface GeminiConfig {
 
 interface GeminiResponse {
   candidates?: { content?: { parts?: { text?: string }[] } }[];
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  };
   error?: { message?: string };
 }
 
@@ -20,6 +29,11 @@ export class GeminiTextAdapter implements TextGenerationAdapter {
   constructor(private readonly config: GeminiConfig) {}
 
   async generate(input: TextGenerationInput): Promise<string> {
+    return (await this.generateWithUsage(input)).text;
+  }
+
+  /** Generate AND surface Gemini's reported token usage (Phase 3 metering). */
+  async generateWithUsage(input: TextGenerationInput): Promise<TextGenerationResult> {
     const url =
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.config.model)}` +
       `:generateContent?key=${encodeURIComponent(this.config.apiKey)}`;
@@ -49,6 +63,14 @@ export class GeminiTextAdapter implements TextGenerationAdapter {
     if (!text) {
       throw new Error("Gemini returned no text");
     }
-    return text;
+    const u = data.usageMetadata;
+    const usage = u
+      ? {
+          promptTokens: u.promptTokenCount ?? 0,
+          completionTokens: u.candidatesTokenCount ?? 0,
+          totalTokens: u.totalTokenCount ?? (u.promptTokenCount ?? 0) + (u.candidatesTokenCount ?? 0),
+        }
+      : undefined;
+    return { text, usage };
   }
 }

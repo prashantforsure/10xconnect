@@ -2,7 +2,7 @@
 // provider-agnostic: it receives a ChannelAdapter (interface) and a Kysely client.
 // No provider SDKs here — those stay in packages/adapters.
 
-import type { ChannelAdapter } from "@10xconnect/core";
+import type { ChannelAdapter, EmbeddingAdapter, TextGenerationAdapter } from "@10xconnect/core";
 import type { DB, Json } from "@10xconnect/db";
 import type { Kysely } from "kysely";
 
@@ -25,6 +25,9 @@ export type ContentResolver = (input: {
   template: string;
   config: Record<string, unknown>;
   lead: LeadRow;
+  /** Phase 5: node + campaign context for the per-prospect preview cache. */
+  nodeId?: string;
+  campaignId?: string;
 }) => Promise<string> | string;
 
 export interface EngineDeps {
@@ -34,6 +37,12 @@ export interface EngineDeps {
   /** Injectable clock for deterministic tests. */
   now?: () => Date;
   resolveContent?: ContentResolver;
+  /** Conversation-brain (Phase 2): reasoning-model drafts. Absent → no AI drafts. */
+  textAdapter?: TextGenerationAdapter | null;
+  /** Conversation-brain (Phase 2): KB/fact embeddings. Absent → no grounding. */
+  embeddingAdapter?: EmbeddingAdapter | null;
+  /** Model id for Phase 3 cost metering/pricing (e.g. "gemini-2.0-flash"|"mock"). */
+  modelLabel?: string;
   log?: (msg: string) => void;
 }
 

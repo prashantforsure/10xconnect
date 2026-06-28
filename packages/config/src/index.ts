@@ -102,10 +102,24 @@ const envSchema = z.object({
   // the MVP). Model + provider are swappable; the adapter lives in packages/adapters.
   LLM_API_KEY: optionalString,
   LLM_PROVIDER: z.preprocess(blankToUndefined, z.enum(["gemini", "mock"]).default("gemini")),
-  LLM_MODEL: z.preprocess(blankToUndefined, z.string().default("gemini-2.0-flash")),
+  // gemini-2.5-flash: 2.0-flash has no free-tier quota on the current key (429 limit:0).
+  LLM_MODEL: z.preprocess(blankToUndefined, z.string().default("gemini-2.5-flash")),
 
-  // Voice notes / TTS (Phase 6+)
+  // Embeddings (conversation-brain RAG). Mirrors the LLM knobs; EMBEDDING_API_KEY
+  // falls back to LLM_API_KEY. The mock provider is a deterministic hashing
+  // embedder so the knowledge base works offline (ADAPTER=mock).
+  EMBEDDING_API_KEY: optionalString,
+  EMBEDDING_PROVIDER: z.preprocess(blankToUndefined, z.enum(["gemini", "mock"]).default("gemini")),
+  EMBEDDING_MODEL: z.preprocess(blankToUndefined, z.string().default("gemini-embedding-001")),
+
+  // Voice notes / TTS (Phase 7). Per-prospect cloned voice notes via ElevenLabs
+  // Professional Voice Cloning. Mock-safe by default (voice is a paid feature, so
+  // it stays opt-in): VOICE_PROVIDER=mock → deterministic offline audio. VOICE_API_KEY
+  // falls back to TTS_API_KEY. The adapter lives ONLY in packages/adapters.
   TTS_API_KEY: optionalString,
+  VOICE_API_KEY: optionalString,
+  VOICE_PROVIDER: z.preprocess(blankToUndefined, z.enum(["elevenlabs", "mock"]).default("mock")),
+  VOICE_MODEL: z.preprocess(blankToUndefined, z.string().default("eleven_multilingual_v2")),
 
   // Dispatch engine cadence (orchestration brain). Defaults are SAFE for real
   // accounts: poll every 15s, 4–8 min spacing (4-min base + up to 4-min jitter,

@@ -22,28 +22,37 @@ import type {
   ListConversationsOptions,
   Message,
   MessageContent,
+  RecentPost,
   SendOptions,
   Unsubscribe,
+  VoiceNoteCapable,
   VoiceNoteRef,
 } from "@10xconnect/core";
 
 import type { InboundWebhookReceiver } from "../webhook-receiver";
 
-import { buildConnectProxy, mapAccountStatus, mapConnectionDegree, mapHttpError } from "./mappers";
+import {
+  buildConnectProxy,
+  mapAccountStatus,
+  mapConnectionDegree,
+  mapHttpError,
+  mapRecentPosts,
+} from "./mappers";
 import { UnipileClient, UnipileHttpError } from "./unipile-client";
 import type {
   UnipileAccountListItem,
   UnipileConfig,
   UnipileCreateAccountResponse,
   UnipileHostedAuthResponse,
+  UnipilePostList,
   UnipileSendResponse,
   UnipileUserProfile,
 } from "./unipile-types";
 import { normalizeWebhook } from "./webhook-normalizer";
 
-interface UserPostList {
-  items?: { id?: string; social_id?: string }[];
-}
+const VOICE_NOTE_UNSUPPORTED_REASON =
+  "unipile: native voice notes are not supported by the current Unipile API";
+
 interface ChatListItem {
   id?: string;
   /** Set for LinkedIn promotional/system threads (ads/sponsored/offers) — skip these. */
@@ -87,7 +96,7 @@ interface ChatMessageList {
  *               fetchConversation chat lookup.
  */
 export class UnipileChannelAdapter
-  implements ChannelAdapter, InboundWebhookReceiver, HostedAuthCapable, ConversationSyncCapable
+  implements ChannelAdapter, InboundWebhookReceiver, HostedAuthCapable, ConversationSyncCapable, VoiceNoteCapable
 {
   private readonly client: UnipileClient;
   private readonly handlers = new Set<InboundEventHandler>();
@@ -241,10 +250,19 @@ export class UnipileChannelAdapter
       idempotencyKey: opts.idempotencyKey,
       error: {
         code: "invalid_request",
-        message: "unipile: native voice notes are not supported by the current Unipile API",
+        message: VOICE_NOTE_UNSUPPORTED_REASON,
         retriable: false,
       },
     });
+  }
+
+  /**
+   * Voice-note delivery capability (probed without sending). The current Unipile
+   * API exposes no native LinkedIn voice-note endpoint, so this is NOT supported —
+   * callers should construct the plan and stop, not attempt a send (Phase 7.1).
+   */
+  voiceNoteSupport(): { supported: boolean; reason?: string } {
+    return { supported: false, reason: VOICE_NOTE_UNSUPPORTED_REASON };
   }
 
   likePost(account: AccountRef, lead: LeadRef, opts: SendOptions): Promise<ActionResult> {
@@ -328,6 +346,9 @@ export class UnipileChannelAdapter
       { account_id: this.acc(account) },
     );
     const { firstName, lastName } = dropAnonymousName(p.first_name, p.last_name);
+    // Pull recent activity ("what they've been up to") so the AI can open on a
+    // specific, current observation — best-effort, never fails the enrichment.
+    const recentPosts = p.provider_id ? await this.fetchRecentPosts(account, p.provider_id) : [];
     return {
       linkedinUrl,
       providerId: p.provider_id,
@@ -339,7 +360,25 @@ export class UnipileChannelAdapter
       role: p.occupation,
       location: p.location,
       connectionDegree: mapConnectionDegree(p.network_distance),
+      ...(recentPosts.length ? { recentPosts } : {}),
     };
+  }
+
+  /**
+   * Best-effort recent posts for enrichment. A posts failure (or activity hidden
+   * by the prospect) returns [] — it must NEVER break profile enrichment. Consumes
+   * the profile-visit budget (an extra read), accounted for by the caller.
+   */
+  private async fetchRecentPosts(account: AccountRef, providerId: string): Promise<RecentPost[]> {
+    try {
+      const list = await this.client.getJson<UnipilePostList>(
+        `/api/v1/users/${encodeURIComponent(providerId)}/posts`,
+        { account_id: this.acc(account), limit: "5" },
+      );
+      return mapRecentPosts(list, 3);
+    } catch {
+      return [];
+    }
   }
 
   async fetchConversation(account: AccountRef, lead: LeadRef): Promise<Conversation> {
@@ -518,7 +557,7 @@ export class UnipileChannelAdapter
 
   private async latestPostId(account: AccountRef, lead: LeadRef): Promise<string> {
     const providerId = await this.resolveProviderId(account, lead);
-    const posts = await this.client.getJson<UserPostList>(
+    const posts = await this.client.getJson<UnipilePostList>(
       `/api/v1/users/${encodeURIComponent(providerId)}/posts`,
       { account_id: this.acc(account) },
     );

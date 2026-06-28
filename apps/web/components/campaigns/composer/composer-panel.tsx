@@ -13,6 +13,7 @@ import { useRef, useState } from "react";
 import { AiPromptButton } from "./ai-prompt-button";
 import { AttachmentMenu } from "./attachment-menu";
 import { BodyEditor, type BodyEditorHandle } from "./body-editor";
+import { EditAiPromptModal } from "./edit-ai-prompt-modal";
 import { FrameworkMenu } from "./framework-menu";
 import { GuardrailsPanel } from "./guardrails-panel";
 import { PreviewModal, type PreviewItem, type PreviewSample } from "./preview-modal";
@@ -90,6 +91,8 @@ export function ComposerPanel({
   const [previewWarning, setPreviewWarning] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [editAiOpen, setEditAiOpen] = useState(false);
+  const [editAiPrompt, setEditAiPrompt] = useState("");
   const seedRef = useRef(0);
 
   const state = readComposer(type, config);
@@ -259,6 +262,14 @@ export function ComposerPanel({
             onChange={onBody}
             disabled={running}
             placeholder="Write your message… insert variables and an AI prompt above."
+            onEditAi={
+              running
+                ? undefined
+                : (current) => {
+                    setEditAiPrompt(current.prompt ?? "");
+                    setEditAiOpen(true);
+                  }
+            }
           />
 
           {/* Sales-guard linter + above-the-fold (advisory) */}
@@ -316,6 +327,16 @@ export function ComposerPanel({
         onRegenerate={regenerate}
       />
       <PromptLibraryModal open={libraryOpen} onClose={() => setLibraryOpen(false)} onPick={insertPrompt} />
+      <EditAiPromptModal
+        open={editAiOpen}
+        initialPrompt={editAiPrompt}
+        onClose={() => setEditAiOpen(false)}
+        onSave={(prompt) => {
+          // Edited inline → it's now a custom prompt, so drop the library ref.
+          editorRef.current?.updateEditingAi(prompt || undefined, undefined);
+          setEditAiOpen(false);
+        }}
+      />
     </div>
   );
 }

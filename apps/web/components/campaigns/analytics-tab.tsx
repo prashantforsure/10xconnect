@@ -1,12 +1,13 @@
 "use client";
 
-import { Clock } from "lucide-react";
+import { Clock, DollarSign } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useApi } from "@/lib/api/client";
 import { nodeLabel } from "@/lib/campaigns/nodes";
+import { formatUsd, type UnitEconomics } from "@/lib/campaigns/unit-economics";
 
 interface CampaignAnalytics {
   requests: number;
@@ -24,6 +25,7 @@ interface CampaignAnalytics {
 export function AnalyticsTab({ campaignId }: { campaignId: string }) {
   const api = useApi();
   const [data, setData] = useState<CampaignAnalytics | null>(null);
+  const [econ, setEcon] = useState<UnitEconomics | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -35,6 +37,11 @@ export function AnalyticsTab({ campaignId }: { campaignId: string }) {
     } finally {
       setLoading(false);
     }
+    // Unit economics is non-blocking — the page renders even if it fails.
+    api
+      .request<UnitEconomics>(`/analytics/campaign/${campaignId}/unit-economics`)
+      .then(setEcon)
+      .catch(() => setEcon(null));
   }, [api, campaignId]);
   useEffect(() => {
     void load();
@@ -60,11 +67,13 @@ export function AnalyticsTab({ campaignId }: { campaignId: string }) {
         <Stat label="Voice notes" value={data.voiceNotes} />
       </div>
 
+      {econ ? <UnitEconomicsCard econ={econ} /> : null}
+
       <Card>
         <CardHeader className="flex-row items-center justify-between">
           <CardTitle className="text-base">Past actions</CardTitle>
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Clock className="size-3.5" />4–8 min intervals
+            <Clock className="size-3.5" />~15s intervals (testing)
           </span>
         </CardHeader>
         <CardContent>
@@ -91,11 +100,74 @@ export function AnalyticsTab({ campaignId }: { campaignId: string }) {
   );
 }
 
-function Stat({ label, value, pct }: { label: string; value: number; pct?: number }) {
+function UnitEconomicsCard({ econ }: { econ: UnitEconomics }) {
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between">
+        <CardTitle className="text-base">Unit economics</CardTitle>
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <DollarSign className="size-3.5" />
+          AI spend per outcome
+        </span>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat label="AI spend" money value={econ.totalSpendUsd} />
+          <Money label="Cost / conversation" value={econ.costPerConversationUsd} />
+          <Money label="Cost / booked meeting" value={econ.costPerBookedMeetingUsd} highlight />
+          <Stat label="Booked meetings" value={econ.bookedMeetings} />
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          {econ.bookedMeetings > 0
+            ? `${formatUsd(econ.costPerBookedMeetingUsd)} per booked meeting decides whether the AI pays for itself.`
+            : "Cost per booked meeting appears once a conversation reaches the “booked” stage in the inbox."}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** A money KPI that reads “—” until the ratio is defined (no division by zero). */
+function Money({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: number | null;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border bg-card p-4 shadow-soft">
+      <div
+        className={
+          "font-display text-2xl font-bold tracking-tight" + (highlight ? " text-primary" : "")
+        }
+      >
+        {value == null ? "—" : formatUsd(value)}
+      </div>
+      <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  pct,
+  money,
+}: {
+  label: string;
+  value: number;
+  pct?: number;
+  money?: boolean;
+}) {
   return (
     <div className="rounded-2xl border bg-card p-4 shadow-soft">
       <div className="flex items-baseline gap-2">
-        <span className="font-display text-2xl font-bold tracking-tight">{value.toLocaleString()}</span>
+        <span className="font-display text-2xl font-bold tracking-tight">
+          {money ? formatUsd(value) : value.toLocaleString()}
+        </span>
         {typeof pct === "number" ? <Badge variant="success">{pct}%</Badge> : null}
       </div>
       <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>

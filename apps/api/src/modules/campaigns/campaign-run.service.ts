@@ -4,13 +4,22 @@ import { createTextAdapter } from "@10xconnect/adapters";
 import { env } from "@10xconnect/config";
 import {
   applyRefinement,
+  buildBlueprintPrompt,
   buildGenerationPrompt,
+  type CampaignBlueprint,
+  clarifyingQuestions,
+  deterministicBlueprint,
   deterministicGraph,
   type GenNode,
+  parseBlueprint,
   parseGeneratedGraph,
 } from "@10xconnect/core";
 import type { DB } from "@10xconnect/db";
 import {
+  type CampaignOutcome,
+  campaignAbComparison,
+  type DuplicateResult,
+  duplicateCampaign,
   type EngineDeps,
   type EnrollResult,
   enrollLeads,
@@ -309,7 +318,7 @@ export class CampaignRunService {
     workspaceId: string,
     campaignId: string,
     dto: GenerateCampaignDto,
-  ): Promise<{ nodes: GenNode[] }> {
+  ): Promise<{ nodes: GenNode[] } | { questions: string[] } | { blueprint: CampaignBlueprint }> {
     await this.campaigns.getRowOr404(workspaceId, campaignId);
 
     // Refinement: deterministic, reliable patches over the existing graph.
@@ -317,7 +326,31 @@ export class CampaignRunService {
       return { nodes: applyRefinement(dto.currentGraph as GenNode[], dto.instruction) };
     }
 
-    const intake = dto.intake!;
+    const intake = dto.intake;
+    if (!intake) {
+      throw new BadRequestException("Provide an intake to generate a campaign.");
+    }
+
+    // Phase 6: a FULL campaign blueprint (graph + brain + KB seed). If the intake
+    // is under-specified, ask 1–2 clarifying questions FIRST (unless skipped), so
+    // the campaign isn't built on guesses. NEVER saves or launches.
+    if (dto.full) {
+      const questions = clarifyingQuestions(intake);
+      if (questions.length > 0 && !dto.skipClarify) {
+        return { questions };
+      }
+      if (this.text) {
+        try {
+          const { system, prompt } = buildBlueprintPrompt(intake);
+          const raw = await this.text.generate({ prompt, system, maxTokens: 1600, temperature: 0.6 });
+          return { blueprint: parseBlueprint(raw, intake) };
+        } catch {
+          // fall through to the deterministic blueprint
+        }
+      }
+      return { blueprint: deterministicBlueprint(intake) };
+    }
+
     if (this.text) {
       try {
         const { system, prompt } = buildGenerationPrompt(intake);
@@ -328,6 +361,24 @@ export class CampaignRunService {
       }
     }
     return { nodes: deterministicGraph(intake) };
+  }
+
+  // --- Duplicate + A/B comparison (Phase 7.2) ------------------------------
+
+  /** Clone a campaign's structure into a fresh draft (0 contacts) for list-swap A/B. */
+  async duplicate(
+    workspaceId: string,
+    campaignId: string,
+    name?: string,
+  ): Promise<DuplicateResult> {
+    const res = await duplicateCampaign(this.db, { workspaceId, campaignId, name });
+    if (!res) throw new NotFoundException("Campaign not found");
+    return res;
+  }
+
+  /** Side-by-side outcome metrics for an A/B set (clone + swapped list). */
+  abCompare(workspaceId: string, campaignIds: string[]): Promise<CampaignOutcome[]> {
+    return campaignAbComparison(this.db, { workspaceId, campaignIds });
   }
 
   // --- Run / stop ----------------------------------------------------------

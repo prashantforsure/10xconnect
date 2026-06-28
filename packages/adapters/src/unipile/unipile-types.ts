@@ -64,6 +64,36 @@ export interface UnipileSendResponse {
   id?: string;
 }
 
+/**
+ * One row from GET /api/v1/users/{id}/posts (the prospect's recent activity). The
+ * exact field names vary across LinkedIn post surfaces (to confirm against a live
+ * `/posts` response), so text/date/url each have several candidate keys and are
+ * read defensively in mapRecentPosts().
+ */
+export interface UnipilePostItem {
+  id?: string;
+  social_id?: string;
+  /** Post body — `text` on most surfaces; `commentary`/`content` on others. */
+  text?: string;
+  commentary?: string;
+  content?: string;
+  /** Timestamp — `date` | `parsed_datetime` | `posted_at` | `timestamp`. */
+  date?: string;
+  parsed_datetime?: string;
+  posted_at?: string;
+  timestamp?: string;
+  /** Permalink — `share_url` | `permalink` | `url`. */
+  share_url?: string;
+  permalink?: string;
+  url?: string;
+}
+
+export interface UnipilePostList {
+  object?: string;
+  items?: UnipilePostItem[];
+  cursor?: string | null;
+}
+
 /** Generic Unipile error body (RFC-7807-ish). */
 export interface UnipileErrorBody {
   status?: number;

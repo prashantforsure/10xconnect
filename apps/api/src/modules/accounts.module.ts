@@ -7,6 +7,7 @@ import type {
   ProxyConfig,
 } from "@10xconnect/core";
 import type { DB } from "@10xconnect/db";
+import { computeAccountHealth } from "@10xconnect/engine";
 import {
   BadGatewayException,
   Body,
@@ -144,11 +145,14 @@ export interface AccountHealthView {
   accountId: string;
   status: AccountStatus;
   healthScore: number;
-  // Real metrics are computed by the account-health monitor in Phase 4 (Step 20).
+  // Real metrics from the account-health monitor (Phase 7.4 / Step 20).
   acceptanceRate: number | null;
   replyRate: number | null;
   actionsToday: number | null;
   restrictionEvents: number;
+  /** Acceptance-rate auto-throttle state (cap multiplier in effect). */
+  throttle: { factor: number; throttled: boolean; reason?: string };
+  signals: string[];
   note: string;
 }
 
@@ -382,18 +386,24 @@ export class AccountsService {
     return this.toView(await this.getRowOr404(workspaceId, id));
   }
 
-  /** Stub health: reflects current persisted status; real scoring is Step 20. */
+  /** Real health: recomputes the score from actions/events, persists it, and
+   * surfaces the acceptance-rate auto-throttle now in effect (Phase 7.4). */
   async health(workspaceId: string, id: string): Promise<AccountHealthView> {
     const row = await this.getRowOr404(workspaceId, id);
+    const report = await computeAccountHealth(this.db, { workspaceId, accountId: id });
     return {
       accountId: row.id,
       status: row.status,
-      healthScore: row.health_score,
-      acceptanceRate: null,
-      replyRate: null,
-      actionsToday: null,
-      restrictionEvents: 0,
-      note: "Health metrics are stubbed; acceptance/reply rates + scoring land in Phase 4 (Step 20).",
+      healthScore: report.score,
+      acceptanceRate: report.acceptanceRate,
+      replyRate: report.replyRate,
+      actionsToday: report.input.connectionRequestsSent + report.input.messagesSent,
+      restrictionEvents: report.input.restrictionEvents,
+      throttle: report.throttle,
+      signals: report.signals,
+      note: report.throttle.throttled
+        ? "Acceptance-rate auto-throttle is active — sending caps reduced to protect the account."
+        : "Health reflects the last 30 days of activity.",
     };
   }
 

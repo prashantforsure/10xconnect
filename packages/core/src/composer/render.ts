@@ -4,14 +4,25 @@
 //
 // Safety contract: a variable that resolves empty AND has no fallback is DROPPED,
 // then surrounding whitespace/punctuation is collapsed, so a message never renders
-// broken (never "Hi ," or "saw you're doing ").
+// broken (never "Hi ," or "saw you're doing "). With Phase 5 on_missing policy, a
+// "skip_sentence" variable drops the whole enclosing sentence rather than the chip.
 
 import type { MessageBody, MessageSegment } from "./segments";
 
 export interface RenderOptions {
   /** Resolve an AI segment to text. Engine: personalization; web preview: a stub. */
   renderAi?: (seg: { promptId?: string; prompt?: string }) => string;
+  /**
+   * Per-variable on_missing policy (Phase 5). When a variable resolves empty with
+   * no fallback and its policy is "skip_sentence", the whole enclosing sentence is
+   * dropped (not just the chip) — so a missing post never leaves a dangling
+   * "saw your post" fragment. Other policies fall back to skip-on-empty.
+   */
+  policyByKey?: Record<string, "skip_sentence" | "fallback" | "leave_blank">;
 }
+
+// Marker for a sentence to be dropped (skip_sentence policy). Printable + unlikely.
+const SKIP = "[[__SKIP_SENTENCE__]]";
 
 /** Collapse whitespace left behind by dropped segments. Preserves newlines. */
 function collapseWhitespace(value: string): string {
@@ -22,6 +33,13 @@ function collapseWhitespace(value: string): string {
     .replace(/\n[ \t]+/g, "\n") // leading space after newline
     .replace(/\n{3,}/g, "\n\n") // cap runaway blank lines (keep paragraph breaks)
     .trim();
+}
+
+/** Drop any sentence containing the skip marker (skip_sentence policy). */
+function dropSkippedSentences(text: string): string {
+  if (!text.includes(SKIP)) return text;
+  const sentences = text.match(/[^.!?\n]*[.!?]+[ \t]*|[^.!?\n]*\n+|[^.!?\n]+$/g) ?? [text];
+  return sentences.filter((s) => !s.includes(SKIP)).join("").split(SKIP).join("");
 }
 
 /** Render a structured body to a final string for one lead's resolved variables. */
@@ -40,6 +58,8 @@ export function renderMessageBody(
         parts.push(resolved);
       } else if (seg.fallback && seg.fallback.trim()) {
         parts.push(seg.fallback.trim());
+      } else if (opts.policyByKey?.[seg.key] === "skip_sentence") {
+        parts.push(SKIP); // drop the whole sentence below
       }
       // else: skip-on-empty (the no-broken-merge guarantee)
     } else if (seg.type === "ai") {
@@ -49,7 +69,7 @@ export function renderMessageBody(
       }
     }
   }
-  return collapseWhitespace(parts.join(""));
+  return collapseWhitespace(dropSkippedSentences(parts.join("")));
 }
 
 /** Serialize a structured body back to a legacy `{token}` template string. */

@@ -11,6 +11,8 @@ export type {
   ImportJobsTable,
   ImportSource,
   ImportStatus,
+  PromptTemplateScope,
+  WorkflowTemplateScope,
 } from "./app-tables";
 
 /** Row type helper, e.g. `Tables<"leads">`. */

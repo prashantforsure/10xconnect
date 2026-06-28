@@ -1,11 +1,13 @@
 "use client";
 
-import { Linkedin, Megaphone, Plus } from "lucide-react";
+import { GitCompareArrows, LayoutTemplate, Linkedin, Megaphone, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { AbCompareModal } from "@/components/campaigns/ab-compare";
 import { type CampaignStatus, CampaignStatusBadge } from "@/components/campaigns/status-badge";
+import { TemplatesModal } from "@/components/campaigns/templates";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,6 +58,8 @@ export function CampaignsList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
   const [filter, setFilter] = useState<CampaignStatus | "all">("all");
 
   const load = useCallback(async () => {
@@ -102,10 +106,22 @@ export function CampaignsList() {
             {leadsInFlight.toLocaleString()} lead{leadsInFlight === 1 ? "" : "s"} in flight
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus />
-          New campaign
-        </Button>
+        <div className="flex items-center gap-2">
+          {campaigns.length >= 2 ? (
+            <Button variant="outline" onClick={() => setCompareOpen(true)}>
+              <GitCompareArrows />
+              Compare
+            </Button>
+          ) : null}
+          <Button variant="outline" onClick={() => setTemplatesOpen(true)}>
+            <LayoutTemplate />
+            Templates
+          </Button>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus />
+            New campaign
+          </Button>
+        </div>
       </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -121,10 +137,16 @@ export function CampaignsList() {
           <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
             Create your first campaign, add a sequence of steps, enroll leads, and run it.
           </p>
-          <Button className="mt-5" onClick={() => setCreateOpen(true)}>
-            <Plus />
-            New campaign
-          </Button>
+          <div className="mt-5 flex items-center gap-2">
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus />
+              New campaign
+            </Button>
+            <Button variant="outline" onClick={() => setTemplatesOpen(true)}>
+              <LayoutTemplate />
+              Start from template
+            </Button>
+          </div>
         </div>
       ) : (
         <>
@@ -156,6 +178,14 @@ export function CampaignsList() {
           const c = await api.request<CampaignView>("/campaigns", { method: "POST", body: { name } });
           router.push(`/campaigns/${c.id}`);
         }}
+      />
+
+      <TemplatesModal open={templatesOpen} onClose={() => setTemplatesOpen(false)} />
+
+      <AbCompareModal
+        open={compareOpen}
+        onClose={() => setCompareOpen(false)}
+        campaigns={campaigns.map((c) => ({ id: c.id, name: c.name, status: c.status }))}
       />
     </div>
   );

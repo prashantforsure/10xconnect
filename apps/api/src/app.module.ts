@@ -13,6 +13,7 @@ import { AiModule } from "./modules/ai.module";
 import { AnalyticsModule } from "./modules/analytics.module";
 import { ApiKeysModule } from "./modules/api-keys.module";
 import { BillingModule } from "./modules/billing.module";
+import { BrainModule } from "./modules/brain.module";
 import { CampaignsModule } from "./modules/campaigns/campaigns.module";
 import { ConversationsModule } from "./modules/conversations.module";
 import { DevModule } from "./modules/dev.module";
@@ -20,7 +21,9 @@ import { HostedAuthModule } from "./modules/hosted-auth.module";
 import { IntegrationsModule } from "./modules/integrations.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { ListsModule } from "./modules/lists.module";
+import { PersonalizationModule } from "./modules/personalization.module";
 import { WebhooksModule } from "./modules/webhooks.module";
+import { WorkflowTemplatesModule } from "./modules/workflow-templates.module";
 import { WorkspacesModule } from "./modules/workspaces.module";
 
 @Module({
@@ -36,6 +39,9 @@ import { WorkspacesModule } from "./modules/workspaces.module";
     ListsModule,
     CampaignsModule,
     ConversationsModule,
+    BrainModule,
+    PersonalizationModule,
+    WorkflowTemplatesModule,
     AnalyticsModule,
     BillingModule,
     WebhooksModule,

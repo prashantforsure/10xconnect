@@ -1,7 +1,7 @@
-import type { AccountStatus, ChannelError, ChannelErrorCode, ProxyConfig } from "@10xconnect/core";
+import type { AccountStatus, ChannelError, ChannelErrorCode, ProxyConfig, RecentPost } from "@10xconnect/core";
 
 import { UnipileHttpError } from "./unipile-client";
-import type { UnipileErrorBody, UnipileProxy } from "./unipile-types";
+import type { UnipileErrorBody, UnipilePostList, UnipileProxy } from "./unipile-types";
 
 const RETRIABLE: ReadonlySet<ChannelErrorCode> = new Set([
   "rate_limited",
@@ -149,6 +149,40 @@ function isoAlpha2(value?: string): string | undefined {
   }
   const v = value.trim().toUpperCase();
   return /^[A-Z]{2}$/.test(v) ? v : undefined;
+}
+
+/**
+ * Map a Unipile user-posts response to our RecentPost[] — the "what they've been
+ * up to" signal the AI personalizes from. Defensive: field names vary across
+ * LinkedIn post surfaces, so text/date/url each read several candidate keys.
+ * Skips posts with no renderable text (no useful signal) and caps at `limit`.
+ */
+export function mapRecentPosts(list: UnipilePostList | undefined, limit = 3): RecentPost[] {
+  const out: RecentPost[] = [];
+  for (const item of list?.items ?? []) {
+    const postId = item.social_id ?? item.id;
+    if (!postId) {
+      continue;
+    }
+    const text = (item.text ?? item.commentary ?? item.content ?? "").trim();
+    if (!text) {
+      continue; // attachment-only / empty post — nothing for the AI to reference
+    }
+    const post: RecentPost = { postId, text: text.length > 500 ? `${text.slice(0, 500)}…` : text };
+    const postedAt = item.date ?? item.parsed_datetime ?? item.posted_at ?? item.timestamp;
+    if (postedAt) {
+      post.postedAt = postedAt;
+    }
+    const url = item.share_url ?? item.permalink ?? item.url;
+    if (url) {
+      post.url = url;
+    }
+    out.push(post);
+    if (out.length >= limit) {
+      break;
+    }
+  }
+  return out;
 }
 
 /** Map Unipile's network distance string to a numeric connection degree. */

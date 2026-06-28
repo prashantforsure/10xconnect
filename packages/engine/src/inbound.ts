@@ -4,7 +4,7 @@
 // lands in the inbox; invite_accepted/opens feed condition nodes + analytics; an
 // account status change drives restriction → auto-pause.
 
-import type { InboundEvent } from "@10xconnect/core";
+import { hasCampaignBrain, type InboundEvent } from "@10xconnect/core";
 import type { DB } from "@10xconnect/db";
 import type { Kysely } from "kysely";
 
@@ -142,13 +142,29 @@ function metadataOf(event: InboundEvent): Record<string, unknown> {
   return {};
 }
 
-/** A reply auto-stops the lead's active sequences and lands in the inbox. */
+/**
+ * A reply auto-stops the lead's active sequences, lands in the inbox, and (Phase
+ * 1) opens the relationship axis: flag the thread "reply required" and upsert
+ * relationship_state. No AI yet — just route + label.
+ */
 async function handleReply(
   db: Kysely<DB>,
   account: ResolvedAccount,
   leadId: string,
   event: Extract<InboundEvent, { type: "reply" }>,
 ): Promise<void> {
+  // Capture the active campaign (before auto-stop clears it) so the relationship
+  // row remembers which campaign the conversation came from.
+  const active = await db
+    .selectFrom("lead_campaign_state")
+    .select("campaign_id")
+    .where("workspace_id", "=", account.workspaceId)
+    .where("lead_id", "=", leadId)
+    .where("status", "=", "active")
+    .orderBy("updated_at", "desc")
+    .executeTakeFirst();
+  const campaignId = active?.campaign_id ?? null;
+
   // Auto-stop: mark active states 'replied' and cancel their pending actions.
   await db
     .updateTable("lead_campaign_state")
@@ -200,4 +216,55 @@ async function handleReply(
       voice_ref: event.message.voiceRef ?? null,
     })
     .execute();
+
+  // Phase 1: flag the thread "reply required" (bumps it to the top of the inbox)
+  // and open/refresh the relationship axis. No AI — just route + label.
+  const nowIso = new Date().toISOString();
+  await db
+    .updateTable("conversations")
+    .set({ needs_attention: true, updated_at: nowIso })
+    .where("id", "=", conversationId)
+    .execute();
+  await db
+    .insertInto("relationship_state")
+    .values({
+      lead_id: leadId,
+      workspace_id: account.workspaceId,
+      campaign_id: campaignId,
+      stage: "in_conversation",
+    })
+    // Preserve campaign_id/brain fields on an existing relationship; just
+    // re-open it (a fresh reply means we're back in conversation).
+    .onConflict((oc) =>
+      oc.column("lead_id").doUpdateSet({ stage: "in_conversation", updated_at: nowIso }),
+    )
+    .execute();
+
+  // Phase 2: if the lead's campaign has a brain configured, enqueue an AI turn.
+  // The worker drafts a grounded suggestion into the inbox for human approval
+  // (autonomy=approve_all). Keyed by the provider event id → one turn per reply.
+  if (campaignId) {
+    const brain = await db
+      .selectFrom("campaigns")
+      .select(["objective", "knowledge_base_id"])
+      .where("id", "=", campaignId)
+      .executeTakeFirst();
+    if (brain && hasCampaignBrain({ objective: brain.objective, knowledgeBaseId: brain.knowledge_base_id })) {
+      await db
+        .insertInto("actions")
+        .values({
+          workspace_id: account.workspaceId,
+          account_id: account.id,
+          lead_id: leadId,
+          campaign_id: campaignId,
+          type: "conversation_turn",
+          status: "pending",
+          idempotency_key: `turn:${event.id}`,
+          scheduled_at: nowIso,
+          config: JSON.stringify({ kind: "conversation_turn", conversationId, campaignId, leadId }),
+        })
+        .onConflict((oc) => oc.column("idempotency_key").doNothing())
+        .execute();
+    }
+  }
 }

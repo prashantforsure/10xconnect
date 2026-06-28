@@ -7,8 +7,12 @@ import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { CampaignRunService } from "./campaign-run.service";
 import { type CampaignView, CampaignsService } from "./campaigns.service";
 import {
+  abCompareSchema,
+  type AbCompareDto,
   createCampaignSchema,
   type CreateCampaignDto,
+  duplicateCampaignSchema,
+  type DuplicateCampaignDto,
   enrollLeadsSchema,
   type EnrollLeadsDto,
   generateCampaignSchema,
@@ -190,5 +194,24 @@ export class CampaignsController {
   @Post(":id/share")
   share(@WorkspaceId() workspaceId: string, @Param("id") id: string) {
     return this.run.share(workspaceId, id);
+  }
+
+  // --- Duplicate + A/B comparison (Phase 7.2) ------------------------------
+
+  @Post(":id/duplicate")
+  duplicate(
+    @WorkspaceId() workspaceId: string,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(duplicateCampaignSchema)) body: DuplicateCampaignDto,
+  ) {
+    return this.run.duplicate(workspaceId, id, body.name);
+  }
+
+  @Post("ab-compare")
+  abCompare(
+    @WorkspaceId() workspaceId: string,
+    @Body(new ZodValidationPipe(abCompareSchema)) body: AbCompareDto,
+  ) {
+    return this.run.abCompare(workspaceId, body.campaignIds);
   }
 }

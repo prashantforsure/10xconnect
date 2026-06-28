@@ -144,6 +144,46 @@ export interface NotificationsTable {
   created_at: WithDefault<string>;
 }
 
+export type RelationshipStage =
+  | "invited"
+  | "awaiting_reply"
+  | "in_conversation"
+  | "objection"
+  | "qualifying"
+  | "hot_lead"
+  | "nurture"
+  | "closed_won"
+  | "closed_lost";
+
+/** The relationship axis (conversation brain) — one row per lead/person. */
+export interface RelationshipStateTable {
+  lead_id: ColumnType<string, string, string>; // PK
+  workspace_id: ColumnType<string, string, string>;
+  campaign_id: NullableWithDefault<string>;
+  stage: WithDefault<RelationshipStage>;
+  intent_score: WithDefault<number>;
+  ai_turn_count: WithDefault<number>;
+  last_ai_reply_at: NullableWithDefault<string>;
+  do_not_reply: WithDefault<boolean>;
+  sentiment: NullableWithDefault<string>;
+  summary: NullableWithDefault<string>;
+  next_action: NullableWithDefault<string>;
+  next_action_at: NullableWithDefault<string>;
+  created_at: WithDefault<string>;
+  updated_at: WithDefault<string>;
+}
+
+/**
+ * New conversations columns (Phase 1) not yet in the generated database.types.ts.
+ * Intersected into the generated conversations table by DB = GeneratedDB &
+ * AppExtraTables, so `conversations` carries both the generated + these columns.
+ */
+export interface ConversationsExtraColumns {
+  needs_attention: WithDefault<boolean>;
+  is_important: WithDefault<boolean>;
+  assigned_to: NullableWithDefault<string>;
+}
+
 export type AccountLinkRequestType = "create" | "reconnect";
 export type AccountLinkRequestStatus = "pending" | "completed" | "expired";
 
@@ -161,6 +201,182 @@ export interface AccountLinkRequestsTable {
   updated_at: WithDefault<string>;
 }
 
+// ---------------------------------------------------------------------------
+// MVP M5 — conversation brain (knowledge base, facts, AI drafts, brain config).
+// ---------------------------------------------------------------------------
+
+/**
+ * pgvector embedding columns are stored/read as the textual vector literal
+ * `[0.1,0.2,...]` from Kysely (Postgres casts text→vector on insert); cosine
+ * KNN retrieval uses raw `sql` with a `::vector` cast. Nullable (set after embed).
+ */
+type VectorColumn = NullableWithDefault<string>;
+
+export interface KnowledgeBasesTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  name: ColumnType<string, string, string>;
+  description: NullableWithDefault<string>;
+  created_at: WithDefault<string>;
+  updated_at: WithDefault<string>;
+}
+
+export interface KbChunksTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  knowledge_base_id: ColumnType<string, string, string>;
+  body: ColumnType<string, string, string>;
+  embedding: VectorColumn;
+  token_count: NullableWithDefault<number>;
+  metadata: WithDefault<Json>;
+  created_at: WithDefault<string>;
+}
+
+export interface FactsTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  lead_id: ColumnType<string, string, string>;
+  campaign_id: NullableWithDefault<string>;
+  topic: WithDefault<string>;
+  body: ColumnType<string, string, string>;
+  embedding: VectorColumn;
+  source: NullableWithDefault<string>;
+  confidence: NullableWithDefault<number>;
+  created_at: WithDefault<string>;
+  updated_at: WithDefault<string>;
+}
+
+export type MessageDraftStatus = "pending" | "approved" | "discarded" | "escalated";
+
+export interface MessageDraftsTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  conversation_id: ColumnType<string, string, string>;
+  lead_id: NullableWithDefault<string>;
+  campaign_id: NullableWithDefault<string>;
+  status: WithDefault<MessageDraftStatus>;
+  body: NullableWithDefault<string>;
+  confidence: NullableWithDefault<number>;
+  reasoning: WithDefault<Json>;
+  created_at: WithDefault<string>;
+  updated_at: WithDefault<string>;
+}
+
+/**
+ * Phase 2 brain + Phase 3 limits/budget columns added to the generated campaigns
+ * table. `limits` = { max_ai_turns, cooldown_minutes }; `budget` =
+ * { daily_usd_cap, alert_at_pct } (see packages/core/src/brain/limits.ts).
+ */
+export interface CampaignsBrainColumns {
+  objective: NullableWithDefault<Json>;
+  guardrails: WithDefault<Json>;
+  voice: WithDefault<Json>;
+  autonomy: WithDefault<Json>;
+  knowledge_base_id: NullableWithDefault<string>;
+  voice_profile_id: NullableWithDefault<string>;
+  limits: WithDefault<Json>;
+  budget: WithDefault<Json>;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 — limits + budget governor (conversation volume + LLM spend ledgers).
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-campaign, per-UTC-day LLM spend rollup (the budget governor). PK is
+ * (campaign_id, window). `window` is a `date` and `usd_used` is a Postgres
+ * `numeric` — both come back from the pg driver as STRINGS, so coerce on read.
+ */
+export interface BudgetLedgerTable {
+  campaign_id: ColumnType<string, string, string>; // PK part
+  window: ColumnType<string, string, string>; // PK part — date 'YYYY-MM-DD'
+  workspace_id: ColumnType<string, string, string>;
+  tokens_used: WithDefault<number>;
+  usd_used: WithDefault<number | string>; // numeric → string on select
+  soft_alerted: WithDefault<boolean>;
+  hard_stopped: WithDefault<boolean>;
+  updated_at: WithDefault<string>;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 — per-prospect preview cache + AI prompt templates.
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolved personalization output cached per (node, contact, prompt_version) so
+ * dispatch reuses it without a second LLM call. PK is the three key columns.
+ */
+export interface PreviewCacheTable {
+  node_id: ColumnType<string, string, string>; // PK part
+  contact_id: ColumnType<string, string, string>; // PK part
+  prompt_version: ColumnType<string, string, string>; // PK part
+  workspace_id: ColumnType<string, string, string>;
+  resolved_text: ColumnType<string, string, string>;
+  tokens: WithDefault<number>;
+  created_at: WithDefault<string>;
+}
+
+export type PromptTemplateScope = "private" | "workspace" | "community";
+
+/** Named, variable-driven, shareable AI prompt templates (the library). */
+export interface AiPromptTemplatesTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  name: ColumnType<string, string, string>;
+  scope: WithDefault<PromptTemplateScope>;
+  body: ColumnType<string, string, string>;
+  variables: WithDefault<Json>;
+  run_count: WithDefault<number>;
+  created_by: NullableWithDefault<string>;
+  created_at: WithDefault<string>;
+  updated_at: WithDefault<string>;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 — workflow templates (whole-campaign blueprints, structure-only).
+// ---------------------------------------------------------------------------
+
+export type WorkflowTemplateScope = "private" | "workspace" | "community";
+
+/**
+ * Reusable, shareable copy of a campaign's SHAPE (graph + message skeletons +
+ * AI prompts + cadence + brain defaults + required_inputs). Never stores leads,
+ * accounts, resolved/previewed messages, or KB content. Apply clones a frozen
+ * copy into a fresh draft campaign (no FK link → no auto-propagation on edit).
+ */
+export interface WorkflowTemplatesTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  name: ColumnType<string, string, string>;
+  scope: WithDefault<WorkflowTemplateScope>;
+  graph: WithDefault<Json>;
+  messages: WithDefault<Json>;
+  ai_prompts: WithDefault<Json>;
+  cadence: WithDefault<Json>;
+  brain_defaults: WithDefault<Json>;
+  required_inputs: WithDefault<Json>;
+  template_version: WithDefault<number>;
+  created_by: NullableWithDefault<string>;
+  created_at: WithDefault<string>;
+  updated_at: WithDefault<string>;
+}
+
+/** Append-only per-LLM-call usage log (cost-per-conversation + routing audit). */
+export interface LlmUsageTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  campaign_id: NullableWithDefault<string>;
+  conversation_id: NullableWithDefault<string>;
+  lead_id: NullableWithDefault<string>;
+  kind: WithDefault<string>;
+  model: ColumnType<string, string, string>;
+  prompt_tokens: WithDefault<number>;
+  completion_tokens: WithDefault<number>;
+  total_tokens: WithDefault<number>;
+  usd: WithDefault<number | string>; // numeric → string on select
+  created_at: WithDefault<string>;
+}
+
 /** Extra Kysely tables intersected into DB (see kysely.ts). */
 export interface AppExtraTables {
   import_jobs: ImportJobsTable;
@@ -172,6 +388,24 @@ export interface AppExtraTables {
   do_not_contact: DoNotContactTable;
   notifications: NotificationsTable;
   account_link_requests: AccountLinkRequestsTable;
+  relationship_state: RelationshipStateTable;
+  // Augments the generated conversations table with Phase 1 columns.
+  conversations: ConversationsExtraColumns;
+  // Phase 2 — conversation brain.
+  knowledge_bases: KnowledgeBasesTable;
+  kb_chunks: KbChunksTable;
+  facts: FactsTable;
+  message_drafts: MessageDraftsTable;
+  // Augments the generated campaigns table with Phase 2 brain + Phase 3 columns.
+  campaigns: CampaignsBrainColumns;
+  // Phase 3 — limits + budget governor.
+  budget_ledger: BudgetLedgerTable;
+  llm_usage: LlmUsageTable;
+  // Phase 5 — personalization preview cache + prompt templates.
+  preview_cache: PreviewCacheTable;
+  ai_prompt_templates: AiPromptTemplatesTable;
+  // Phase 6 — workflow templates (whole-campaign blueprints).
+  workflow_templates: WorkflowTemplatesTable;
 }
 
 /** Plain SELECT shape of an import_jobs row (for API view mapping). */

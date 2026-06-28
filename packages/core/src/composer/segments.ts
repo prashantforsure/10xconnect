@@ -46,16 +46,27 @@ export interface VariableDef {
 
 // The composer's variable palette (CLAUDE.md §7). `label` is what the user sees;
 // `key` maps to the engine's leadVariables() (see packages/engine/src/variables.ts).
-// Job title→role and Company name→company are label remaps over existing keys.
+// Every key here MUST be resolvable by leadVariables() — a key with no resolver
+// would silently drop at dispatch. Missing values fall back / skip (no broken merge).
 export const VARIABLE_REGISTRY: VariableDef[] = [
+  // Lead / identity
   { key: "first_name", label: "First Name", group: "lead" },
   { key: "last_name", label: "Last Name", group: "lead" },
+  { key: "full_name", label: "Full Name", group: "lead" },
   { key: "headline", label: "Headline", group: "lead" },
   { key: "role", label: "Job title", group: "lead" },
+  { key: "seniority", label: "Seniority", group: "lead" },
   { key: "about", label: "Biography", group: "lead" },
   { key: "location", label: "Location", group: "lead" },
+  { key: "email", label: "Email", group: "lead" },
+  { key: "linkedin_url", label: "LinkedIn URL", group: "lead" },
+  { key: "connection_degree", label: "Connection degree", group: "lead" },
+  // Company
   { key: "company", label: "Company name", group: "company" },
   { key: "company_overview", label: "Company Overview", group: "company" },
+  { key: "industry", label: "Industry", group: "company" },
+  { key: "company_website", label: "Company website", group: "company" },
+  { key: "company_size", label: "Company size", group: "company" },
 ];
 
 /** Display label for a variable key (falls back to the raw key). */

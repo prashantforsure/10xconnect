@@ -8,7 +8,8 @@
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
-    "test": "tsx --test src/common/crypto/secret-cipher.test.ts"
+    "test": "tsx --test src/common/crypto/secret-cipher.test.ts",
+    "test:integration": "tsx --test src/modules/brain.config.integration.test.ts src/modules/blueprint.config.integration.test.ts src/modules/workflow-templates.integration.test.ts src/modules/unit-economics-ab.integration.test.ts"
   },
   "dependencies": {
     "@10xconnect/adapters": "workspace:*",
@@ -21,6 +22,8 @@
     "@nestjs/platform-express": "^11.0.1",
     "jose": "^5.9.6",
     "kysely": "^0.27.5",
+    "mammoth": "^1.8.0",
+    "pdf-parse": "^1.1.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "^3.24.1"
@@ -30,6 +33,7 @@
     "@nestjs/schematics": "^11.0.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.2",
+    "@types/pdf-parse": "^1.1.4",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

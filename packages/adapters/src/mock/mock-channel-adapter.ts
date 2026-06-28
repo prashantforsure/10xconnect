@@ -27,6 +27,7 @@ import type {
   MessageContent,
   SendOptions,
   Unsubscribe,
+  VoiceNoteCapable,
   VoiceNoteRef,
 } from "@10xconnect/core";
 
@@ -69,7 +70,7 @@ const RETRIABLE_CODES: ReadonlySet<ChannelErrorCode> = new Set([
  * and tested against until a step explicitly needs Unipile.
  */
 export class MockChannelAdapter
-  implements ChannelAdapter, HostedAuthCapable, ConversationSyncCapable
+  implements ChannelAdapter, HostedAuthCapable, ConversationSyncCapable, VoiceNoteCapable
 {
   private readonly config: MockAdapterConfig;
   private readonly clock: () => string;
@@ -188,6 +189,11 @@ export class MockChannelAdapter
       channel: "linkedin",
       voiceRef: audio.audioRef,
     });
+  }
+
+  /** The mock transport simulates native voice notes (records the send). */
+  voiceNoteSupport(): { supported: boolean; reason?: string } {
+    return { supported: true };
   }
 
   sendInMail(

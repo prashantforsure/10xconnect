@@ -7,5 +7,6 @@ export * from "./factory";
 export * from "./lead-source";
 export * from "./webhook-receiver";
 export * from "./ai";
+export * from "./voice";
 // Note: the Unipile adapter is intentionally NOT exported here — it is only
 // constructed by the factory, so Unipile wire types never leak out of the package.
