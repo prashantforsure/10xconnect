@@ -1,6 +1,15 @@
 "use client";
 
-import { ExternalLink, Info, MoreHorizontal, Puzzle, RefreshCw, ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  ExternalLink,
+  Info,
+  MoreHorizontal,
+  Puzzle,
+  RefreshCw,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Avatar } from "@/components/ui/avatar";
@@ -42,6 +51,16 @@ interface AccountView {
   country: string | null;
   status: AccountStatus;
   health_score: number;
+}
+
+interface NotificationView {
+  id: string;
+  type: string;
+  title: string;
+  body: string | null;
+  account_id: string | null;
+  read: boolean;
+  created_at: string;
 }
 
 interface ConnectionGuidance {
@@ -93,11 +112,64 @@ function HealthDot({ score }: { score: number }) {
   );
 }
 
+// Restriction/checkpoint incidents are the high-severity (destructive) ones; an
+// auto-throttle is advisory (warning). Anything else falls back to an info notice.
+function noticeTone(type: string): "destructive" | "warning" {
+  return type === "account_restricted" || type === "account_checkpoint" || type === "account_disconnected"
+    ? "destructive"
+    : "warning";
+}
+
+function IncidentNotices({
+  notices,
+  onDismiss,
+}: {
+  notices: NotificationView[];
+  onDismiss: (id: string) => void | Promise<void>;
+}) {
+  if (notices.length === 0) {
+    return null;
+  }
+  return (
+    <div className="space-y-2" data-testid="incident-notices">
+      {notices.map((n) => {
+        const tone = noticeTone(n.type);
+        const toneClass =
+          tone === "destructive"
+            ? "border-destructive/30 bg-destructive/5 text-destructive"
+            : "border-warning/30 bg-warning/5 text-warning-foreground";
+        return (
+          <div
+            key={n.id}
+            role="alert"
+            className={cn("flex items-start gap-3 rounded-xl border px-4 py-3 text-sm", toneClass)}
+          >
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">{n.title}</p>
+              {n.body ? <p className="mt-0.5 text-muted-foreground">{n.body}</p> : null}
+            </div>
+            <button
+              type="button"
+              aria-label="Dismiss notification"
+              onClick={() => void onDismiss(n.id)}
+              className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AccountsClient() {
   const api = useApi();
   const { activeWorkspaceId } = useWorkspace();
 
   const [accounts, setAccounts] = useState<AccountView[]>([]);
+  const [notices, setNotices] = useState<NotificationView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -129,9 +201,36 @@ export function AccountsClient() {
     }
   }, [api, activeWorkspaceId]);
 
+  // Unread incident notifications (restriction/checkpoint/auto-throttle auto-pauses
+  // written by the engine). Surfaced here so an account pause is visible — not just
+  // an inert status badge. Best-effort: a notifications failure never blocks the page.
+  const loadNotices = useCallback(async () => {
+    if (!activeWorkspaceId) {
+      setNotices([]);
+      return;
+    }
+    try {
+      setNotices(await api.request<NotificationView[]>("/notifications?unread=true"));
+    } catch {
+      setNotices([]);
+    }
+  }, [api, activeWorkspaceId]);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadNotices();
+  }, [load, loadNotices]);
+
+  const dismissNotice = async (id: string): Promise<void> => {
+    // Optimistic: drop it immediately, then persist the read.
+    setNotices((prev) => prev.filter((n) => n.id !== id));
+    try {
+      await api.request(`/notifications/${id}/read`, { method: "POST" });
+    } catch {
+      // If the persist fails, re-sync so the notice reappears rather than silently vanishing.
+      void loadNotices();
+    }
+  };
 
   const linkedInAccount = accounts.find((a) => a.type === "linkedin") ?? null;
 
@@ -216,6 +315,8 @@ export function AccountsClient() {
           {actionError}
         </div>
       ) : null}
+
+      <IncidentNotices notices={notices} onDismiss={dismissNotice} />
 
       {!linkedInAccount ? (
         <div className="surface-card flex flex-col items-center border-dashed p-12 text-center">

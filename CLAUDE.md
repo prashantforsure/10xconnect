@@ -409,6 +409,7 @@ SECRETS_ENCRYPTION_KEY (server-only; AES-256-GCM key, 32 bytes hex/base64 — en
 DATABASE_URL
 REDIS_URL
 ADAPTER (mock|unipile; default mock — selects the transport adapter; see §5/§8)
+DISPATCH_MODE (testing|production; default testing — dispatch SPACING preset. testing = visibly-fast, MOCK-only demo pacing; production = real 4–8 min jittered spacing within working hours. Flip to production AT LAUNCH. Optional per-field overrides: DISPATCH_MIN_SPACING_MS / DISPATCH_JITTER_MS / DISPATCH_IGNORE_WORKING_HOURS. Daily caps are the hard ceiling in both modes. See packages/engine/src/config.ts DISPATCH_PRESETS.)
 UNIPILE_API_KEY, UNIPILE_DSN
 LLM_API_KEY
 TTS_API_KEY

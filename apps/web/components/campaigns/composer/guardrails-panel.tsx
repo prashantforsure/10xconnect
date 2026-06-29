@@ -1,6 +1,6 @@
 "use client";
 
-import { aboveTheFold, lintMessage, type MessageBody, renderMessageBody } from "@10xconnect/core";
+import { aboveTheFold, lintMessageBody, type MessageBody, renderMessageBody } from "@10xconnect/core";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 /**
@@ -13,7 +13,9 @@ export function GuardrailsPanel({ body }: { body: MessageBody }) {
   if (!text.trim()) {
     return null;
   }
-  const findings = lintMessage(text, { firstTouch: true });
+  // Shared pure pipeline (also unit-tested) — keeps the in-composer lint identical
+  // to what tests assert.
+  const findings = lintMessageBody(body, { firstTouch: true });
   const fold = aboveTheFold(text);
 
   return (

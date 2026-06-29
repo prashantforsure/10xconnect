@@ -3,9 +3,17 @@
 // requests default to NO note (CLAUDE.md §2). Text is resolved per-lead (variable
 // injection by default; AI personalization when deps.resolveContent is wired).
 
-import type { AccountRef, ActionResult, ChannelAdapter, LeadRef, SendOptions } from "@10xconnect/core";
+import type {
+  AccountRef,
+  ActionResult,
+  ChannelAdapter,
+  LeadRef,
+  MessageAttachment,
+  SendOptions,
+} from "@10xconnect/core";
 import {
   messageBodyToTemplate,
+  readAttachments,
   readMessageBody,
   renderMessageBody,
   voiceNoteDeliveryCapability,
@@ -59,6 +67,19 @@ async function text(input: ExecuteInput, keys: string[]): Promise<string> {
   return renderMessageBody(body, leadVariables(input.lead));
 }
 
+/** Map a node's stored composer attachments to deliverable transport attachments. */
+function attachmentsFor(input: ExecuteInput): MessageAttachment[] | undefined {
+  const list = readAttachments(input.config);
+  if (!list.length) return undefined;
+  return list.map((a) => ({
+    ref: a.ref,
+    ...(a.url ? { url: a.url } : {}),
+    ...(a.name ? { name: a.name } : {}),
+    ...(a.mime ? { mime: a.mime } : {}),
+    ...(a.kind ? { kind: a.kind } : {}),
+  }));
+}
+
 /** Execute a transport node via the adapter; returns the typed ActionResult. */
 export async function executeTransportAction(input: ExecuteInput): Promise<ActionResult> {
   const { adapter, accountRef, leadRef, config } = input;
@@ -73,15 +94,24 @@ export async function executeTransportAction(input: ExecuteInput): Promise<Actio
         ...(note ? { note: injectVariables(note, input.lead) } : {}),
       });
     }
-    case "send_message":
-      return adapter.sendMessage(accountRef, leadRef, { body: await text(input, ["body", "message"]) }, opts);
-    case "send_message_to_open_profile":
+    case "send_message": {
+      const attachments = attachmentsFor(input);
+      return adapter.sendMessage(
+        accountRef,
+        leadRef,
+        { body: await text(input, ["body", "message"]), ...(attachments ? { attachments } : {}) },
+        opts,
+      );
+    }
+    case "send_message_to_open_profile": {
+      const attachments = attachmentsFor(input);
       return adapter.sendOpenProfileMessage(
         accountRef,
         leadRef,
-        { body: await text(input, ["body", "message"]) },
+        { body: await text(input, ["body", "message"]), ...(attachments ? { attachments } : {}) },
         opts,
       );
+    }
     case "send_voice_note": {
       // Orchestration-layer SAFETY GATE (CLAUDE.md §2): the "voice notes are not
       // sent" guarantee is OURS, not an accident of the provider. We refuse the

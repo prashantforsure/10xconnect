@@ -136,15 +136,49 @@ test("custom escalate-on guardrail triggers a hot lead", () => {
   assert.equal(d.reasons.includes("custom_guardrail"), true);
 });
 
-test("autonomy dial: approve_all never sends; auto_easy gates on grounded+confidence; full_auto sends", () => {
-  const easy = (over: Partial<Parameters<typeof decideAutonomy>[0]>) =>
-    decideAutonomy({ mode: "auto_easy_escalate_hard", confidence: 0.9, threshold: 0.7, grounded: true, inPolicy: true, ...over });
-  assert.equal(decideAutonomy({ mode: "approve_all", confidence: 1, threshold: 0, grounded: true, inPolicy: true }).send, false);
-  assert.equal(easy({}).send, true); // grounded + confident
-  assert.equal(easy({ confidence: 0.5 }).reason, "low_confidence");
-  assert.equal(easy({ grounded: false }).reason, "not_grounded");
-  assert.equal(decideAutonomy({ mode: "full_auto", confidence: 0, threshold: 0.9, grounded: false, inPolicy: true }).send, true);
-  assert.equal(decideAutonomy({ mode: "full_auto", confidence: 1, threshold: 0, grounded: true, inPolicy: false }).send, false);
+test("competitor escalation is tight: build-vs-buy objections reply, explicit comparisons escalate", () => {
+  const sig = (message: string) => detectHotLead({ intent: "question", projectedIntentScore: 0, message });
+  // Ordinary build-vs-buy / "better" objections should NOT escalate (the AI replies).
+  assert.equal(sig("why use you instead of building it ourselves?").hot, false);
+  assert.equal(sig("isn't a spreadsheet better than this?").hot, false);
+  // Explicit competitor comparisons still escalate to a human.
+  assert.equal(sig("how do you compare to Outreach?").reasons.includes("competitor"), true);
+  assert.equal(sig("we're switching from another tool").reasons.includes("competitor"), true);
+  assert.equal(sig("is there an alternative to your approach?").reasons.includes("competitor"), true);
+});
+
+test("autonomy dial: approve_all never sends; Balanced auto-sends conversation + gates factual answers; full_auto sends", () => {
+  // A factual answer ("answer" turn) is gated on grounding + confidence.
+  const answer = (over: Partial<Parameters<typeof decideAutonomy>[0]>) =>
+    decideAutonomy({ mode: "auto_easy_escalate_hard", confidence: 0.9, threshold: 0.7, grounded: true, assertsFacts: true, inPolicy: true, ...over });
+  assert.equal(
+    decideAutonomy({ mode: "approve_all", confidence: 1, threshold: 0, grounded: true, assertsFacts: false, inPolicy: true }).send,
+    false,
+  );
+  assert.equal(answer({}).send, true); // grounded + confident factual answer
+  assert.equal(answer({ confidence: 0.5 }).reason, "low_confidence");
+  assert.equal(answer({ grounded: false }).reason, "not_grounded");
+  // A conversational turn (asserts no facts) auto-sends in Balanced even when
+  // ungrounded / low-confidence — there is no fact to ground.
+  const convo = decideAutonomy({
+    mode: "auto_easy_escalate_hard",
+    confidence: 0,
+    threshold: 0.9,
+    grounded: false,
+    assertsFacts: false,
+    inPolicy: true,
+  });
+  assert.equal(convo.send, true);
+  assert.equal(convo.reason, "auto_easy_confident");
+  // full_auto sends regardless of grounding/confidence; still blocked out of policy.
+  assert.equal(
+    decideAutonomy({ mode: "full_auto", confidence: 0, threshold: 0.9, grounded: false, assertsFacts: true, inPolicy: true }).send,
+    true,
+  );
+  assert.equal(
+    decideAutonomy({ mode: "full_auto", confidence: 1, threshold: 0, grounded: true, assertsFacts: false, inPolicy: false }).send,
+    false,
+  );
 });
 
 test("AI-identity detection returns the fixed honest disclosure", () => {
@@ -180,9 +214,10 @@ test("draft prompt grounds in knowledge and includes the offer + never-invent ru
     guardrails: { never_discuss: ["competitor names"] },
     voice: { tone: "warm" },
   });
-  // The offer + success criteria are injected as positioning context...
-  assert.match(input.prompt, /What you're offering: LinkedIn outreach that stays account-safe/);
-  assert.match(input.prompt, /What a win looks like: a booked call/);
+  // The offer + success criteria are injected as positioning context (in the
+  // cache prefix — static per-campaign text cached across turns)...
+  assert.match(input.cachePrefix ?? "", /What you're offering: LinkedIn outreach that stays account-safe/);
+  assert.match(input.cachePrefix ?? "", /What a win looks like: a booked call/);
   // ...and the retrieved chunk is the ONLY factual source, with a never-invent rule.
   assert.match(input.prompt, /KNOWLEDGE \(your only source of facts\)/);
   assert.match(input.prompt, /Pricing starts at \$99/);

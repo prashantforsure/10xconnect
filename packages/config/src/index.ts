@@ -45,6 +45,20 @@ const blankToUndefined = (value: unknown): unknown =>
 const optionalString = z.preprocess(blankToUndefined, z.string().optional());
 const optionalUrl = z.preprocess(blankToUndefined, z.string().url().optional());
 
+/** A number env var with NO default; blank/unset → undefined (an optional override). */
+const optionalNumber = z.preprocess(blankToUndefined, z.coerce.number().optional());
+
+/** A boolean env var with NO default; blank/unset → undefined (an optional override). */
+const optionalBoolean = z.preprocess(
+  (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+  z
+    .union([z.boolean(), z.string()])
+    .transform((v) =>
+      typeof v === "boolean" ? v : ["true", "1", "yes", "on"].includes(v.trim().toLowerCase()),
+    )
+    .optional(),
+);
+
 /** A number env var with a default; blank/unset → default. */
 const numberWithDefault = (def: number) =>
   z.preprocess(blankToUndefined, z.coerce.number().default(def));
@@ -121,18 +135,24 @@ const envSchema = z.object({
   VOICE_PROVIDER: z.preprocess(blankToUndefined, z.enum(["elevenlabs", "mock"]).default("mock")),
   VOICE_MODEL: z.preprocess(blankToUndefined, z.string().default("eleven_multilingual_v2")),
 
-  // Dispatch engine cadence (orchestration brain). Defaults are SAFE for real
-  // accounts: poll every 15s, 4–8 min spacing (4-min base + up to 4-min jitter,
-  // ~6 min average — jittered so it never bursts), respect working hours. The
-  // per-account DAILY CAPS remain the hard safety ceiling regardless of spacing —
-  // this cadence just lets an account actually reach those caps within its window.
-  // The demo-only knobs (tiny spacing / ignore working hours) make a campaign
-  // visibly run in seconds on the MOCK adapter — never on a real account.
+  // Dispatch engine cadence (orchestration brain). A single switch — DISPATCH_MODE
+  // — picks the spacing PRESET (see DISPATCH_PRESETS in @10xconnect/engine):
+  //   - "testing" (DEFAULT): visibly-fast pacing so a campaign runs to completion in
+  //     seconds on the MOCK adapter (demos/dev). NEVER use on a real LinkedIn account.
+  //   - "production": real human pacing — 4–8 min jittered spacing (4-min base + up
+  //     to 4-min jitter, ~6 min average — jittered so it never bursts) within the
+  //     account's working hours. Flip to this at launch with DISPATCH_MODE=production.
+  // The per-account DAILY CAPS remain the hard safety ceiling in BOTH modes — spacing
+  // only controls cadence within the window, never the daily total.
+  // The DISPATCH_MIN_SPACING_MS / DISPATCH_JITTER_MS / DISPATCH_IGNORE_WORKING_HOURS
+  // vars are OPTIONAL per-field overrides: set one to tune a preset (e.g. nudge
+  // production spacing) without leaving the chosen mode. Unset → the preset value.
   DISPATCH_ENABLED: booleanWithDefault(true),
   DISPATCH_TICK_MS: numberWithDefault(15_000),
-  DISPATCH_MIN_SPACING_MS: numberWithDefault(240_000),
-  DISPATCH_JITTER_MS: numberWithDefault(240_000),
-  DISPATCH_IGNORE_WORKING_HOURS: booleanWithDefault(false),
+  DISPATCH_MODE: z.preprocess(blankToUndefined, z.enum(["testing", "production"]).default("testing")),
+  DISPATCH_MIN_SPACING_MS: optionalNumber,
+  DISPATCH_JITTER_MS: optionalNumber,
+  DISPATCH_IGNORE_WORKING_HOURS: optionalBoolean,
 
   // Payments (Phase 9+)
   CREEM_API_KEY: optionalString,

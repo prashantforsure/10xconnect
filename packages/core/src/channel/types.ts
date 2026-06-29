@@ -192,8 +192,24 @@ export interface ConnectionRequestOptions extends SendOptions {
 
 // --- Content ---------------------------------------------------------------
 
+/**
+ * A media attachment to deliver with a message. The transport needs the bytes, so a
+ * `url` (signed/public, fetchable) is what makes it deliverable; `ref` is the storage
+ * path of record. Unipile supports message attachments (multipart, ≤15MB, image/
+ * video/file) — CLAUDE.md §7 "adapter media delivery".
+ */
+export interface MessageAttachment {
+  ref: string;
+  url?: string;
+  name?: string;
+  mime?: string;
+  kind?: "image" | "video" | "file";
+}
+
 export interface MessageContent {
   body: string;
+  /** Optional media to deliver alongside the text. */
+  attachments?: MessageAttachment[];
 }
 
 export interface InMailContent {

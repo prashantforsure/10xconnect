@@ -153,8 +153,21 @@ async function handleReply(
   leadId: string,
   event: Extract<InboundEvent, { type: "reply" }>,
 ): Promise<void> {
-  // Capture the active campaign (before auto-stop clears it) so the relationship
-  // row remembers which campaign the conversation came from.
+  // Attribute the reply to the campaign that ACTUALLY last messaged this lead — not
+  // merely one they're enrolled in. A lead can sit 'active' in an idle draft
+  // campaign they were never contacted from (a stale enrollment); that must never
+  // capture the conversation (and would route it to a campaign with no brain).
+  const lastSend = await db
+    .selectFrom("actions")
+    .select("campaign_id")
+    .where("workspace_id", "=", account.workspaceId)
+    .where("lead_id", "=", leadId)
+    .where("campaign_id", "is not", null)
+    .where("status", "=", "success")
+    .orderBy("executed_at", "desc")
+    .executeTakeFirst();
+  // Capture the active campaign (before auto-stop clears it) as a fallback so the
+  // relationship row remembers which campaign the conversation came from.
   const active = await db
     .selectFrom("lead_campaign_state")
     .select("campaign_id")
@@ -163,7 +176,31 @@ async function handleReply(
     .where("status", "=", "active")
     .orderBy("updated_at", "desc")
     .executeTakeFirst();
-  const campaignId = active?.campaign_id ?? null;
+  // The FIRST reply auto-stops the sequence (status→'replied'); subsequent replies
+  // in the same ongoing conversation then have no 'active' state. Recover the
+  // campaign from the relationship row (it retains campaign_id), else the most
+  // recent lead_campaign_state — so the AI keeps engaging every turn of a
+  // back-and-forth, not just the first reply.
+  let campaignId = lastSend?.campaign_id ?? active?.campaign_id ?? null;
+  if (!campaignId) {
+    const rel = await db
+      .selectFrom("relationship_state")
+      .select("campaign_id")
+      .where("workspace_id", "=", account.workspaceId)
+      .where("lead_id", "=", leadId)
+      .executeTakeFirst();
+    campaignId = rel?.campaign_id ?? null;
+  }
+  if (!campaignId) {
+    const recent = await db
+      .selectFrom("lead_campaign_state")
+      .select("campaign_id")
+      .where("workspace_id", "=", account.workspaceId)
+      .where("lead_id", "=", leadId)
+      .orderBy("updated_at", "desc")
+      .executeTakeFirst();
+    campaignId = recent?.campaign_id ?? null;
+  }
 
   // Auto-stop: mark active states 'replied' and cancel their pending actions.
   await db

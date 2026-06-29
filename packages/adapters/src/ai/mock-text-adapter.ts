@@ -4,7 +4,12 @@
 // It produces SHORT, VARIED, per-lead output so previews look distinct and the
 // variety check passes; identical inputs yield identical output (deterministic).
 
-import type { TextGenerationAdapter, TextGenerationInput } from "@10xconnect/core";
+import type {
+  TextGenerationAdapter,
+  TextGenerationInput,
+  TextGenerationResult,
+  TokenUsage,
+} from "@10xconnect/core";
 
 const OPENERS = [
   "saw you're scaling",
@@ -60,9 +65,51 @@ function postSnippet(post: string): string {
     .trim();
 }
 
+/** Rough ~4 chars/token estimate (matches core's estimateTokens) — local to keep
+ * the mock dependency-light. */
+function estTokens(text: string): number {
+  return Math.ceil((text ?? "").length / 4);
+}
+
 export class MockTextAdapter implements TextGenerationAdapter {
+  // Prompt-cache state (Phase 9.8). A cache prefix seen before this instance is
+  // billed at the cached rate; the adapter instance persists across a conversation's
+  // turns (the factory builds it once), so turn 2+ of the same campaign hit cache —
+  // exactly like a real provider's implicit prompt cache.
+  private readonly seenPrefixes = new Set<number>();
+
   generate(input: TextGenerationInput): Promise<string> {
-    const p = input.prompt;
+    return Promise.resolve(this.produce(input));
+  }
+
+  /** Generate AND report token usage, modeling a provider prompt cache. */
+  generateWithUsage(input: TextGenerationInput): Promise<TextGenerationResult> {
+    const text = this.produce(input);
+    const cacheable = `${input.system ?? ""}\n${input.cachePrefix ?? ""}`;
+    const hasPrefix = Boolean((input.system ?? "").trim() || (input.cachePrefix ?? "").trim());
+    let cachedTokens = 0;
+    if (hasPrefix) {
+      const key = hash(cacheable);
+      if (this.seenPrefixes.has(key)) {
+        cachedTokens = estTokens(cacheable);
+      } else {
+        this.seenPrefixes.add(key);
+      }
+    }
+    const promptTokens = estTokens(`${cacheable}\n${input.prompt}`);
+    const completionTokens = estTokens(text);
+    const usage: TokenUsage = {
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      cachedTokens,
+    };
+    return Promise.resolve({ text, usage });
+  }
+
+  private produce(input: TextGenerationInput): string {
+    // The model "sees" the cache prefix + prompt; facts may live in either.
+    const p = `${input.cachePrefix ?? ""}\n${input.prompt}`;
     const company = fact(p, "Company");
     const role = fact(p, "Role");
     const headline = fact(p, "Headline");
@@ -77,13 +124,13 @@ export class MockTextAdapter implements TextGenerationAdapter {
       const opener = POST_OPENERS[seed % POST_OPENERS.length];
       const out = `${opener} ${postSnippet(post)}`.replace(/\s+/g, " ").trim();
       if (out.length > opener.length + 1) {
-        return Promise.resolve(out);
+        return out;
       }
     }
 
     const topic = company ?? role ?? headline ?? first ?? "your space";
     const opener = OPENERS[seed % OPENERS.length];
     // Keep it short, lowercase, no hard pitch — matches the methodology defaults.
-    return Promise.resolve(`${opener} ${topic.toLowerCase()}`.replace(/\s+/g, " ").trim());
+    return `${opener} ${topic.toLowerCase()}`.replace(/\s+/g, " ").trim();
   }
 }

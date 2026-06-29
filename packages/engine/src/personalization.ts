@@ -52,6 +52,21 @@ export function profileFromLead(lead: LeadRow): PersonalizationProfile {
   };
 }
 
+/**
+ * The profile the AI personalizes from for a given node. For comment_last_post the
+ * comment is posted on the prospect's CURRENT latest post, so the AI must react to
+ * that exact post — restrict it to the single most-recent post so an older post never
+ * leaks in and produces an off-topic comment on the wrong post. All other nodes (e.g.
+ * send_message) see up to 3 recent posts.
+ */
+export function profileForNode(lead: LeadRow, nodeType?: string): PersonalizationProfile {
+  const profile = profileFromLead(lead);
+  if (nodeType === "comment_last_post" && profile.recentPosts && profile.recentPosts.length > 1) {
+    return { ...profile, recentPosts: profile.recentPosts.slice(0, 1) };
+  }
+  return profile;
+}
+
 /** Build the variable-resolver context from a lead row (+ optional sender). */
 function contextFromLead(lead: LeadRow, sender?: { firstName?: string; company?: string }, now?: Date): VariableContext {
   const e = asObject(lead.enrichment);
@@ -71,6 +86,8 @@ export interface ResolveInput {
   workspaceId: string;
   campaignId: string | null;
   nodeId: string;
+  /** The node type (e.g. "comment_last_post") — scopes which posts the AI sees. */
+  nodeType?: string;
   /** The node's config jsonb (carries messageBody / legacy body + aiPrompt). */
   config: Record<string, unknown>;
   lead: LeadRow;
@@ -126,7 +143,7 @@ export async function resolvePersonalizedMessage(deps: EngineDeps, input: Resolv
   let tokens = 0;
   const aiSeg = body.segments.find((s): s is { type: "ai"; prompt?: string; promptId?: string } => s.type === "ai");
   if (aiSeg && deps.textAdapter) {
-    const profile = profileFromLead(input.lead);
+    const profile = profileForNode(input.lead, input.nodeType);
     if (hasPersonalizationSignal(profile)) {
       const aiPrompt = (aiSeg.prompt ?? "").trim();
       const generated = (
@@ -160,6 +177,8 @@ export interface PreviewInput {
   workspaceId: string;
   campaignId: string | null;
   nodeId: string;
+  /** The node type (e.g. "comment_last_post") — scopes which posts the AI sees. */
+  nodeType?: string;
   config: Record<string, unknown>;
   leadIds?: string[];
   sampleSize?: number;
@@ -199,6 +218,7 @@ export async function previewNode(deps: EngineDeps, input: PreviewInput): Promis
       workspaceId: input.workspaceId,
       campaignId: input.campaignId,
       nodeId: input.nodeId,
+      nodeType: input.nodeType,
       config: input.config,
       lead,
       sender: input.sender,
@@ -222,12 +242,13 @@ function leadDisplayName(lead: LeadRow): string {
  * no node context it falls back to plain variable injection so dispatch never fails.
  */
 export function createCachedAiResolver(deps: EngineDeps): ContentResolver {
-  return async ({ workspaceId, campaignId, nodeId, config, lead, template }) => {
+  return async ({ workspaceId, campaignId, nodeId, nodeType, config, lead, template }) => {
     if (!nodeId) return injectVariables(template, lead);
     const { text } = await resolvePersonalizedMessage(deps, {
       workspaceId,
       campaignId: campaignId ?? null,
       nodeId,
+      nodeType,
       config,
       lead,
       useCache: true,

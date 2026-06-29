@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { aboveTheFold, auditAccountProfile, lintMessage } from "./guardrails";
+import { aboveTheFold, auditAccountProfile, lintMessage, lintMessageBody } from "./guardrails";
 import { COMMUNITY_PROMPTS, resolvePromptTemplate, varietyWarning } from "./prompts";
 import {
   extractAiPrompt,
@@ -202,6 +202,37 @@ test("lintMessage flags salesy phrases, hard CTAs, links, and over-length", () =
   assert.ok(ids("Want to book a call this week?").includes("hard_cta"));
   assert.ok(ids("See https://acme.com for details", { firstTouch: true }).includes("link"));
   assert.ok(ids(`word ${"more ".repeat(60)}`).includes("length"));
+});
+
+test("lintMessageBody (the composer's live pipeline) fires on a bad structured message", () => {
+  // A salesy, link-bearing body with a hard CTA — exactly what the composer panel
+  // lints on every keystroke (renders body → lints the rendered text).
+  const bad: MessageBody = {
+    v: 1,
+    segments: [
+      { type: "text", text: "Hi " },
+      { type: "variable", key: "first_name", fallback: "there" },
+      { type: "text", text: ", check out our cutting-edge platform at https://acme.com — book a call?" },
+    ],
+  };
+  const ids = lintMessageBody(bad, { firstTouch: true }).map((f) => f.id);
+  assert.ok(ids.includes("salesy"), "salesy phrase flagged");
+  assert.ok(ids.includes("hard_cta"), "hard CTA flagged");
+  assert.ok(ids.includes("link"), "first-touch link flagged");
+
+  // A clean conversational body produces no findings (linter doesn't cry wolf).
+  const good: MessageBody = {
+    v: 1,
+    segments: [
+      { type: "text", text: "Hi " },
+      { type: "variable", key: "first_name", fallback: "there" },
+      { type: "text", text: ", saw your work in fintech — what's your focus this quarter?" },
+    ],
+  };
+  assert.equal(lintMessageBody(good).length, 0);
+
+  // An empty body is silent (no false warnings before the user types).
+  assert.equal(lintMessageBody({ v: 1, segments: [] }).length, 0);
 });
 
 test("aboveTheFold returns the visible portion and a truncation flag", () => {

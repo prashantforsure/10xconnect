@@ -57,6 +57,9 @@ export function TemplatesModal({ open, onClose }: { open: boolean; onClose: () =
   const [error, setError] = useState<string | null>(null);
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [applied, setApplied] = useState<{ result: ApplyResult; name: string } | null>(null);
+  // The template the user is naming a new campaign from (rename-before-create step).
+  const [renaming, setRenaming] = useState<TemplateView | null>(null);
+  const [newName, setNewName] = useState("");
   // Guards against a stale scope response landing after a newer tab switch.
   const reqRef = useRef(0);
 
@@ -91,19 +94,34 @@ export function TemplatesModal({ open, onClose }: { open: boolean; onClose: () =
 
   const close = (): void => {
     setApplied(null);
+    setRenaming(null);
+    setNewName("");
     setError(null);
     onClose();
   };
 
-  const apply = async (t: TemplateView): Promise<void> => {
+  // Step 1: pick a template → name the new campaign before it's created.
+  const startApply = (t: TemplateView): void => {
+    setError(null);
+    setNewName(t.name);
+    setRenaming(t);
+  };
+
+  // Step 2: create the campaign with the chosen name.
+  const confirmApply = async (): Promise<void> => {
+    if (!renaming || !newName.trim() || applyingId !== null) {
+      return;
+    }
+    const t = renaming;
     setApplyingId(t.id);
     setError(null);
     try {
       const result = await api.request<ApplyResult>(`/workflow-templates/${t.id}/apply`, {
         method: "POST",
-        body: {},
+        body: { name: newName.trim() },
       });
-      setApplied({ result, name: t.name });
+      setApplied({ result, name: newName.trim() });
+      setRenaming(null);
     } catch (err) {
       setError(errorMessage(err, "Could not apply template"));
     } finally {
@@ -133,11 +151,19 @@ export function TemplatesModal({ open, onClose }: { open: boolean; onClose: () =
     <Modal
       open={open}
       onClose={close}
-      title={applied ? "Campaign created from template" : "Templates"}
+      title={
+        applied
+          ? "Campaign created from template"
+          : renaming
+            ? "Name your new campaign"
+            : "Templates"
+      }
       description={
         applied
           ? "A fresh draft campaign was cloned from the template — with 0 contacts and none of the original's leads, account, or knowledge base."
-          : "Reusable campaign shapes (sequence + AI prompts + cadence + brain defaults). Applying one creates a new draft you fill with your own contacts and facts."
+          : renaming
+            ? "Give this campaign its own name so it doesn't collide with the template or your other campaigns."
+            : "Reusable campaign shapes (sequence + AI prompts + cadence + brain defaults). Applying one creates a new draft you fill with your own contacts and facts."
       }
       className="max-w-2xl"
     >
@@ -164,6 +190,45 @@ export function TemplatesModal({ open, onClose }: { open: boolean; onClose: () =
               Done
             </Button>
             <Button onClick={openCampaign}>Open campaign</Button>
+          </div>
+        </div>
+      ) : renaming ? (
+        <div className="space-y-4">
+          <div className="rounded-xl border bg-secondary/30 p-3 text-sm">
+            <p className="text-muted-foreground">
+              From template <span className="font-medium text-foreground">{renaming.name}</span>
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="new-campaign-name">Campaign name</Label>
+            <Input
+              id="new-campaign-name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  void confirmApply();
+                }
+              }}
+              placeholder="Q3 founder outreach"
+              autoFocus
+            />
+          </div>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRenaming(null);
+                setError(null);
+              }}
+              disabled={applyingId !== null}
+            >
+              Back
+            </Button>
+            <Button onClick={() => void confirmApply()} disabled={!newName.trim() || applyingId !== null}>
+              {applyingId !== null ? "Creating…" : "Create campaign"}
+            </Button>
           </div>
         </div>
       ) : (
@@ -236,8 +301,8 @@ export function TemplatesModal({ open, onClose }: { open: boolean; onClose: () =
                           <Trash2 className="size-4" />
                         </Button>
                       ) : null}
-                      <Button size="sm" onClick={() => void apply(t)} disabled={applyingId !== null}>
-                        {applyingId === t.id ? "Applying…" : "Apply"}
+                      <Button size="sm" onClick={() => startApply(t)} disabled={applyingId !== null}>
+                        Use template
                       </Button>
                     </div>
                   </li>

@@ -74,6 +74,35 @@ export class UnipileClient {
     return this.send<T>(this.baseUrl + path, { method: "POST", headers: this.headers(), body: form });
   }
 
+  /**
+   * Multipart POST that also carries binary files (e.g. message attachments —
+   * Unipile sends them under the `attachments` field, ≤15MB each). String fields
+   * behave like postForm(); each file is appended as a Blob with a filename.
+   */
+  postMultipart<T>(
+    path: string,
+    fields: Record<string, string | string[] | undefined>,
+    files: { field: string; blob: Blob; filename: string }[],
+  ): Promise<T> {
+    const form = new FormData();
+    for (const [key, value] of Object.entries(fields)) {
+      if (value == null) {
+        continue;
+      }
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          form.append(key, item);
+        }
+      } else {
+        form.append(key, value);
+      }
+    }
+    for (const f of files) {
+      form.append(f.field, f.blob, f.filename);
+    }
+    return this.send<T>(this.baseUrl + path, { method: "POST", headers: this.headers(), body: form });
+  }
+
   del<T>(path: string): Promise<T> {
     return this.send<T>(this.baseUrl + path, { method: "DELETE", headers: this.headers() });
   }

@@ -1,7 +1,7 @@
 "use client";
 
 import { type GenNode } from "@10xconnect/core";
-import { Sparkles, Wand2 } from "lucide-react";
+import { Wand2, Workflow } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BuildWithAiModal } from "./build-with-ai";
@@ -10,6 +10,7 @@ import { type BuilderContextValue, BuilderProvider, type NodeStatsResponse } fro
 import { ComposerPanel } from "./composer/composer-panel";
 import type { PreviewSample } from "./composer/preview-modal";
 import type { SenderAccount } from "./composer/sender-select";
+import { WorkflowsPicker } from "./workflows-picker";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ import {
   toSavePayload,
 } from "@/lib/campaigns/graph";
 import { buildTemplate, type TemplateKind } from "@/lib/campaigns/templates";
+import { createDebouncer, type Debouncer } from "@/lib/util/debounce";
 import { useWorkspace } from "@/lib/workspace/context";
 
 const AUTOSAVE_DEBOUNCE_MS = 1200;
@@ -73,19 +75,6 @@ const DEMO_SAMPLES: PreviewSample[] = [
   },
 ];
 
-// Recommended starter sequence (linear; the user can fork it afterwards).
-const TEMPLATE_FLAT: { kind: "action" | "condition"; type: string; config: Record<string, unknown> }[] = [
-  { kind: "action", type: "like_last_post", config: {} },
-  { kind: "action", type: "send_connection_request", config: {} },
-  { kind: "condition", type: "invite_accepted", config: {} },
-  { kind: "action", type: "wait_x_days", config: { days: 1 } },
-  {
-    kind: "action",
-    type: "send_message",
-    config: { body: "Hi {first_name}, thanks for connecting! What are you focused on at {company} this quarter?" },
-  },
-];
-
 export function BuilderTab({
   campaignId,
   running,
@@ -110,6 +99,7 @@ export function BuilderTab({
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [stats, setStats] = useState<NodeStatsResponse | null>(null);
   const [buildOpen, setBuildOpen] = useState(false);
+  const [workflowsOpen, setWorkflowsOpen] = useState(false);
   const [refineText, setRefineText] = useState("");
   const [refining, setRefining] = useState(false);
 
@@ -117,7 +107,7 @@ export function BuilderTab({
   const nodesRef = useRef<GraphNode[]>(nodes);
   const dirtyRef = useRef(dirty);
   const runningRef = useRef(running);
-  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncer = useRef<Debouncer | null>(null);
   const savingRef = useRef(false);
   const pendingRef = useRef(false);
   const editGenRef = useRef(0);
@@ -216,10 +206,17 @@ export function BuilderTab({
     mutate(changeNodeType(nodes, id, type, configForTypeChange(node.config, type)));
   };
 
-  // AI generator + recommended template replace the canvas with a linear chain.
+  // AI generator replaces the canvas with a linear chain.
   const applyGenerated = (gen: GenNode[]): void => {
     setSelectedId(null);
     mutate(linearChain(gen.map((n) => ({ kind: n.kind, type: n.type, config: n.config }))));
+  };
+
+  // Workflows picker drops a prebuilt/saved graph onto the canvas (confirm-to-replace
+  // is handled inside the picker).
+  const applyWorkflowGraph = (graph: GraphNode[]): void => {
+    setSelectedId(null);
+    mutate(graph);
   };
 
   const refine = async (): Promise<void> => {
@@ -294,26 +291,25 @@ export function BuilderTab({
   const autosaveRef = useRef(autosave);
   autosaveRef.current = autosave;
 
+  // Lazily build the trailing-edge debouncer (tested in lib/util/debounce.test.ts).
+  // It always invokes the LATEST autosave via the stable ref, so a burst of edits
+  // coalesces into a single save 1.2s after the user pauses — not one per keystroke.
+  if (!debouncer.current) {
+    debouncer.current = createDebouncer(() => void autosaveRef.current(), AUTOSAVE_DEBOUNCE_MS);
+  }
+
   const scheduleAutosave = useCallback((): void => {
-    if (autosaveTimer.current) {
-      clearTimeout(autosaveTimer.current);
-    }
-    autosaveTimer.current = setTimeout(() => void autosaveRef.current(), AUTOSAVE_DEBOUNCE_MS);
+    debouncer.current?.schedule();
   }, []);
 
   const flushSave = useCallback((): void => {
-    if (autosaveTimer.current) {
-      clearTimeout(autosaveTimer.current);
-    }
-    void autosaveRef.current();
+    debouncer.current?.flush();
   }, []);
 
   useEffect(() => {
     return () => {
-      if (autosaveTimer.current) {
-        clearTimeout(autosaveTimer.current);
-      }
-      void autosaveRef.current();
+      // Flush any pending edits on unmount so nothing is lost when leaving the tab.
+      debouncer.current?.flush();
     };
   }, []);
 
@@ -372,16 +368,16 @@ export function BuilderTab({
         </div>
         <div className="flex gap-2">
           {stepCount === 0 && !running ? (
-            <>
-              <Button variant="outline" onClick={() => setBuildOpen(true)}>
-                <Wand2 />
-                Build with AI
-              </Button>
-              <Button variant="outline" onClick={() => applyGenerated(TEMPLATE_FLAT as GenNode[])}>
-                <Sparkles />
-                Use recommended template
-              </Button>
-            </>
+            <Button variant="outline" onClick={() => setBuildOpen(true)}>
+              <Wand2 />
+              Build with AI
+            </Button>
+          ) : null}
+          {!running ? (
+            <Button variant="outline" onClick={() => setWorkflowsOpen(true)}>
+              <Workflow />
+              Workflows
+            </Button>
           ) : null}
           <Button onClick={flushSave} disabled={!dirty || saving || running}>
             {saving ? "Saving…" : "Save now"}
@@ -418,6 +414,13 @@ export function BuilderTab({
         campaignId={campaignId}
         onApply={applyGenerated}
         onApplied={onChanged}
+      />
+
+      <WorkflowsPicker
+        open={workflowsOpen}
+        onClose={() => setWorkflowsOpen(false)}
+        currentGraph={nodes}
+        onUse={applyWorkflowGraph}
       />
 
       {/* Canvas keeps a fixed-size viewport; the composer docks beside it (and is

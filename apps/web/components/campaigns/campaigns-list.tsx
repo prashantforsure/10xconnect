@@ -174,8 +174,8 @@ export function CampaignsList() {
       <CreateCampaignModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        create={async (name) => {
-          const c = await api.request<CampaignView>("/campaigns", { method: "POST", body: { name } });
+        create={async (name, aiReplyMode) => {
+          const c = await api.request<CampaignView>("/campaigns", { method: "POST", body: { name, aiReplyMode } });
           router.push(`/campaigns/${c.id}`);
         }}
       />
@@ -279,6 +279,29 @@ function Metric({
   );
 }
 
+type AiReplyMode = "approve_all" | "auto_easy_escalate_hard" | "full_auto";
+
+/** Creator-facing AI reply styles (Balanced is the default + recommended). Maps
+ * 1:1 to campaigns.autonomy.mode. */
+const AI_REPLY_MODES: { value: AiReplyMode; title: string; badge?: string; desc: string }[] = [
+  {
+    value: "auto_easy_escalate_hard",
+    title: "Balanced",
+    badge: "Recommended",
+    desc: "The AI replies to normal conversation and answers questions it's sure of. Hot leads — pricing, meetings, buying signals — are handed to you.",
+  },
+  {
+    value: "approve_all",
+    title: "Manual review",
+    desc: "The AI drafts every reply; you approve and send each one. Maximum control.",
+  },
+  {
+    value: "full_auto",
+    title: "Autopilot",
+    desc: "The AI replies to everything except hot leads. Most hands-off (still never invents facts or auto-handles buyers).",
+  },
+];
+
 function CreateCampaignModal({
   open,
   onClose,
@@ -286,14 +309,16 @@ function CreateCampaignModal({
 }: {
   open: boolean;
   onClose: () => void;
-  create: (name: string) => Promise<void>;
+  create: (name: string, aiReplyMode: AiReplyMode) => Promise<void>;
 }) {
   const [name, setName] = useState("");
+  const [aiReplyMode, setAiReplyMode] = useState<AiReplyMode>("auto_easy_escalate_hard");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const close = (): void => {
     setName("");
+    setAiReplyMode("auto_easy_escalate_hard");
     setError(null);
     setSubmitting(false);
     onClose();
@@ -307,7 +332,7 @@ function CreateCampaignModal({
     setSubmitting(true);
     setError(null);
     try {
-      await create(name.trim());
+      await create(name.trim(), aiReplyMode);
     } catch (err) {
       setError(errorMessage(err, "Could not create campaign"));
       setSubmitting(false);
@@ -315,7 +340,7 @@ function CreateCampaignModal({
   };
 
   return (
-    <Modal open={open} onClose={close} title="Create campaign" description="Give your campaign a name. You'll build the sequence next.">
+    <Modal open={open} onClose={close} title="Create campaign" description="Name it and pick how the AI handles replies. You'll build the sequence next.">
       <form onSubmit={onSubmit} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="campaign-name">Campaign name</Label>
@@ -326,6 +351,38 @@ function CreateCampaignModal({
             placeholder="Q3 Founders Outreach"
             autoFocus
           />
+        </div>
+        <div className="space-y-2">
+          <Label>AI reply mode</Label>
+          <div className="space-y-2">
+            {AI_REPLY_MODES.map((m) => {
+              const selected = aiReplyMode === m.value;
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setAiReplyMode(m.value)}
+                  aria-pressed={selected}
+                  className={`flex w-full flex-col items-start gap-1 rounded-lg border p-3 text-left transition ${
+                    selected ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-input hover:bg-muted/50"
+                  }`}
+                >
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    {m.title}
+                    {m.badge ? (
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                        {m.badge}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{m.desc}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            You can change this anytime in the campaign&apos;s Context tab. Auto modes need a knowledge base before launch.
+          </p>
         </div>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <div className="flex justify-end gap-2">

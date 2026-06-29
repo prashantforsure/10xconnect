@@ -205,6 +205,7 @@ export async function runConversationTurn(deps: EngineDeps, input: TurnInput): P
       body: AI_IDENTITY_RESPONSE,
       confidence: 1,
       grounded: true,
+      assertsFacts: false,
       inPolicy: true,
       reasoning: { action: "answer", question, intent: classification.intent, tier: "canned_ai_disclosure", hasNewInfo: false },
       autonomyMode: autonomy.mode,
@@ -257,6 +258,7 @@ export async function runConversationTurn(deps: EngineDeps, input: TurnInput): P
       body: relevant[0].body,
       confidence: clamp(relevant[0].similarity, 0, 1),
       grounded: true,
+      assertsFacts: true,
       inPolicy: true,
       reasoning: { ...baseReasoning, tier: "canned" },
       autonomyMode: autonomy.mode,
@@ -301,6 +303,7 @@ export async function runConversationTurn(deps: EngineDeps, input: TurnInput): P
     body,
     confidence,
     grounded: action === "answer" && relevant.length > 0,
+    assertsFacts: action === "answer",
     inPolicy: true,
     reasoning: { ...baseReasoning, tier: "draft" },
     autonomyMode: autonomy.mode,
@@ -328,6 +331,8 @@ async function commitDraft(
     body: string;
     confidence: number;
     grounded: boolean;
+    /** Does this reply assert KB facts (an "answer")? Conversational turns don't. */
+    assertsFacts: boolean;
     inPolicy: boolean;
     reasoning: Record<string, unknown>;
     autonomyMode: ReturnType<typeof autonomyFrom>["mode"];
@@ -343,6 +348,7 @@ async function commitDraft(
     confidence: input.confidence,
     threshold: input.threshold,
     grounded: input.grounded,
+    assertsFacts: input.assertsFacts,
     inPolicy: input.inPolicy,
   });
 

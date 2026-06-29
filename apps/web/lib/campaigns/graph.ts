@@ -312,6 +312,26 @@ export function linearChain(
   return nodes;
 }
 
+/**
+ * Re-id a saved/prebuilt graph with fresh local ids, rewiring all edges. Used when
+ * loading a stored workflow into the canvas so its ids never collide with existing
+ * nodes (and so re-using the same saved workflow twice stays independent).
+ */
+export function remapIds(nodes: GraphNode[]): GraphNode[] {
+  const idMap = new Map<string, string>();
+  for (const n of nodes) {
+    idMap.set(n.id, localId());
+  }
+  const map = (id: string | null): string | null => (id ? (idMap.get(id) ?? null) : null);
+  return nodes.map((n) => ({
+    ...n,
+    id: idMap.get(n.id) as string,
+    next: map(n.next),
+    true: map(n.true),
+    false: map(n.false),
+  }));
+}
+
 /** Human labels for a condition's two branches (false shown left, true right). */
 export function branchLabels(type: string): { true: string; false: string } {
   switch (type) {

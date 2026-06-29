@@ -21,9 +21,11 @@ import { HostedAuthModule } from "./modules/hosted-auth.module";
 import { IntegrationsModule } from "./modules/integrations.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { ListsModule } from "./modules/lists.module";
+import { NotificationsModule } from "./modules/notifications.module";
 import { PersonalizationModule } from "./modules/personalization.module";
 import { WebhooksModule } from "./modules/webhooks.module";
 import { WorkflowTemplatesModule } from "./modules/workflow-templates.module";
+import { WorkflowsModule } from "./modules/workflows.module";
 import { WorkspacesModule } from "./modules/workspaces.module";
 
 @Module({
@@ -39,9 +41,11 @@ import { WorkspacesModule } from "./modules/workspaces.module";
     ListsModule,
     CampaignsModule,
     ConversationsModule,
+    NotificationsModule,
     BrainModule,
     PersonalizationModule,
     WorkflowTemplatesModule,
+    WorkflowsModule,
     AnalyticsModule,
     BillingModule,
     WebhooksModule,

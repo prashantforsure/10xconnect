@@ -4,6 +4,7 @@
 // Pure + shared by the composer (linter, framework snippets) and the launch flow
 // (profile audit).
 
+import { renderMessageBody } from "./render";
 import type { MessageBody } from "./segments";
 
 export type LintSeverity = "warn" | "info";
@@ -106,6 +107,24 @@ export function lintMessage(text: string, opts: { firstTouch?: boolean } = {}): 
   }
 
   return findings;
+}
+
+/**
+ * The composer's live lint pipeline (CLAUDE.md §7): render a structured body to its
+ * preview text (AI → placeholder, variables → fallback/skip — the no-broken-merge
+ * render), then lint THAT text. The composer's GuardrailsPanel calls this on every
+ * edit, so it's the exact "does the linter fire in the composer" path — and being
+ * pure, it's unit-testable without rendering React.
+ */
+export function lintMessageBody(
+  body: MessageBody,
+  opts: { firstTouch?: boolean } = {},
+): LintFinding[] {
+  const text = renderMessageBody(body, {}, { renderAi: () => "[AI line]" });
+  if (!text.trim()) {
+    return [];
+  }
+  return lintMessage(text, { firstTouch: opts.firstTouch ?? true });
 }
 
 /** The portion of a message visible before the reader has to scroll/expand. */

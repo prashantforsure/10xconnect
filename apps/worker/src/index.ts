@@ -58,8 +58,9 @@ function main(): void {
   // Phase 5: cache-aware resolver reuses the per-prospect preview (no 2nd LLM call).
   deps.resolveContent = createCachedAiResolver(deps);
   console.log(
-    `dispatch cadence: tick=${env.DISPATCH_TICK_MS}ms spacing=${deps.config.minSpacingMs}ms ` +
-      `jitter=${deps.config.jitterMs}ms ignoreWorkingHours=${deps.config.ignoreWorkingHours}`,
+    `dispatch cadence: mode=${env.DISPATCH_MODE} tick=${env.DISPATCH_TICK_MS}ms ` +
+      `spacing=${deps.config.minSpacingMs}ms jitter=${deps.config.jitterMs}ms ` +
+      `ignoreWorkingHours=${deps.config.ignoreWorkingHours}`,
   );
 
   let ticking = false;

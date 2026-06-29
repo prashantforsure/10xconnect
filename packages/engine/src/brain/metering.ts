@@ -8,7 +8,13 @@
 // The HARD stop is enforced upstream (budget.ts) BEFORE the call — we never spend
 // to discover we're over budget.
 
-import { type BudgetConfig, estimateUsage, estimateUsd, type TokenUsage } from "@10xconnect/core";
+import {
+  type BudgetConfig,
+  estimateUsage,
+  estimateUsd,
+  type TextGenerationInput,
+  type TokenUsage,
+} from "@10xconnect/core";
 import { sql } from "kysely";
 
 import type { EngineDeps } from "../types";
@@ -37,7 +43,7 @@ export interface MeterContext {
 export async function meteredGenerate(
   deps: EngineDeps,
   ctx: MeterContext,
-  input: { prompt: string; system?: string; maxTokens?: number; temperature?: number },
+  input: TextGenerationInput,
 ): Promise<string> {
   if (!deps.textAdapter) throw new Error("meteredGenerate: no text adapter");
 
@@ -77,6 +83,7 @@ async function record(deps: EngineDeps, ctx: MeterContext, usage: TokenUsage): P
       prompt_tokens: usage.promptTokens,
       completion_tokens: usage.completionTokens,
       total_tokens: usage.totalTokens,
+      cached_tokens: usage.cachedTokens ?? 0,
       usd,
     })
     .execute();
@@ -93,11 +100,13 @@ async function record(deps: EngineDeps, ctx: MeterContext, usage: TokenUsage): P
       window,
       workspace_id: ctx.workspaceId,
       tokens_used: usage.totalTokens,
+      cached_tokens_used: usage.cachedTokens ?? 0,
       usd_used: usd,
     })
     .onConflict((oc) =>
       oc.columns(["campaign_id", "window"]).doUpdateSet({
         tokens_used: sql`budget_ledger.tokens_used + excluded.tokens_used`,
+        cached_tokens_used: sql`budget_ledger.cached_tokens_used + excluded.cached_tokens_used`,
         usd_used: sql`budget_ledger.usd_used + excluded.usd_used`,
         updated_at: ctx.now.toISOString(),
       }),

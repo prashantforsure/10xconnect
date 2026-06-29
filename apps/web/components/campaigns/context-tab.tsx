@@ -822,15 +822,15 @@ function AutonomyCard({ campaignId }: { campaignId: string }) {
     >
       <div className="space-y-4">
         <Field
-          label="Autonomy"
-          hint="Approve-all keeps a human in the loop on every reply (recommended). Auto modes still escalate pricing/legal/buying and need a knowledge base."
+          label="AI reply mode"
+          hint="Balanced replies to normal conversation and answers it's sure of, and hands off hot leads (recommended). Manual keeps a human on every reply. Auto modes still escalate pricing/legal/buying and need a knowledge base for factual answers."
         >
           <Select value={mode} onChange={(e) => setMode(e.target.value as Autonomy["mode"])}>
-            <option value="approve_all">Approve all — AI drafts, you approve every reply</option>
             <option value="auto_easy_escalate_hard">
-              Auto easy, escalate hard — AI sends safe grounded replies, escalates the rest
+              Balanced — AI replies to normal chats + answers it&apos;s sure of, escalates hot leads (recommended)
             </option>
-            <option value="full_auto">Full auto — AI sends (still capped + escalates sensitive)</option>
+            <option value="approve_all">Manual review — AI drafts, you approve every reply</option>
+            <option value="full_auto">Autopilot — AI replies to everything except hot leads</option>
           </Select>
         </Field>
         {needsKbWarning ? (
@@ -844,7 +844,7 @@ function AutonomyCard({ campaignId }: { campaignId: string }) {
         ) : null}
         <Field
           label="Confidence threshold"
-          hint="Auto modes only — the AI auto-sends a reply only when it's at least this confident (0–1). Below it, the reply waits for your approval. Default 0.7."
+          hint="Factual answers only (Balanced mode) — the AI auto-sends an answer only when it's at least this confident (0–1); below it, the answer waits for approval. Conversational replies aren't gated by this. Default 0.6."
         >
           <Input
             type="number"

@@ -51,10 +51,13 @@ const LEGAL = [
   "soc 2", "soc2", "gdpr", "data processing", "liability", "sla", "redline",
 ];
 
-// Competitor comparisons → a human (positioning is judgment, not retrieval).
+// Explicit competitor comparisons → a human (positioning is judgment, not
+// retrieval). Kept tight: dropped "instead of" / "better than" / bare "vs " which
+// fire on ordinary build-vs-buy objections ("why you instead of building it
+// ourselves?") — those should get a normal reply, not an escalation.
 const COMPETITOR = [
-  "compared to", "vs.", "vs ", "versus", "instead of", "switch from", "switching from",
-  "alternative to", "how do you compare", "better than", "competitor",
+  "compared to", "versus", "switch from", "switching from",
+  "alternative to", "how do you compare", "competitor",
 ];
 
 function norm(text: string): string {

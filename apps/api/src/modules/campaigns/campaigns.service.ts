@@ -19,6 +19,7 @@ import type { Kysely } from "kysely";
 
 import { KYSELY_DB } from "../../database/database.module";
 
+import { DEFAULT_AI_REPLY_MODE } from "./dto";
 import type {
   CreateCampaignDto,
   SaveFrequencyDto,
@@ -88,6 +89,9 @@ export class CampaignsService {
         caps: JSON.stringify(defaultDailyCaps()),
         schedule: JSON.stringify(defaultWeekSchedule()),
         settings: JSON.stringify(DEFAULT_SETTINGS),
+        // AI reply autonomy chosen by the creator (Manual / Balanced / Autopilot);
+        // defaults to Balanced so new campaigns auto-reply to normal conversation.
+        autonomy: JSON.stringify({ mode: dto.aiReplyMode ?? DEFAULT_AI_REPLY_MODE }),
       })
       .returningAll()
       .executeTakeFirstOrThrow();

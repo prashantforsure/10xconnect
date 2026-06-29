@@ -171,11 +171,16 @@ export class MockChannelAdapter
     content: MessageContent,
     opts: SendOptions,
   ): Promise<ActionResult> {
-    return this.performMessage("message", account, lead, opts, {
-      direction: "outbound",
-      channel: "linkedin",
-      body: content.body,
-    });
+    return this.performMessage(
+      "message",
+      account,
+      lead,
+      opts,
+      { direction: "outbound", channel: "linkedin", body: content.body },
+      // Record delivered media so tests can assert attachments went through the
+      // adapter (the mock "delivers" them).
+      content.attachments?.length ? { attachments: content.attachments } : undefined,
+    );
   }
 
   sendVoiceNote(
@@ -490,8 +495,9 @@ export class MockChannelAdapter
     lead: LeadRef,
     opts: SendOptions,
     message: Omit<Message, "providerMessageId" | "sentAt">,
+    extraDetail?: Record<string, unknown>,
   ): Promise<ActionResult> {
-    const result = await this.perform(type, account, lead, opts, { ...message });
+    const result = await this.perform(type, account, lead, opts, { ...message, ...(extraDetail ?? {}) });
     if (result.status === "success" && !result.deduplicated) {
       this.appendMessage(this.leadKey(lead), {
         ...message,

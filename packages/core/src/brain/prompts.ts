@@ -107,11 +107,17 @@ export function buildDraftPrompt(input: DraftPromptInput): TextGenerationInput {
     systemLines.push("", "Write in the style of these samples:", ...voice.samples.slice(0, 3).map((s) => `"""${s}"""`));
   }
 
+  // Static, per-campaign context (the objective) is split into a cache prefix so it
+  // (with the system prompt) is billed at the cheaper cached rate on later turns of
+  // the same conversation (Phase 9.8). The DYNAMIC parts below — relationship state,
+  // facts, retrieved knowledge, history, the latest message — change every turn.
+  const cacheLines: string[] = [];
+  if (objective.goal) cacheLines.push(`Your goal in this campaign: ${objective.goal}`);
+  if (objective.offer) cacheLines.push(`What you're offering: ${objective.offer}`);
+  if (objective.success_criteria) cacheLines.push(`What a win looks like: ${objective.success_criteria}`);
+  if (objective.cta) cacheLines.push(`Preferred call-to-action: ${objective.cta}`);
+
   const parts: string[] = [];
-  if (objective.goal) parts.push(`Your goal in this campaign: ${objective.goal}`);
-  if (objective.offer) parts.push(`What you're offering: ${objective.offer}`);
-  if (objective.success_criteria) parts.push(`What a win looks like: ${objective.success_criteria}`);
-  if (objective.cta) parts.push(`Preferred call-to-action: ${objective.cta}`);
   if (input.summary) parts.push(`Where the relationship stands: ${input.summary}`);
   if (input.facts.length) {
     parts.push(`What you know about them:\n${input.facts.map((f) => `- ${f}`).join("\n")}`);
@@ -137,6 +143,7 @@ export function buildDraftPrompt(input: DraftPromptInput): TextGenerationInput {
   return {
     prompt: parts.join("\n\n"),
     system: systemLines.join("\n"),
+    cachePrefix: cacheLines.length ? cacheLines.join("\n\n") : undefined,
     maxTokens: 220,
     temperature: 0.6,
   };

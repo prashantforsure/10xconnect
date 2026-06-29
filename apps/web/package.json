@@ -8,7 +8,7 @@
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "tsx --test lib/campaigns/graph.test.ts"
+    "test": "tsx --test lib/campaigns/graph.test.ts lib/campaigns/workflows.test.ts lib/util/debounce.test.ts"
   },
   "dependencies": {
     "@10xconnect/core": "workspace:*",

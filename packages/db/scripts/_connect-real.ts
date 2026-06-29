@@ -2,13 +2,24 @@ import { env } from "@10xconnect/config";
 
 import { createPgClient } from "./db-utils";
 
-// --- inputs (from the user) -------------------------------------------------
-const LI_AT =
-  "AQEDAUVgyB0COzTrAAABntdL-T8AAAGe-1h9P00ATns_ZGdE-HHwg0dPetlmiUIldoGVf7BnUbgNMeze992miAjvNjkdzcpIXMks5e260xjQNTYvcWICeMlGtLrdMeELJE5acl0ZYlkmETQSvCC37SYR";
-const COUNTRY = "IN"; // region-matched residential IP (anti "impossible travel" logout)
-const USER_EMAIL = "pgayurvedwebsite@gmail.com";
-const UA =
+// --- inputs (from the environment, never committed) -------------------------
+// Pass these at run time so the li_at (a secret) is never written into a
+// git-tracked file, and so we send the operator's REAL user-agent — a UA that
+// doesn't match the browser the li_at came from is the #1 cause of LinkedIn
+// logging the account out (apps/extension/STAYING-CONNECTED.md).
+//
+//   $env:LI_AT="<fresh li_at>"
+//   $env:LI_USER_AGENT="<exact navigator.userAgent of that browser>"
+//   pnpm --filter @10xconnect/db exec tsx scripts/_connect-real.ts
+const LI_AT = (process.env.LI_AT ?? "").trim();
+const COUNTRY = (process.env.LI_COUNTRY ?? "IN").trim(); // region-matched residential IP (anti "impossible travel" logout)
+const USER_EMAIL = (process.env.LI_USER_EMAIL ?? "pp9926521681@gmail.com").trim();
+// The operator's real browser user-agent. The hardcoded value here is ONLY a
+// last-resort fallback — it almost certainly will NOT match your browser, so
+// always pass LI_USER_AGENT. We warn below when the fallback is used.
+const UA_FALLBACK =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+const UA = (process.env.LI_USER_AGENT ?? "").trim() || UA_FALLBACK;
 
 function baseUrl(): string {
   const dsn = (env.UNIPILE_DSN ?? "").trim();
@@ -52,7 +63,23 @@ async function connect(): Promise<{ accountId: string } | null> {
 }
 
 async function main(): Promise<void> {
+  if (!LI_AT) {
+    console.log(
+      "❌ LI_AT is not set. Pass a fresh li_at via the environment, e.g.:\n" +
+        '   $env:LI_AT="<fresh li_at>"; $env:LI_USER_AGENT="<navigator.userAgent>"; ' +
+        "pnpm --filter @10xconnect/db exec tsx scripts/_connect-real.ts",
+    );
+    process.exit(2);
+  }
+  if (!process.env.LI_USER_AGENT) {
+    console.log(
+      "⚠ LI_USER_AGENT not set — falling back to a generic Chrome UA. This likely does NOT " +
+        "match the browser your li_at came from, which is the #1 cause of repeated logouts. " +
+        "Set LI_USER_AGENT to that browser's navigator.userAgent for a stable session.",
+    );
+  }
   console.log(`Unipile DSN: ${baseUrl()}`);
+  console.log(`country=${COUNTRY}  user-agent=${UA.slice(0, 48)}…  target=${USER_EMAIL}`);
   const conn = await connect();
   if (!conn) {
     console.log("\n❌ Unipile rejected this li_at — it is invalid/expired or the account is checkpointed.");

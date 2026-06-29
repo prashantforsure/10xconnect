@@ -112,6 +112,27 @@ export async function countActionsToday(
   return Number(count);
 }
 
+/**
+ * Has the lead (the recipient) ever sent us an inbound message? Drives the
+ * "never_messaged" send condition (CLAUDE.md §7): only send if the recipient has
+ * never messaged. Counts inbound messages across the lead's conversations.
+ */
+export async function leadHasInboundMessage(
+  db: Kysely<DB>,
+  workspaceId: string,
+  leadId: string,
+): Promise<boolean> {
+  const row = await db
+    .selectFrom("messages as m")
+    .innerJoin("conversations as c", "c.id", "m.conversation_id")
+    .select((eb) => eb.fn.countAll<string>().as("count"))
+    .where("c.workspace_id", "=", workspaceId)
+    .where("c.lead_id", "=", leadId)
+    .where("m.direction", "=", "inbound")
+    .executeTakeFirst();
+  return Number(row?.count ?? 0) > 0;
+}
+
 /** Has an inbound event of `type` been recorded for this lead in this campaign? */
 export async function hasLeadEvent(
   db: Kysely<DB>,

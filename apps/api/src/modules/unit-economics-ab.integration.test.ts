@@ -120,12 +120,14 @@ async function enroll(
     .execute();
 }
 
+type PipelineStage = "new" | "in_conversation" | "qualified" | "booked" | "lost";
+
 async function seedConversation(
   db: Kysely<DB>,
   workspaceId: string,
   accountId: string,
   leadId: string,
-  stage: string,
+  stage: PipelineStage,
 ): Promise<string> {
   const row = await db
     .insertInto("conversations")

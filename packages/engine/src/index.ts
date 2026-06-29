@@ -23,9 +23,16 @@ export {
   type ResolveInput,
   type ResolveResult,
 } from "./personalization";
-export { loadGraph } from "./repository";
+export { loadGraph, leadHasInboundMessage } from "./repository";
+export {
+  activityVarsInNode,
+  maybeChargeActivityProfileVisit,
+  type ActivityVisitInput,
+  type ActivityVisitResult,
+} from "./activity-budget";
 export * from "./templates";
 export * from "./workflow-templates";
+export * from "./saved-workflows";
 export * from "./campaign-duplicate";
 export * from "./lead-import";
 export * from "./account-health";

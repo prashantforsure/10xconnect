@@ -37,6 +37,32 @@ export type SendCondition = { type: "always" } | { type: "never_messaged" };
 
 export const DEFAULT_SEND_CONDITION: SendCondition = { type: "always" };
 
+/** Type guard for a stored sendCondition (node config is permissive jsonb). */
+export function isSendCondition(value: unknown): value is SendCondition {
+  if (!value || typeof value !== "object") return false;
+  const t = (value as { type?: unknown }).type;
+  return t === "always" || t === "never_messaged";
+}
+
+/** Read a node's send condition from its config, defaulting to "always". */
+export function readSendCondition(config: Record<string, unknown> | null | undefined): SendCondition {
+  const c = config?.["sendCondition"];
+  return isSendCondition(c) ? c : DEFAULT_SEND_CONDITION;
+}
+
+/** Read + validate a node's media attachments from its config (drops malformed entries). */
+export function readAttachments(config: Record<string, unknown> | null | undefined): ComposerAttachment[] {
+  const raw = config?.["attachments"];
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (a): a is ComposerAttachment =>
+      !!a &&
+      typeof a === "object" &&
+      typeof (a as { ref?: unknown }).ref === "string" &&
+      ((a as { ref: string }).ref.trim().length > 0),
+  );
+}
+
 /** A contact variable the composer can insert. `key` is the engine variable key. */
 export interface VariableDef {
   key: string;

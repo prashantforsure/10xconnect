@@ -32,6 +32,20 @@ test("buildSearchRequest prefers a parsed search URL", () => {
   });
 });
 
+test("buildSearchRequest routes a Sales Navigator search URL to the sales_navigator API", () => {
+  // Fixture: a real Sales Nav people-search URL must import via the sales_navigator
+  // surface (NOT the classic search), with the URL passed through verbatim.
+  const req = buildSearchRequest({
+    kind: "sales_navigator",
+    url: "https://www.linkedin.com/sales/search/people?query=(keywords:cto)&sessionId=abc",
+  });
+  assert.deepEqual(req, {
+    api: "sales_navigator",
+    category: "people",
+    url: "https://www.linkedin.com/sales/search/people?query=(keywords:cto)&sessionId=abc",
+  });
+});
+
 test("buildSearchRequest folds lead_finder keywords + filters into one query", () => {
   const req = buildSearchRequest({
     kind: "lead_finder",

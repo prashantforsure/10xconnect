@@ -8,6 +8,15 @@ export interface TextGenerationInput {
   prompt: string;
   /** Optional system/role priming. */
   system?: string;
+  /**
+   * Static, reusable context prepended before `prompt` and eligible for provider
+   * PROMPT CACHING (Phase 9.8). Across turns of one conversation the system prompt +
+   * brain/objective context repeat verbatim; an adapter that supports caching bills
+   * this prefix at the cheaper cached rate on repeat and reports `cachedTokens`. The
+   * model still sees `system` + `cachePrefix` + `prompt` in full — caching is a
+   * billing optimization, never a context change.
+   */
+  cachePrefix?: string;
   maxTokens?: number;
   temperature?: number;
 }
@@ -17,6 +26,11 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  /**
+   * Subset of `promptTokens` served from a cached prefix (Phase 9.8). Billed at the
+   * model's cheaper cached-input rate; 0/undefined means a full-price cache miss.
+   */
+  cachedTokens?: number;
 }
 
 /** A generation result that carries real provider token usage when available. */

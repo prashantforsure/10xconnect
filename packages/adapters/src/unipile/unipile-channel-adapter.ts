@@ -21,6 +21,7 @@ import type {
   LeadRef,
   ListConversationsOptions,
   Message,
+  MessageAttachment,
   MessageContent,
   RecentPost,
   SendOptions,
@@ -211,7 +212,9 @@ export class UnipileChannelAdapter
     content: MessageContent,
     opts: SendOptions,
   ): Promise<ActionResult> {
-    return this.run(opts.idempotencyKey, () => this.sendChat(account, lead, content.body));
+    return this.run(opts.idempotencyKey, () =>
+      this.sendChat(account, lead, content.body, undefined, content.attachments),
+    );
   }
 
   sendInMail(
@@ -234,7 +237,9 @@ export class UnipileChannelAdapter
     content: MessageContent,
     opts: SendOptions,
   ): Promise<ActionResult> {
-    return this.run(opts.idempotencyKey, () => this.sendChat(account, lead, content.body));
+    return this.run(opts.idempotencyKey, () =>
+      this.sendChat(account, lead, content.body, undefined, content.attachments),
+    );
   }
 
   sendVoiceNote(
@@ -268,8 +273,12 @@ export class UnipileChannelAdapter
   likePost(account: AccountRef, lead: LeadRef, opts: SendOptions): Promise<ActionResult> {
     return this.run(opts.idempotencyKey, async () => {
       const postId = await this.latestPostId(account, lead);
-      await this.client.postJson(`/api/v1/posts/${postId}/reaction`, {
+      // Unipile reactions are body-addressed: POST /api/v1/posts/reaction with the
+      // post's social_id in the body (NOT /posts/{id}/reaction, which 404s). Use the
+      // social_id urn for reliability per Unipile's post-action guidance.
+      await this.client.postJson(`/api/v1/posts/reaction`, {
         account_id: this.acc(account),
+        post_id: postId,
         reaction_type: "like",
       });
       return postId;
@@ -386,11 +395,22 @@ export class UnipileChannelAdapter
     if (!lead.providerId) {
       return { lead, channel: "linkedin", messages: [] };
     }
-    const chats = await this.client.getJson<ChatList>("/api/v1/chats", {
+    // The `attendee_id` chat filter is unreliable against the live Unipile chat
+    // API (verified: it returns no items even when a 1:1 chat with that attendee
+    // exists). Try it first, then fall back to scanning the account's chats and
+    // matching attendee_provider_id (the same id listConversations resolves by).
+    const filtered = await this.client.getJson<ChatList>("/api/v1/chats", {
       account_id: this.acc(account),
       attendee_id: lead.providerId,
     });
-    const chatId = chats.items?.[0]?.id;
+    let chatId = filtered.items?.[0]?.id;
+    if (!chatId) {
+      const all = await this.client.getJson<ChatList>("/api/v1/chats", {
+        account_id: this.acc(account),
+        limit: "50",
+      });
+      chatId = all.items?.find((c) => c.attendee_provider_id === lead.providerId)?.id;
+    }
     if (!chatId) {
       return { lead, channel: "linkedin", messages: [] };
     }
@@ -526,15 +546,51 @@ export class UnipileChannelAdapter
     lead: LeadRef,
     text: string,
     extra?: Record<string, string>,
+    attachments?: MessageAttachment[],
   ): Promise<string | undefined> {
     const providerId = await this.resolveProviderId(account, lead);
-    const res = await this.client.postForm<UnipileSendResponse>("/api/v1/chats", {
+    const fields = {
       account_id: this.acc(account),
       attendees_ids: providerId,
       text,
       ...extra,
-    });
+    };
+    // Unipile delivers attachments via multipart (≤15MB, image/video/file). The
+    // transport needs the bytes, so each attachment must carry a fetchable url.
+    const files = await this.buildAttachmentFiles(attachments);
+    const res = files.length
+      ? await this.client.postMultipart<UnipileSendResponse>("/api/v1/chats", fields, files)
+      : await this.client.postForm<UnipileSendResponse>("/api/v1/chats", fields);
     return res.chat_id ?? res.message_id ?? res.id;
+  }
+
+  /**
+   * Download each attachment's bytes (from its signed/public url) into a Blob for
+   * multipart upload. An attachment with no fetchable url is a clean typed failure
+   * (via UnipileHttpError → run()) — we never silently drop media.
+   */
+  private async buildAttachmentFiles(
+    attachments?: MessageAttachment[],
+  ): Promise<{ field: string; blob: Blob; filename: string }[]> {
+    if (!attachments?.length) {
+      return [];
+    }
+    const files: { field: string; blob: Blob; filename: string }[] = [];
+    for (const a of attachments) {
+      if (!a.url) {
+        throw new UnipileHttpError(422, {
+          detail: `attachment ${a.name ?? a.ref} has no fetchable URL (storage-ref resolution not wired)`,
+        });
+      }
+      const r = await fetch(a.url);
+      if (!r.ok) {
+        throw new UnipileHttpError(502, { detail: `failed to fetch attachment ${a.name ?? a.ref}` });
+      }
+      const buf = await r.arrayBuffer();
+      const blob = a.mime ? new Blob([buf], { type: a.mime }) : new Blob([buf]);
+      files.push({ field: "attachments", blob, filename: a.name ?? a.ref.split("/").pop() ?? "attachment" });
+    }
+    return files;
   }
 
   private async resolveProviderId(account: AccountRef, lead: LeadRef): Promise<string> {

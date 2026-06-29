@@ -3,10 +3,18 @@ import { z } from "zod";
 
 // --- Campaign CRUD ---------------------------------------------------------
 
+/** AI reply autonomy chosen at creation — surfaced to the creator as Manual /
+ * Balanced / Autopilot. Maps 1:1 to campaigns.autonomy.mode. Default = Balanced. */
+export const aiReplyModeSchema = z.enum(["approve_all", "auto_easy_escalate_hard", "full_auto"]);
+export type AiReplyMode = z.infer<typeof aiReplyModeSchema>;
+export const DEFAULT_AI_REPLY_MODE: AiReplyMode = "auto_easy_escalate_hard";
+
 export const createCampaignSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(120),
   /** Optional sending account to bind at creation (can be set later). */
   accountId: z.string().uuid().optional(),
+  /** How autonomous the AI is on replies (default Balanced / auto_easy_escalate_hard). */
+  aiReplyMode: aiReplyModeSchema.optional(),
 });
 export type CreateCampaignDto = z.infer<typeof createCampaignSchema>;
 

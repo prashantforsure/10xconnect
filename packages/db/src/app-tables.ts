@@ -292,6 +292,7 @@ export interface BudgetLedgerTable {
   window: ColumnType<string, string, string>; // PK part — date 'YYYY-MM-DD'
   workspace_id: ColumnType<string, string, string>;
   tokens_used: WithDefault<number>;
+  cached_tokens_used: WithDefault<number>; // Phase 9.8 — cached prompt tokens (cheaper)
   usd_used: WithDefault<number | string>; // numeric → string on select
   soft_alerted: WithDefault<boolean>;
   hard_stopped: WithDefault<boolean>;
@@ -361,6 +362,22 @@ export interface WorkflowTemplatesTable {
   updated_at: WithDefault<string>;
 }
 
+/**
+ * Builder-only saved workflow: a workspace-private snapshot of a builder canvas
+ * SHAPE (the node graph), reused straight into a campaign's builder. Distinct from
+ * workflow_templates (which clone a whole campaign). Holds shape only — sender/
+ * account/media/resolved data is stripped before insert. No community scope.
+ */
+export interface SavedWorkflowsTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  name: ColumnType<string, string, string>;
+  graph: WithDefault<Json>;
+  created_by: NullableWithDefault<string>;
+  created_at: WithDefault<string>;
+  updated_at: WithDefault<string>;
+}
+
 /** Append-only per-LLM-call usage log (cost-per-conversation + routing audit). */
 export interface LlmUsageTable {
   id: WithDefault<string>;
@@ -373,6 +390,7 @@ export interface LlmUsageTable {
   prompt_tokens: WithDefault<number>;
   completion_tokens: WithDefault<number>;
   total_tokens: WithDefault<number>;
+  cached_tokens: WithDefault<number>; // Phase 9.8 — prompt tokens served from cache
   usd: WithDefault<number | string>; // numeric → string on select
   created_at: WithDefault<string>;
 }
@@ -406,6 +424,8 @@ export interface AppExtraTables {
   ai_prompt_templates: AiPromptTemplatesTable;
   // Phase 6 — workflow templates (whole-campaign blueprints).
   workflow_templates: WorkflowTemplatesTable;
+  // Builder-only saved workflows (canvas shape, reused into the builder).
+  saved_workflows: SavedWorkflowsTable;
 }
 
 /** Plain SELECT shape of an import_jobs row (for API view mapping). */

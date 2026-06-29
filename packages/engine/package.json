@@ -8,8 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
-    "test": "tsx --test src/nodes.test.ts src/executor.test.ts",
-    "test:integration": "tsx --test src/phase1.integration.test.ts src/phase2.integration.test.ts src/phase3.integration.test.ts src/phase4.integration.test.ts src/phase5.integration.test.ts src/phase6.integration.test.ts src/phase7.integration.test.ts"
+    "test": "tsx --test src/nodes.test.ts src/executor.test.ts src/config.test.ts",
+    "test:integration": "tsx --test src/phase1.integration.test.ts src/phase2.integration.test.ts src/phase3.integration.test.ts src/phase4.integration.test.ts src/phase5.integration.test.ts src/phase6.integration.test.ts src/phase7.integration.test.ts src/backend-gaps.integration.test.ts"
   },
   "dependencies": {
     "@10xconnect/config": "workspace:*",

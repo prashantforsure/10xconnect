@@ -13,17 +13,26 @@ import {
   defaultDailyCaps,
   isWarmupComplete,
   nextWorkingTime,
+  readSendCondition,
   readThrottleFactor,
   type WeekSchedule,
 } from "@10xconnect/core";
 import type { Json } from "@10xconnect/db";
 
+import { maybeChargeActivityProfileVisit } from "./activity-budget";
 import { runConversationTurn } from "./brain/turn";
 import { advanceLead, type CampaignRow } from "./campaign-runner";
 import { evaluateCondition } from "./conditions";
 import { executeTransportAction } from "./executor";
 import { isConditionType, isOrchestrationNode, nodeToActionType } from "./nodes";
-import { getLead, getLeadState, countActionsToday, loadGraph, startOfUtcDay } from "./repository";
+import {
+  getLead,
+  getLeadState,
+  countActionsToday,
+  leadHasInboundMessage,
+  loadGraph,
+  startOfUtcDay,
+} from "./repository";
 import { flagAccountIncident } from "./restrictions";
 import { isLeadSuppressed } from "./suppression";
 import type { EngineDeps, LeadStateRow, SequenceNodeRow } from "./types";
@@ -306,15 +315,38 @@ async function processAction(
     return;
   }
 
+  // Send-condition gate (CLAUDE.md §7): "never_messaged" sends only if the recipient
+  // has never messaged us. Enforced BEFORE the governor so a skipped node consumes no
+  // rate budget; the lead advances past it (the message just isn't sent).
+  const sendCondition = readSendCondition(asObject(action.config));
+  if (
+    sendCondition.type === "never_messaged" &&
+    (await leadHasInboundMessage(deps.db, campaign.workspace_id, lead.id))
+  ) {
+    await finalize(
+      deps,
+      action.id,
+      "skipped",
+      { reason: "send_condition:never_messaged", outcome: "skipped" } as Json,
+      action.attempts,
+      now,
+    );
+    await advanceLead(deps, campaign, state, node, "next");
+    stats.skipped += 1;
+    return;
+  }
+
+  const baseCaps = parseCaps(campaign.caps);
+  const throttleFactor = readThrottleFactor(account.warmup_state);
   const usedToday = await countActionsToday(deps.db, account.id, actionType, now);
   const decision = checkRate({
     type: actionType as CappedActionType,
     usedToday,
-    baseCaps: parseCaps(campaign.caps),
+    baseCaps,
     accountAgeDays: ageDays,
     // Acceptance-rate auto-throttle (Phase 7.4): the health monitor persists a cap
     // multiplier on warmup_state; honor it so a poorly-accepting account slows down.
-    throttleFactor: readThrottleFactor(account.warmup_state),
+    throttleFactor,
   });
   if (!decision.allowed) {
     // Daily cap — retry in the next UTC day's working window (never exceed).
@@ -327,10 +359,30 @@ async function processAction(
     return;
   }
 
+  const accountRef = {
+    accountId: account.id,
+    providerAccountId: account.provider_account_id ?? undefined,
+  };
+
+  // Activity-variable personalization needs fresh profile data; that read consumes
+  // the profile-visit budget (Phase 11.6). Charge it through the governor (clamped,
+  // idempotent) and refresh the lead BEFORE we render the message. Best-effort — a
+  // capped/failed read just leaves the activity variable empty; the message sends.
+  await maybeChargeActivityProfileVisit(deps, {
+    accountRef,
+    lead,
+    campaign,
+    node,
+    baseCaps,
+    accountAgeDays: ageDays,
+    throttleFactor,
+    now,
+  });
+
   const enrichment = asObject(lead.enrichment);
   const result = await executeTransportAction({
     adapter: deps.adapter,
-    accountRef: { accountId: account.id, providerAccountId: account.provider_account_id ?? undefined },
+    accountRef,
     leadRef: {
       leadId: lead.id,
       ...(lead.linkedin_url ? { linkedinUrl: lead.linkedin_url } : {}),
