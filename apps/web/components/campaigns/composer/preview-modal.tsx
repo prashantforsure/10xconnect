@@ -49,8 +49,8 @@ export function PreviewModal({
         </div>
 
         {varietyWarning ? (
-          <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
+          <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             <span>{varietyWarning}</span>
           </div>
         ) : null}

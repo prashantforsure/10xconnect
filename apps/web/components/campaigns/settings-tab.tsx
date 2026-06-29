@@ -1,11 +1,13 @@
 "use client";
 
+import { Info } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
@@ -244,26 +246,49 @@ function FrequencyCard({ campaignId }: { campaignId: string }) {
       title="Frequency (daily caps)"
       description="Per-account daily limits, aggregated across campaigns. Values above the safe maximum are clamped automatically."
     >
-      <div className="grid gap-3 sm:grid-cols-2">
-        {Object.keys(CAP_LABELS).map((type) => (
-          <div
-            key={type}
-            className="flex items-center justify-between gap-2 rounded-xl border bg-secondary/40 px-3 py-2"
-          >
-            <span className="text-sm">{CAP_LABELS[type]}</span>
-            <div className="flex items-center gap-1.5">
-              <Input
-                type="number"
-                min={0}
-                max={ceilings[type] ?? 999}
-                value={caps[type] ?? 0}
-                onChange={(e) => setCaps({ ...caps, [type]: Number(e.target.value) })}
-                className="h-8 w-20"
-              />
-              <span className="text-xs text-muted-foreground">/ {ceilings[type] ?? "—"}</span>
+      <div className="mb-4 flex gap-2.5 rounded-xl border border-primary/30 bg-primary/10 px-3.5 py-3 text-xs">
+        <Info className="mt-0.5 size-4 shrink-0 text-primary" />
+        <span className="text-muted-foreground">
+          <strong className="text-foreground">Note:</strong> these numbers may vary with your
+          account&apos;s health and activity on other campaigns. We adjust them automatically to keep
+          your accounts safe.
+        </span>
+      </div>
+      <div className="space-y-5">
+        {Object.keys(CAP_LABELS).map((type) => {
+          const max = ceilings[type] ?? 50;
+          const value = caps[type] ?? 0;
+          return (
+            <div key={type} className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor={`cap-${type}`} className="text-sm font-medium">
+                  Max {CAP_LABELS[type]}/day
+                </Label>
+                <span className="text-[11px] text-muted-foreground">safe max {max}</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <Slider
+                  id={`cap-${type}`}
+                  value={Math.min(value, max)}
+                  onValueChange={(v) => setCaps({ ...caps, [type]: v })}
+                  min={0}
+                  max={max}
+                  aria-label={CAP_LABELS[type]}
+                  className="flex-1"
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  max={max}
+                  value={value}
+                  onChange={(e) => setCaps({ ...caps, [type]: Number(e.target.value) })}
+                  className="h-10 w-16 shrink-0 text-center text-sm font-semibold tabular-nums"
+                  aria-label={`${CAP_LABELS[type]} per day`}
+                />
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <Warnings items={warnings} />
       <div className="mt-4 flex items-center gap-3">

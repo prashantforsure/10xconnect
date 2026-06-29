@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useApi } from "@/lib/api/client";
 import { nodeLabel } from "@/lib/campaigns/nodes";
 import { formatUsd, type UnitEconomics } from "@/lib/campaigns/unit-economics";
+import { cn } from "@/lib/utils";
 
 interface CampaignAnalytics {
   requests: number;
@@ -58,9 +59,14 @@ export function AnalyticsTab({ campaignId }: { campaignId: string }) {
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="LinkedIn requests" value={data.requests} />
-        <Stat label="Accepted invites" value={data.acceptedInvites.count} pct={data.acceptedInvites.pct} />
+        <Stat
+          label="Accepted invites"
+          value={data.acceptedInvites.count}
+          pct={data.acceptedInvites.pct}
+          accent="success"
+        />
         <Stat label="Messages" value={data.messages} />
-        <Stat label="Replies" value={data.replies.count} pct={data.replies.pct} />
+        <Stat label="Replies" value={data.replies.count} pct={data.replies.pct} accent="primary" />
         <Stat label="Likes" value={data.likes} />
         <Stat label="Comments" value={data.comments} />
         <Stat label="InMails" value={data.inmails} />
@@ -156,19 +162,30 @@ function Stat({
   value,
   pct,
   money,
+  accent,
 }: {
   label: string;
   value: number;
   pct?: number;
   money?: boolean;
+  /** Tints the headline value — used to keep safety KPIs (accept/reply rate) first-class. */
+  accent?: "success" | "primary";
 }) {
   return (
     <div className="rounded-2xl border bg-card p-4 shadow-soft">
       <div className="flex items-baseline gap-2">
-        <span className="font-display text-2xl font-bold tracking-tight">
+        <span
+          className={cn(
+            "font-display text-2xl font-bold tracking-tight",
+            accent === "success" && "text-success",
+            accent === "primary" && "text-primary",
+          )}
+        >
           {money ? formatUsd(value) : value.toLocaleString()}
         </span>
-        {typeof pct === "number" ? <Badge variant="success">{pct}%</Badge> : null}
+        {typeof pct === "number" ? (
+          <Badge variant={accent === "primary" ? "default" : "success"}>{pct}%</Badge>
+        ) : null}
       </div>
       <div className="mt-0.5 text-xs text-muted-foreground">{label}</div>
     </div>

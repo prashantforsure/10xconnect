@@ -8,7 +8,13 @@ import { Button } from "@/components/ui/button";
 export default function OnboardingPage() {
   return (
     <div className="mx-auto max-w-2xl px-6 py-12">
-      <h1 className="font-display text-3xl font-bold tracking-tight">Welcome to 10xConnect 👋</h1>
+      <span className="inline-flex items-center gap-2 rounded-full bg-success/15 px-3 py-1 text-[11.5px] font-bold text-success">
+        <ShieldCheck className="size-3.5" />
+        Account-safe by default
+      </span>
+      <h1 className="mt-4 font-display text-3xl font-bold tracking-tight text-foreground">
+        Welcome to 10xConnect 👋
+      </h1>
       <p className="mt-2 text-sm text-muted-foreground">
         Two quick steps and your first campaign is live. We&apos;ll keep your accounts safe along the
         way.
@@ -34,7 +40,12 @@ export default function OnboardingPage() {
       </div>
 
       <div className="mt-8 flex items-center justify-between">
-        <a href="https://cal.com" target="_blank" rel="noreferrer" className="text-sm text-muted-foreground underline">
+        <a
+          href="https://cal.com"
+          target="_blank"
+          rel="noreferrer"
+          className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+        >
           Book a call
         </a>
         <Link href="/dashboard">
@@ -71,7 +82,7 @@ function Step({
       <div className="flex-1">
         <div className="flex items-center gap-2">
           {icon}
-          <h2 className="font-display text-base font-semibold">{title}</h2>
+          <h2 className="font-display text-base font-semibold text-foreground">{title}</h2>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">{body}</p>
         <Link href={href}>

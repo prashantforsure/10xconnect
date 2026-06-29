@@ -117,7 +117,7 @@ export function CampaignsList() {
             <LayoutTemplate />
             Templates
           </Button>
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => setCreateOpen(true)} className="shadow-[0_0_18px_-5px_hsl(var(--primary)/0.6)]">
             <Plus />
             New campaign
           </Button>
@@ -130,7 +130,7 @@ export function CampaignsList() {
         <p className="text-sm text-muted-foreground">Loading campaigns…</p>
       ) : campaigns.length === 0 ? (
         <div className="surface-card flex flex-col items-center border-dashed p-14 text-center">
-          <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/15 text-primary">
             <Megaphone className="size-7" />
           </span>
           <p className="mt-4 font-display text-lg font-semibold">No campaigns yet</p>
@@ -138,7 +138,7 @@ export function CampaignsList() {
             Create your first campaign, add a sequence of steps, enroll leads, and run it.
           </p>
           <div className="mt-5 flex items-center gap-2">
-            <Button onClick={() => setCreateOpen(true)}>
+            <Button onClick={() => setCreateOpen(true)} className="shadow-[0_0_18px_-5px_hsl(var(--primary)/0.6)]">
               <Plus />
               New campaign
             </Button>
@@ -230,7 +230,7 @@ function CampaignRow({ campaign: c }: { campaign: CampaignView }) {
         </div>
         <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1">
-            <Linkedin className="size-3.5 text-[#0A66C2]" />
+            <Linkedin className="size-3.5 text-chart-2" />
             LinkedIn
           </span>
           <span>·</span>
@@ -364,13 +364,13 @@ function CreateCampaignModal({
                   onClick={() => setAiReplyMode(m.value)}
                   aria-pressed={selected}
                   className={`flex w-full flex-col items-start gap-1 rounded-lg border p-3 text-left transition ${
-                    selected ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-input hover:bg-muted/50"
+                    selected ? "border-primary bg-primary/10 ring-1 ring-primary" : "border-input hover:bg-accent"
                   }`}
                 >
                   <span className="flex items-center gap-2 text-sm font-medium">
                     {m.title}
                     {m.badge ? (
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                      <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
                         {m.badge}
                       </span>
                     ) : null}

@@ -72,11 +72,12 @@ interface CampaignLite {
   metrics?: { sent: number; acceptRate: number; progress: number };
 }
 
-// Mockup palette — fixed brand hexes so charts read identically on cream and dark.
+// Command Dark chart palette — fixed brand hexes mirroring the --chart-* tokens
+// so sparklines/areas read on the dark surface (coral · blue · green · violet).
 const CORAL = "#F2683C";
-const BLUE = "#3C66E2";
-const GREEN = "#1F9D62";
-const VIOLET = "#743CE2";
+const BLUE = "#3C8FE2";
+const GREEN = "#34D39A";
+const VIOLET = "#A878F0";
 
 const RANGES: { id: Range; label: string }[] = [
   { id: "7d", label: "7 days" },
@@ -250,36 +251,90 @@ export function DashboardClient({ greetingName }: { greetingName: string }) {
         </div>
       </div>
 
-      {/* HERO — replies headline + trend */}
-      <div className="flex flex-wrap items-center gap-7 rounded-[20px] bg-foreground p-7 text-white shadow-soft-lg">
-        <div className="min-w-[248px] flex-1">
-          <div className="text-[11px] font-bold uppercase tracking-[0.13em] text-white/50">
+      {/* HERO — replies headline + trend, beside the account-safety ring */}
+      <div className="flex flex-wrap items-stretch gap-5 lg:flex-nowrap">
+        <div className="min-w-[300px] flex-1 rounded-[20px] border border-border bg-card p-7">
+          <div className="text-[11px] font-bold uppercase tracking-[0.13em] text-muted-foreground">
             Replies · {RANGE_LABEL[range]}
           </div>
-          <div className="mt-2 flex items-end gap-3">
-            <span className="font-display text-[50px] font-bold leading-[0.9] tracking-tight">
+          <div className="mt-3 flex items-end gap-3">
+            <span className="font-display text-[50px] font-bold leading-[0.9] tracking-tight text-foreground">
               {(a?.replies ?? 0).toLocaleString()}
             </span>
-            {typeof d?.replies === "number" ? <DeltaPill value={d.replies} onDark /> : null}
+            <span className="pb-2 text-[17px] font-semibold text-muted-foreground">replies</span>
+            {typeof d?.replies === "number" ? <DeltaPill value={d.replies} /> : null}
           </div>
-          <p className="mt-3 max-w-[340px] text-[13px] leading-relaxed text-white/65">
-            From {(a?.connections ?? 0).toLocaleString()} invites at a {a?.acceptanceRate ?? 0}% acceptance rate —{" "}
-            {(a?.conversations ?? 0).toLocaleString()} conversations in this period.
+          <p className="mt-3 max-w-[440px] text-[15px] leading-relaxed text-muted-foreground">
+            From <strong className="text-foreground">{(a?.connections ?? 0).toLocaleString()} invites</strong> at a{" "}
+            {a?.acceptanceRate ?? 0}% acceptance rate — {(a?.conversations ?? 0).toLocaleString()} conversations in this
+            period.
           </p>
-          <div className="mt-5 flex gap-6">
+          <div className="mt-4">
+            <HeroAreaChart values={series.map((p) => p.replies)} color={CORAL} />
+            <div className="mt-0.5 flex justify-between text-[10.5px] text-muted-foreground/70">
+              <span>{series[0]?.date ? shortDate(series[0].date) : ""}</span>
+              <span>Today</span>
+            </div>
+          </div>
+          <div className="mt-5 flex gap-0 border-t border-border pt-5">
             <HeroStat label="Invites sent" value={(a?.connections ?? 0).toLocaleString()} />
-            <div className="w-px bg-white/10" />
+            <div className="w-px bg-border" />
             <HeroStat label="Acceptance" value={`${a?.acceptanceRate ?? 0}%`} />
-            <div className="w-px bg-white/10" />
-            <HeroStat label="Replies" value={(a?.replies ?? 0).toLocaleString()} />
+            <div className="w-px bg-border" />
+            <HeroStat label="Reply rate" value={`${a?.replyRate ?? 0}%`} />
           </div>
         </div>
-        <div className="min-w-[288px] flex-1">
-          <HeroAreaChart values={series.map((p) => p.replies)} color={CORAL} />
-          <div className="mt-0.5 flex justify-between text-[10.5px] text-white/40">
-            <span>{series[0]?.date ? shortDate(series[0].date) : ""}</span>
-            <span>Today</span>
+
+        {/* Account safety — first-class health ring beside the hero */}
+        <div className="flex w-full flex-col rounded-[20px] border border-border bg-card p-6 lg:w-[286px]">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+            <ShieldCheck className="size-[15px] text-success" />
+            Account safety
           </div>
+          {hasAccount ? (
+            <>
+              <div className="mt-4 flex items-center gap-4">
+                <HealthRing score={avgHealth} size={96} />
+                <div>
+                  <Badge variant={health.tone} dot>
+                    {health.label}
+                  </Badge>
+                  <p className="mt-2 text-[12.5px] leading-relaxed text-muted-foreground">
+                    {accounts.length} connected account{accounts.length === 1 ? "" : "s"}, all paced within safe limits.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-auto flex gap-1.5 pt-4">
+                {accounts.slice(0, 6).map((acc, i) => (
+                  <span
+                    key={i}
+                    className={cn(
+                      "h-[5px] flex-1 rounded-full",
+                      acc.status === "restricted"
+                        ? "bg-destructive"
+                        : acc.status === "warming" || acc.status === "paused"
+                          ? "bg-warning"
+                          : "bg-success",
+                    )}
+                  />
+                ))}
+              </div>
+              <Link
+                href="/settings/accounts"
+                className="mt-2.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Manage accounts &rarr;
+              </Link>
+            </>
+          ) : (
+            <p className="mt-4 text-[12.5px] leading-relaxed text-muted-foreground">
+              No accounts connected yet.{" "}
+              <Link href="/settings/accounts" className="font-medium text-primary hover:underline">
+                Connect one
+              </Link>
+              .
+            </p>
+          )}
         </div>
       </div>
 
@@ -366,45 +421,6 @@ export function DashboardClient({ greetingName }: { greetingName: string }) {
 
         {/* Right rail */}
         <aside className="space-y-[18px]">
-          <Card>
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle>Account health</CardTitle>
-              <ShieldCheck className="size-4 text-primary" />
-            </CardHeader>
-            <CardContent>
-              {hasAccount ? (
-                <div className="flex items-center gap-4">
-                  <HealthRing score={avgHealth} />
-                  <div>
-                    <Badge variant={health.tone} className="mb-2">
-                      <span
-                        className={cn(
-                          "size-1.5 rounded-full",
-                          health.tone === "success" && "bg-success",
-                          health.tone === "warning" && "bg-warning",
-                          health.tone === "destructive" && "bg-destructive",
-                        )}
-                      />
-                      {health.label}
-                    </Badge>
-                    <p className="text-sm text-muted-foreground">
-                      {accounts.length} connected account{accounts.length === 1 ? "" : "s"}, paced within safe daily
-                      limits.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No accounts connected yet.{" "}
-                  <Link href="/settings/accounts" className="font-medium text-primary hover:underline">
-                    Connect one
-                  </Link>
-                  .
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
           {/* Unit economics — AI spend per outcome (is the engine profitable?). */}
           <Card>
             <CardHeader className="flex-row items-center justify-between">
@@ -520,9 +536,9 @@ export function DashboardClient({ greetingName }: { greetingName: string }) {
 
 function HeroStat({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <div className="font-display text-[19px] font-bold">{value}</div>
-      <div className="mt-0.5 text-[11px] text-white/45">{label}</div>
+    <div className="px-[26px] first:pl-0">
+      <div className="font-display text-[19px] font-bold text-foreground">{value}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{label}</div>
     </div>
   );
 }
@@ -554,19 +570,13 @@ function KpiTile({
   );
 }
 
-function DeltaPill({ value, onDark = false }: { value: number; onDark?: boolean }) {
+function DeltaPill({ value }: { value: number }) {
   const up = value >= 0;
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-semibold",
-        onDark
-          ? up
-            ? "bg-success/20 text-[#6FE0A6]"
-            : "bg-destructive/20 text-[#F2997F]"
-          : up
-            ? "bg-success/10 text-success"
-            : "bg-destructive/10 text-destructive",
+        "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-bold",
+        up ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive",
       )}
     >
       {up ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
@@ -609,7 +619,7 @@ function ChecklistItem({
       )}
     >
       {done ? (
-        <span className="flex size-5 items-center justify-center rounded-full bg-success text-white">
+        <span className="flex size-5 items-center justify-center rounded-full bg-success text-success-foreground">
           <Check className="size-3" />
         </span>
       ) : Icon ? (

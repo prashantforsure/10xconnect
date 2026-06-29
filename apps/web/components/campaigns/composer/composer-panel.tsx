@@ -7,8 +7,8 @@ import {
   renderMessageBody,
   varietyWarning,
 } from "@10xconnect/core";
-import { AlertTriangle, Eye, PanelRightClose, RefreshCw, Users } from "lucide-react";
-import { useRef, useState } from "react";
+import { AlertTriangle, Eye, RefreshCw, Users } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { AiPromptButton } from "./ai-prompt-button";
 import { AttachmentMenu } from "./attachment-menu";
@@ -32,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { SlideOver } from "@/components/ui/slide-over";
 import { useApi } from "@/lib/api/client";
 import {
   bodyConfigPatch,
@@ -94,6 +95,24 @@ export function ComposerPanel({
   const [editAiOpen, setEditAiOpen] = useState(false);
   const [editAiPrompt, setEditAiPrompt] = useState("");
   const seedRef = useRef(0);
+
+  // The panel is full-focus: the builder mounts it only when a step is selected,
+  // so "mounted" === "open". We flip `open` true after mount so the SlideOver
+  // animates in, and close it by calling onCollapse (which unmounts us). When no
+  // onCollapse is provided, fall back to local state so the panel still closes.
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    setOpen(true);
+  }, []);
+  const close = (): void => {
+    // Don't let a backdrop click or Escape on a nested modal (preview, prompt
+    // library, edit-AI) also collapse the whole composer — those own that gesture.
+    if (previewOpen || libraryOpen || editAiOpen) {
+      return;
+    }
+    setOpen(false);
+    onCollapse?.();
+  };
 
   const state = readComposer(type, config);
   const isText = hasTextBody(type);
@@ -158,17 +177,25 @@ export function ComposerPanel({
   };
 
   return (
-    <div className="space-y-4">
-      {/* Header + Change action type */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold">{nodeLabel(type)}</div>
-          <p className="text-xs text-muted-foreground">Configure this step</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+    <SlideOver
+      open={open}
+      onClose={close}
+      title={
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-display text-base font-semibold tracking-tight">
+              {nodeLabel(type)}
+            </div>
+            <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">Editing step</p>
+          </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" disabled={running}>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={running}
+                className="shrink-0 border border-primary/30 bg-primary/15 text-primary hover:bg-primary/25 hover:text-primary"
+              >
                 <RefreshCw className="size-4" />
                 Change
               </Button>
@@ -189,58 +216,91 @@ export function ComposerPanel({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          {onCollapse ? (
-            <button
-              type="button"
-              onClick={onCollapse}
-              aria-label="Collapse panel"
-              title="Collapse panel"
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <PanelRightClose className="size-4" />
-            </button>
-          ) : null}
         </div>
-      </div>
+      }
+    >
+      <div className="space-y-4 p-5">
+        {/* Sender */}
+        <SenderSelect
+          accounts={accounts}
+          value={state.senders}
+          onChange={(senders) => update({ senders })}
+          disabled={running}
+        />
 
-      {/* Sender */}
-      <SenderSelect
-        accounts={accounts}
-        value={state.senders}
-        onChange={(senders) => update({ senders })}
-        disabled={running}
-      />
-
-      {/* InMail subject */}
-      {type === "inmail" ? (
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Subject</label>
-          <Input
-            value={state.subject}
-            onChange={(e) => update({ subject: e.target.value })}
-            placeholder="Quick question"
-            disabled={running}
-          />
-        </div>
-      ) : null}
-
-      {isText ? (
-        <div className="space-y-2">
-          {/* Toolbar */}
-          <div className="flex flex-wrap items-center gap-2">
-            <AiPromptButton
+        {/* InMail subject */}
+        {type === "inmail" ? (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Subject</label>
+            <Input
+              value={state.subject}
+              onChange={(e) => update({ subject: e.target.value })}
+              placeholder="Quick question"
               disabled={running}
-              onInsert={(prompt, promptId) => editorRef.current?.insertAi(prompt, promptId)}
-              onOpenPromptLibrary={() => setLibraryOpen(true)}
             />
-            <VariablePicker
+          </div>
+        ) : null}
+
+        {isText ? (
+          <div className="space-y-2">
+            {/* Toolbar */}
+            <div className="flex flex-wrap items-center gap-2">
+              <AiPromptButton
+                disabled={running}
+                onInsert={(prompt, promptId) => editorRef.current?.insertAi(prompt, promptId)}
+                onOpenPromptLibrary={() => setLibraryOpen(true)}
+              />
+              <VariablePicker
+                disabled={running}
+                onInsert={(key, fallback) => editorRef.current?.insertVariable(key, fallback)}
+              />
+              <FrameworkMenu
+                disabled={running}
+                onSetBody={onBody}
+                onInsertText={(t) => editorRef.current?.insertText(t)}
+              />
+              <AttachmentMenu
+                attachments={state.attachments}
+                onChange={(attachments) => update({ attachments })}
+                workspaceId={workspaceId}
+                campaignId={campaignId}
+                disabled={running}
+              />
+              <Button type="button" variant="outline" size="sm" onClick={() => void openPreview()}>
+                <Eye className="size-4" />
+                Preview
+              </Button>
+            </div>
+
+            {/* Body */}
+            <BodyEditor
+              ref={editorRef}
+              value={state.body}
+              onChange={onBody}
               disabled={running}
-              onInsert={(key, fallback) => editorRef.current?.insertVariable(key, fallback)}
+              placeholder="Write your message… insert variables and an AI prompt above."
+              onEditAi={
+                running
+                  ? undefined
+                  : (current) => {
+                      setEditAiPrompt(current.prompt ?? "");
+                      setEditAiOpen(true);
+                    }
+              }
             />
-            <FrameworkMenu
+
+            {/* Sales-guard linter + above-the-fold (advisory) */}
+            <GuardrailsPanel body={state.body} />
+          </div>
+        ) : (
+          // Voice note — recorded/clone mode, ≤30s meter, tips, audio ref (§6 voice).
+          <div className="space-y-2">
+            <VoiceNoteFields
+              config={config}
+              onChange={update}
               disabled={running}
-              onSetBody={onBody}
-              onInsertText={(t) => editorRef.current?.insertText(t)}
+              workspaceId={workspaceId}
+              campaignId={campaignId}
             />
             <AttachmentMenu
               attachments={state.attachments}
@@ -249,73 +309,31 @@ export function ComposerPanel({
               campaignId={campaignId}
               disabled={running}
             />
-            <Button type="button" variant="outline" size="sm" onClick={() => void openPreview()}>
-              <Eye className="size-4" />
-              Preview
-            </Button>
           </div>
-
-          {/* Body */}
-          <BodyEditor
-            ref={editorRef}
-            value={state.body}
-            onChange={onBody}
-            disabled={running}
-            placeholder="Write your message… insert variables and an AI prompt above."
-            onEditAi={
-              running
-                ? undefined
-                : (current) => {
-                    setEditAiPrompt(current.prompt ?? "");
-                    setEditAiOpen(true);
-                  }
-            }
-          />
-
-          {/* Sales-guard linter + above-the-fold (advisory) */}
-          <GuardrailsPanel body={state.body} />
-        </div>
-      ) : (
-        // Voice note — recorded/clone mode, ≤30s meter, tips, audio ref (§6 voice).
-        <div className="space-y-2">
-          <VoiceNoteFields
-            config={config}
-            onChange={update}
-            disabled={running}
-            workspaceId={workspaceId}
-            campaignId={campaignId}
-          />
-          <AttachmentMenu
-            attachments={state.attachments}
-            onChange={(attachments) => update({ attachments })}
-            workspaceId={workspaceId}
-            campaignId={campaignId}
-            disabled={running}
-          />
-        </div>
-      )}
-
-      {/* Send condition */}
-      <SendConditionSelect
-        value={state.sendCondition}
-        onChange={(sendCondition) => update({ sendCondition })}
-        disabled={running}
-      />
-
-      {/* Footer: status + lead counter */}
-      <div className="flex items-center justify-between border-t pt-3">
-        {misconfigured ? (
-          <Badge variant="warning">
-            <AlertTriangle className="size-3.5" />
-            Action required
-          </Badge>
-        ) : (
-          <span className="text-xs text-muted-foreground">Ready</span>
         )}
-        <span className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs text-muted-foreground">
-          <Users className="size-3.5" />
-          {leadCount}
-        </span>
+
+        {/* Send condition */}
+        <SendConditionSelect
+          value={state.sendCondition}
+          onChange={(sendCondition) => update({ sendCondition })}
+          disabled={running}
+        />
+
+        {/* Footer: status + lead counter */}
+        <div className="flex items-center justify-between border-t border-border pt-3">
+          {misconfigured ? (
+            <Badge variant="warning">
+              <AlertTriangle className="size-3.5" />
+              Action required
+            </Badge>
+          ) : (
+            <span className="text-xs text-muted-foreground">Ready</span>
+          )}
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground">
+            <Users className="size-3.5" />
+            {leadCount}
+          </span>
+        </div>
       </div>
 
       <PreviewModal
@@ -337,6 +355,6 @@ export function ComposerPanel({
           setEditAiOpen(false);
         }}
       />
-    </div>
+    </SlideOver>
   );
 }

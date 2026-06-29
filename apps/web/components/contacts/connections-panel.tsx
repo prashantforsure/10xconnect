@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, RefreshCw, Users } from "lucide-react";
+import { Check, ExternalLink, RefreshCw, Users } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Avatar } from "@/components/ui/avatar";
@@ -157,32 +157,41 @@ export function ConnectionsPanel({
   };
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
+    <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-7 py-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center gap-2 border-b p-3">
-        <div className="flex items-center gap-2">
-          <Users className="size-4 text-muted-foreground" />
-          <span className="font-medium">Connections</span>
-          {connections.length > 0 ? (
-            <Badge variant="muted">{connections.length}</Badge>
-          ) : null}
+      <div className="mb-4 flex items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="flex items-center gap-2.5 font-display text-[22px] font-semibold leading-tight tracking-tight text-foreground">
+            Connections
+            {connections.length > 0 ? <Badge variant="muted">{connections.length}</Badge> : null}
+          </h1>
+          <p className="mt-1.5 text-[13px] text-muted-foreground">
+            Your LinkedIn 1st-degree connections. Select people to add them as contacts or enroll
+            them in a campaign.
+          </p>
         </div>
-        <p className="hidden text-xs text-muted-foreground sm:block">
-          Your LinkedIn 1st-degree connections. Select people to add them as contacts or enroll
-          them in a campaign.
-        </p>
-        <div className="flex-1" />
-        <Button variant="ghost" size="icon" onClick={() => void reload()} aria-label="Refresh">
+        <Button variant="secondary" size="icon" onClick={() => void reload()} aria-label="Refresh">
           <RefreshCw className="size-4" />
         </Button>
       </div>
 
       {/* Action bar */}
       {selected.size > 0 ? (
-        <div className="flex items-center gap-2 border-b bg-primary/5 px-3 py-2 text-sm">
-          <span className="font-medium">{selected.size} selected</span>
-          <div className="flex-1" />
-          <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void runImport()}>
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#38321F] bg-[#26221A] px-3.5 py-2.5">
+          <span className="flex items-center gap-2 text-[12.5px] font-semibold text-foreground">
+            <span className="flex size-[18px] items-center justify-center rounded-[5px] bg-primary text-white">
+              <Check className="size-3" strokeWidth={3.2} />
+            </span>
+            {selected.size} selected
+          </span>
+          <span className="h-[18px] w-px bg-[#38321F]" />
+          <Button
+            variant="secondary"
+            size="sm"
+            className="bg-[#1A1811]"
+            disabled={busy !== null}
+            onClick={() => void runImport()}
+          >
             {busy === "import" ? "Adding…" : "Add to contacts"}
           </Button>
           <Button
@@ -196,103 +205,109 @@ export function ConnectionsPanel({
       ) : null}
 
       {/* Content */}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-1">
         {error ? <p className="p-4 text-sm text-destructive">{error}</p> : null}
-        {status ? <p className="p-4 text-sm text-emerald-600">{status}</p> : null}
+        {status ? <p className="pb-3 text-sm text-success">{status}</p> : null}
         {loading ? (
           <p className="p-4 text-sm text-muted-foreground">Loading connections…</p>
         ) : connections.length === 0 ? (
           <EmptyState accountConnected={accountConnected} />
         ) : (
           <>
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 z-10 bg-secondary text-xs uppercase tracking-wide text-muted-foreground">
-                <tr className="border-b">
-                  <th className="w-10 px-3 py-2">
-                    <input
-                      type="checkbox"
-                      checked={allImportableSelected}
-                      onChange={toggleAll}
-                      disabled={importable.length === 0}
-                      className="size-4 cursor-pointer rounded border-input accent-primary"
-                    />
-                  </th>
-                  <th className="px-3 py-2 text-left font-medium">Name</th>
-                  <th className="px-3 py-2 text-left font-medium">Title</th>
-                  <th className="px-3 py-2 text-left font-medium">Company</th>
-                  <th className="px-3 py-2 text-left font-medium">LinkedIn</th>
-                  <th className="px-3 py-2 text-left font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {connections.map((c, i) => {
-                  const url = c.linkedinUrl;
-                  const canSelect = Boolean(url) && !c.alreadyContact;
-                  const isSelected = url ? selected.has(url) : false;
-                  return (
-                    <tr
-                      key={url ?? c.providerId ?? `${c.name}-${i}`}
-                      className={cn(
-                        "border-b transition-colors hover:bg-accent/50",
-                        isSelected && "bg-primary/5",
-                      )}
-                    >
-                      <td className="px-3 py-2.5">
+            <div className="overflow-hidden rounded-[14px] border border-border bg-card">
+              <table className="w-full text-sm">
+                <thead className="bg-card text-[10.5px] uppercase tracking-[0.08em] text-[#6E675B]">
+                  <tr className="border-b border-border">
+                    <th className="w-10 px-4 py-3">
+                      <span className="flex justify-center">
                         <input
                           type="checkbox"
-                          checked={isSelected}
-                          disabled={!canSelect}
-                          onChange={() => url && toggle(url)}
+                          checked={allImportableSelected}
+                          onChange={toggleAll}
+                          disabled={importable.length === 0}
                           className="size-4 cursor-pointer rounded border-input accent-primary disabled:cursor-not-allowed disabled:opacity-40"
                         />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <Avatar name={c.name ?? undefined} size="sm" />
-                          <div className="min-w-0">
-                            <div className="truncate font-medium">{c.name ?? "—"}</div>
-                            {c.location ? (
-                              <div className="truncate text-xs text-muted-foreground">{c.location}</div>
-                            ) : null}
+                      </span>
+                    </th>
+                    <th className="px-4 py-3 text-left font-semibold">Name</th>
+                    <th className="px-4 py-3 text-left font-semibold">Title</th>
+                    <th className="px-4 py-3 text-left font-semibold">Company</th>
+                    <th className="px-4 py-3 text-left font-semibold">LinkedIn</th>
+                    <th className="px-4 py-3 text-left font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {connections.map((c, i) => {
+                    const url = c.linkedinUrl;
+                    const canSelect = Boolean(url) && !c.alreadyContact;
+                    const isSelected = url ? selected.has(url) : false;
+                    return (
+                      <tr
+                        key={url ?? c.providerId ?? `${c.name}-${i}`}
+                        className={cn(
+                          "border-b border-[#221F17] transition-colors last:border-b-0 hover:bg-accent",
+                          isSelected && "bg-primary/5",
+                        )}
+                      >
+                        <td className="px-4 py-2.5">
+                          <span className="flex justify-center">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              disabled={!canSelect}
+                              onChange={() => url && toggle(url)}
+                              className="size-4 cursor-pointer rounded border-input accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+                            />
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-2.5">
+                            <Avatar name={c.name ?? undefined} size="sm" />
+                            <div className="min-w-0">
+                              <div className="truncate font-medium text-foreground">{c.name ?? "—"}</div>
+                              {c.location ? (
+                                <div className="truncate text-xs text-[#7A7363]">{c.location}</div>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-muted-foreground">{c.headline ?? "—"}</td>
-                      <td className="px-3 py-2 text-muted-foreground">{c.company ?? "—"}</td>
-                      <td className="px-3 py-2">
-                        {url ? (
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-primary hover:underline"
-                          >
-                            Profile <ExternalLink className="size-3" />
-                            {degreeLabel(c.connectionDegree) ? (
-                              <span className="text-xs text-muted-foreground">
-                                ({degreeLabel(c.connectionDegree)})
-                              </span>
-                            ) : null}
-                          </a>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        {c.alreadyContact ? (
-                          <Badge variant="success">Contact</Badge>
-                        ) : (
-                          <Badge variant="muted">Not added</Badge>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{c.headline ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-[#D8D0C2]">{c.company ?? "—"}</td>
+                        <td className="px-4 py-2.5">
+                          {url ? (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-chart-2 hover:underline"
+                            >
+                              Profile <ExternalLink className="size-3" />
+                              {degreeLabel(c.connectionDegree) ? (
+                                <span className="text-xs text-muted-foreground">
+                                  ({degreeLabel(c.connectionDegree)})
+                                </span>
+                              ) : null}
+                            </a>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {c.alreadyContact ? (
+                            <Badge variant="success">Contact</Badge>
+                          ) : (
+                            <Badge variant="muted">Not added</Badge>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
             {nextCursor ? (
-              <div className="flex justify-center p-3">
-                <Button variant="outline" size="sm" disabled={loadingMore} onClick={() => void loadMore()}>
+              <div className="flex justify-center pt-3">
+                <Button variant="secondary" size="sm" disabled={loadingMore} onClick={() => void loadMore()}>
                   {loadingMore ? "Loading…" : "Load more"}
                 </Button>
               </div>
@@ -317,7 +332,7 @@ export function ConnectionsPanel({
 function EmptyState({ accountConnected }: { accountConnected: boolean }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-      <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+      <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/15 text-primary">
         <Users className="size-7" />
       </span>
       <div>

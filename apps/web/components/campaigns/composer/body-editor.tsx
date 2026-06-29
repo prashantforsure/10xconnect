@@ -20,9 +20,9 @@ export interface BodyEditorHandle {
 }
 
 const VAR_CHIP_CLASS =
-  "10xc-chip mx-0.5 inline-flex select-none items-center gap-1 rounded-md bg-tint-violet px-1.5 py-0.5 align-baseline text-xs font-medium text-[hsl(265_45%_45%)]";
+  "10xc-chip mx-0.5 inline-flex select-none items-center gap-1 rounded-md border border-input bg-muted px-1.5 py-0.5 align-baseline font-mono text-xs font-medium text-muted-foreground";
 const AI_CHIP_CLASS =
-  "10xc-chip mx-0.5 inline-flex cursor-pointer select-none items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 align-baseline text-xs font-medium text-primary hover:bg-primary/20";
+  "10xc-chip mx-0.5 inline-flex cursor-pointer select-none items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 align-baseline text-xs font-medium text-primary hover:bg-primary/25";
 
 function chipRemoveButton(): HTMLButtonElement {
   const x = document.createElement("button");
@@ -407,7 +407,7 @@ export const BodyEditor = forwardRef<
         onDrop={onDrop}
         onDragEnd={onDragEnd}
         className={cn(
-          "min-h-[140px] w-full whitespace-pre-wrap rounded-lg border border-input bg-card px-3 py-2 text-sm leading-relaxed shadow-soft focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+          "min-h-[140px] w-full whitespace-pre-wrap rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
           disabled && "cursor-not-allowed opacity-60",
         )}
       />

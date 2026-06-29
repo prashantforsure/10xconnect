@@ -56,6 +56,13 @@ export interface SequenceNodeView {
 export interface CampaignLeadView {
   leadId: string;
   name: string;
+  title: string | null;
+  company: string | null;
+  headline: string | null;
+  location: string | null;
+  linkedinUrl: string | null;
+  email: string | null;
+  connectionDegree: string | null;
   status: string;
   currentNodeType: string | null;
   updatedAt: string;
@@ -431,12 +438,24 @@ export class CampaignRunService {
         "l.linkedin_url as linkedinUrl",
         "l.email as email",
         "l.enrichment as enrichment",
+        "l.connection_degree as connectionDegree",
         "n.type as currentNodeType",
       ])
       .where("lcs.workspace_id", "=", workspaceId)
       .where("lcs.campaign_id", "=", campaignId)
       .orderBy("lcs.created_at", "asc")
       .execute();
+
+    const str = (v: unknown): string | null =>
+      typeof v === "string" && v.trim() ? v.trim() : null;
+    // 1 → "1st", 2 → "2nd", 3 → "3rd" (LinkedIn connection degree).
+    const degree = (v: unknown): string | null => {
+      if (typeof v !== "number" || !Number.isFinite(v) || v < 1) {
+        return null;
+      }
+      const suffix = v === 1 ? "st" : v === 2 ? "nd" : v === 3 ? "rd" : "th";
+      return `${v}${suffix}`;
+    };
 
     return rows.map((r) => {
       const e = (r.enrichment ?? {}) as Record<string, unknown>;
@@ -448,6 +467,13 @@ export class CampaignRunService {
       return {
         leadId: r.leadId,
         name,
+        title: str(e.role) ?? str(e.jobTitle),
+        company: str(e.company) ?? str(e.companyName),
+        headline: str(e.headline),
+        location: str(e.location),
+        linkedinUrl: str(r.linkedinUrl),
+        email: str(r.email),
+        connectionDegree: degree(r.connectionDegree),
         status: r.status,
         currentNodeType: r.currentNodeType ?? null,
         updatedAt: r.updatedAt,

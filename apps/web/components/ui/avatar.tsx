@@ -14,13 +14,17 @@ interface AvatarProps extends React.HTMLAttributes<HTMLSpanElement> {
   size?: keyof typeof SIZES;
 }
 
-/** Deterministic warm tint per name so avatars are consistent across renders. */
+/**
+ * Deterministic dark tint per name so avatars are consistent across renders.
+ * On Command Dark the tint.* values are dark warm fills, so the initials read
+ * in the accent color over them for a calm, legible chip.
+ */
 const TINTS = [
   "bg-tint-coral text-primary",
-  "bg-tint-blue text-[hsl(205_70%_38%)]",
-  "bg-tint-green text-[hsl(150_50%_30%)]",
-  "bg-tint-violet text-[hsl(265_45%_45%)]",
-  "bg-tint-amber text-[hsl(35_80%_35%)]",
+  "bg-tint-blue text-chart-2",
+  "bg-tint-green text-success",
+  "bg-tint-violet text-chart-4",
+  "bg-tint-amber text-warning",
 ];
 
 function initials(name?: string): string {

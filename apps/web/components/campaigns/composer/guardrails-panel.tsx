@@ -19,7 +19,7 @@ export function GuardrailsPanel({ body }: { body: MessageBody }) {
   const fold = aboveTheFold(text);
 
   return (
-    <div className="space-y-2 rounded-xl border bg-secondary/40 p-3">
+    <div className="space-y-2 rounded-xl border border-border bg-background p-3">
       <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         Above the fold
       </div>
@@ -30,7 +30,7 @@ export function GuardrailsPanel({ body }: { body: MessageBody }) {
       {findings.length > 0 ? (
         <ul className="space-y-1 pt-1">
           {findings.map((f) => (
-            <li key={f.id} className="flex items-start gap-1.5 text-xs text-warning-foreground">
+            <li key={f.id} className="flex items-start gap-1.5 text-xs text-warning">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
               {f.message}
             </li>

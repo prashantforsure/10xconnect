@@ -427,8 +427,8 @@ export function ImportModal({
               onClick={() => setSource(s.kind)}
               className={`rounded-xl border px-3 py-2.5 text-left text-xs transition-colors ${
                 source === s.kind
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-input hover:bg-accent"
+                  ? "border-primary/40 bg-primary/15 font-medium text-primary"
+                  : "border-border bg-card text-foreground hover:border-[#38321F] hover:bg-accent"
               }`}
             >
               <div className="font-medium">{s.label}</div>

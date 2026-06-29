@@ -24,13 +24,13 @@ import type { ComponentType } from "react";
 
 import { useBuilder } from "./context";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { COMPOSER_MANAGED_KEYS, hasTextBody, isComposerType, readComposer } from "@/lib/campaigns/composer";
 import type { GraphNode } from "@/lib/campaigns/graph";
 import { nodeDef } from "@/lib/campaigns/nodes";
+import { cn } from "@/lib/utils";
 
 const ICONS: Record<string, ComponentType<{ className?: string }>> = {
   send_connection_request: UserPlus,
@@ -78,99 +78,55 @@ export function NodeCard({ node }: { node: GraphNode }) {
 
   return (
     <div
-      className={
-        "surface-card w-[320px] p-3.5 text-left transition-shadow" +
-        (composer ? " cursor-pointer" : "") +
-        (isSelected ? " ring-2 ring-primary/40" : "")
-      }
+      className={cn(
+        "seqnode group relative w-[340px] rounded-[14px] border bg-card px-3.5 py-3 text-left transition-colors",
+        composer && !running ? "cursor-pointer" : "",
+        isSelected ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-[hsl(45_16%_25%)]",
+      )}
       onClick={composer && !running ? () => selectComposer(node.id) : undefined}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-center gap-3">
         <span
-          className={
-            "mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-xl " +
-            (isCondition ? "bg-tint-amber text-[hsl(35_85%_38%)]" : "bg-tint-violet text-[hsl(255_60%_55%)]")
-          }
+          className={cn(
+            "inline-flex size-9 shrink-0 items-center justify-center rounded-[9px]",
+            isCondition ? "bg-chart-4/15 text-chart-4" : "bg-primary/15 text-primary",
+          )}
         >
-          <Icon className="size-4" />
+          <Icon className="size-[18px]" />
         </span>
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <div className="truncate text-sm font-semibold">{def?.label ?? node.type}</div>
-            <span
-              className={
-                "ml-auto shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide " +
-                (isCondition
-                  ? "bg-tint-amber text-[hsl(35_85%_35%)]"
-                  : "bg-tint-violet text-[hsl(255_55%_52%)]")
-              }
-            >
-              {isCondition ? "Logic" : "Action"}
-            </span>
-          </div>
-
-          <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
-            <Users className="size-3" />
-            {count} {count === 1 ? "lead" : "leads"}
+          <div className="truncate text-[13.5px] font-semibold text-foreground">{def?.label ?? node.type}</div>
+          <div className="mt-0.5 truncate text-[11.5px]">
             {misconfigured ? (
-              <Badge variant="warning" className="ml-1">
+              <span className="inline-flex items-center gap-1 font-medium text-primary">
                 <AlertTriangle className="size-3" />
                 Action required
-              </Badge>
-            ) : null}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-muted-foreground">
+                <Users className="size-3" />
+                {count} {count === 1 ? "lead" : "leads"}
+              </span>
+            )}
           </div>
-
-          {inlineFields.length > 0 ? (
-            <div className="mt-2.5 space-y-2" onClick={(e) => e.stopPropagation()}>
-              {inlineFields.map((f) => (
-                <div key={f.key} className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground">{f.label}</label>
-                  {f.type === "textarea" ? (
-                    <Textarea
-                      value={String(node.config[f.key] ?? "")}
-                      onChange={(e) => updateConfig(node.id, f.key, e.target.value)}
-                      placeholder={f.placeholder}
-                      disabled={running}
-                      className="min-h-[60px] text-xs"
-                    />
-                  ) : (
-                    <Input
-                      type={f.type === "number" ? "number" : "text"}
-                      value={String(node.config[f.key] ?? "")}
-                      onChange={(e) =>
-                        updateConfig(node.id, f.key, f.type === "number" ? Number(e.target.value) : e.target.value)
-                      }
-                      placeholder={f.placeholder}
-                      disabled={running}
-                      className="h-8 text-xs"
-                    />
-                  )}
-                  {f.help ? <p className="text-[10px] text-muted-foreground">{f.help}</p> : null}
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {composer ? (
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              {isSelected ? "Editing in the composer →" : "Click to open the composer"}
-            </p>
-          ) : null}
         </div>
 
         {!running ? (
-          <div className="flex shrink-0 flex-col gap-0.5" onClick={(e) => e.stopPropagation()}>
-            <Button variant="ghost" size="icon" className="size-6" onClick={() => move(node.id, -1)} aria-label="Move up">
+          <div
+            className="seqacts flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Button variant="ghost" size="icon" className="size-7" onClick={() => move(node.id, -1)} aria-label="Move up">
               <ArrowUp className="size-3.5" />
             </Button>
-            <Button variant="ghost" size="icon" className="size-6" onClick={() => move(node.id, 1)} aria-label="Move down">
+            <Button variant="ghost" size="icon" className="size-7" onClick={() => move(node.id, 1)} aria-label="Move down">
               <ArrowDown className="size-3.5" />
             </Button>
             <Button
               variant="ghost"
               size="icon"
-              className="size-6 text-destructive"
+              className="size-7 text-muted-foreground hover:text-destructive"
               onClick={() => remove(node.id)}
               aria-label="Delete step"
             >
@@ -179,6 +135,37 @@ export function NodeCard({ node }: { node: GraphNode }) {
           </div>
         ) : null}
       </div>
+
+      {inlineFields.length > 0 ? (
+        <div className="mt-2.5 space-y-2" onClick={(e) => e.stopPropagation()}>
+          {inlineFields.map((f) => (
+            <div key={f.key} className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground">{f.label}</label>
+              {f.type === "textarea" ? (
+                <Textarea
+                  value={String(node.config[f.key] ?? "")}
+                  onChange={(e) => updateConfig(node.id, f.key, e.target.value)}
+                  placeholder={f.placeholder}
+                  disabled={running}
+                  className="min-h-[60px] text-xs"
+                />
+              ) : (
+                <Input
+                  type={f.type === "number" ? "number" : "text"}
+                  value={String(node.config[f.key] ?? "")}
+                  onChange={(e) =>
+                    updateConfig(node.id, f.key, f.type === "number" ? Number(e.target.value) : e.target.value)
+                  }
+                  placeholder={f.placeholder}
+                  disabled={running}
+                  className="h-8 text-xs"
+                />
+              )}
+              {f.help ? <p className="text-[10px] text-muted-foreground">{f.help}</p> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

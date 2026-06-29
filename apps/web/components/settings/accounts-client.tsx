@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ExternalLink,
   Info,
+  Linkedin,
   MoreHorizontal,
   Puzzle,
   RefreshCw,
@@ -12,7 +13,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-import { Avatar } from "@/components/ui/avatar";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -102,12 +102,32 @@ function StatusBadge({ status }: { status: AccountStatus }) {
   return <Badge variant={STATUS_VARIANT[status]}>{STATUS_LABEL[status]}</Badge>;
 }
 
-function HealthDot({ score }: { score: number }) {
-  const color = score >= 80 ? "bg-success" : score >= 50 ? "bg-warning" : "bg-destructive";
+// Health tone shared by the ring + pacing bar: green ≥80, amber ≥50, else coral.
+function healthTone(score: number): { text: string; ring: string; track: string } {
+  if (score >= 80) {
+    return { text: "text-success", ring: "hsl(var(--success))", track: "bg-success" };
+  }
+  if (score >= 50) {
+    return { text: "text-warning", ring: "hsl(var(--warning))", track: "bg-warning" };
+  }
+  return { text: "text-destructive", ring: "hsl(var(--destructive))", track: "bg-destructive" };
+}
+
+// Premium focal element: a circular health ring whose sweep reflects the score.
+function HealthRing({ score }: { score: number }) {
+  const tone = healthTone(score);
+  const pct = Math.max(0, Math.min(100, score));
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-      <span className={cn("size-2 rounded-full", color)} />
-      {score}
+    <span
+      className="relative flex size-14 shrink-0 items-center justify-center rounded-full"
+      style={{
+        background: `conic-gradient(${tone.ring} ${pct * 3.6}deg, hsl(var(--secondary)) 0deg)`,
+      }}
+      aria-hidden="true"
+    >
+      <span className="flex size-[46px] items-center justify-center rounded-full bg-card">
+        <span className={cn("font-display text-sm font-bold tabular-nums", tone.text)}>{score}</span>
+      </span>
     </span>
   );
 }
@@ -136,8 +156,8 @@ function IncidentNotices({
         const tone = noticeTone(n.type);
         const toneClass =
           tone === "destructive"
-            ? "border-destructive/30 bg-destructive/5 text-destructive"
-            : "border-warning/30 bg-warning/5 text-warning-foreground";
+            ? "border-destructive/30 bg-destructive/[0.07] text-destructive"
+            : "border-warning/30 bg-warning/[0.07] text-warning";
         return (
           <div
             key={n.id}
@@ -293,17 +313,21 @@ export function AccountsClient() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          One LinkedIn account per workspace. Connect in one click — log in once, we handle the rest.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-display text-base font-semibold tracking-tight">Connected account</h2>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+            Account safety is the priority — sending is paced per account to keep it healthy. One
+            LinkedIn account per workspace; log in once and we handle the rest.
+          </p>
+        </div>
         {linkedInAccount ? (
-          <Button variant="outline" onClick={() => openConnect(linkedInAccount)}>
+          <Button variant="outline" onClick={() => openConnect(linkedInAccount)} className="shrink-0">
             <RefreshCw />
             Reconnect
           </Button>
         ) : (
-          <Button onClick={() => openConnect(null)}>
+          <Button onClick={() => openConnect(null)} className="shrink-0">
             <Puzzle />
             Connect LinkedIn
           </Button>
@@ -348,61 +372,105 @@ export function AccountsClient() {
             </div>
           ) : null}
 
-          <div className="overflow-hidden rounded-2xl border bg-card shadow-soft">
-            <div className="flex items-center gap-3 px-4 py-3">
-              <Avatar name={linkedInAccount.name ?? undefined} size="md" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">
+          <div className="flex items-center gap-4 rounded-2xl border border-border bg-card p-5 sm:gap-5">
+            {/* Health ring — the safety focal point */}
+            <HealthRing score={linkedInAccount.health_score} />
+
+            {/* Identity */}
+            <div className="min-w-0 sm:w-52">
+              <div className="flex items-center gap-2">
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-[7px] bg-chart-2/15 text-chart-2">
+                  <Linkedin className="size-3.5 fill-current" />
+                </span>
+                <span className="truncate text-sm font-semibold">
                   {linkedInAccount.name ?? "LinkedIn account"}
-                </div>
-                <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-                  {linkedInAccount.country ? <span>{linkedInAccount.country}</span> : null}
-                  <span>·</span>
-                  <span>
-                    {linkedInAccount.connection_method
-                      ? METHOD_LABEL[linkedInAccount.connection_method]
-                      : "—"}
-                  </span>
-                  {linkedInAccount.proxy_type ? (
-                    <>
-                      <span>·</span>
-                      <span>
-                        {linkedInAccount.proxy_type === "bundled" ? "Bundled proxy" : "Own proxy"}
-                      </span>
-                    </>
-                  ) : null}
-                </div>
+                </span>
               </div>
-              <HealthDot score={linkedInAccount.health_score} />
-              <StatusBadge status={linkedInAccount.status} />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-label="Account actions">
-                    <MoreHorizontal />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => openConnect(linkedInAccount)}>
-                    Reconnect
-                  </DropdownMenuItem>
-                  {linkedInAccount.status === "paused" ? (
-                    <DropdownMenuItem onSelect={() => void setStatus(linkedInAccount, "resume")}>
-                      Resume
-                    </DropdownMenuItem>
-                  ) : linkedInAccount.status === "active" || linkedInAccount.status === "warming" ? (
-                    <DropdownMenuItem onSelect={() => void setStatus(linkedInAccount, "pause")}>
-                      Pause
-                    </DropdownMenuItem>
-                  ) : null}
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onSelect={() => setDisconnectTarget(linkedInAccount)}
-                  >
-                    Disconnect
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+                {linkedInAccount.country ? <span>{linkedInAccount.country}</span> : null}
+                {linkedInAccount.country ? <span>·</span> : null}
+                <span>
+                  {linkedInAccount.connection_method
+                    ? METHOD_LABEL[linkedInAccount.connection_method]
+                    : "—"}
+                </span>
+                {linkedInAccount.proxy_type ? (
+                  <>
+                    <span>·</span>
+                    <span>
+                      {linkedInAccount.proxy_type === "bundled" ? "Bundled proxy" : "Own proxy"}
+                    </span>
+                  </>
+                ) : null}
+              </div>
             </div>
+
+            {/* Daily pacing bar — visible account-safety language */}
+            <div className="hidden min-w-0 flex-1 sm:block">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-[11.5px] font-medium text-muted-foreground">
+                  Daily pacing · safe limits
+                </span>
+                <StatusBadge status={linkedInAccount.status} />
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+                <div
+                  className={cn(
+                    "h-full rounded-full",
+                    healthTone(linkedInAccount.health_score).track,
+                  )}
+                  style={{
+                    width: `${Math.max(6, Math.min(100, linkedInAccount.health_score))}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Status pill (mobile, where the pacing bar is hidden) */}
+            <div className="sm:hidden">
+              <StatusBadge status={linkedInAccount.status} />
+            </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Account actions" className="shrink-0">
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => openConnect(linkedInAccount)}>
+                  Reconnect
+                </DropdownMenuItem>
+                {linkedInAccount.status === "paused" ? (
+                  <DropdownMenuItem onSelect={() => void setStatus(linkedInAccount, "resume")}>
+                    Resume
+                  </DropdownMenuItem>
+                ) : linkedInAccount.status === "active" || linkedInAccount.status === "warming" ? (
+                  <DropdownMenuItem onSelect={() => void setStatus(linkedInAccount, "pause")}>
+                    Pause
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onSelect={() => setDisconnectTarget(linkedInAccount)}
+                >
+                  Disconnect
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {/* Safety engine reassurance — first-class, always visible */}
+          <div className="flex items-start gap-3 rounded-2xl border border-success/20 bg-success/[0.06] p-4">
+            <ShieldCheck className="mt-0.5 size-[17px] shrink-0 text-success" />
+            <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+              <strong className="font-semibold text-foreground">
+                How the safety engine protects you.
+              </strong>{" "}
+              Each account warms up gradually, respects human-like daily limits, and auto-pauses on
+              any LinkedIn checkpoint — so you never risk a restriction. The score reflects sending
+              velocity, acceptance, and account age.
+            </p>
           </div>
         </div>
       )}

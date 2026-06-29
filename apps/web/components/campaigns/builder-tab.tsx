@@ -13,7 +13,8 @@ import type { SenderAccount } from "./composer/sender-select";
 import { WorkflowsPicker } from "./workflows-picker";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SlideOver } from "@/components/ui/slide-over";
+import { nodeLabel } from "@/lib/campaigns/nodes";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import { configForTypeChange, defaultConfigFor, isComposerType } from "@/lib/campaigns/composer";
@@ -92,16 +93,12 @@ export function BuilderTab({
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [stats, setStats] = useState<NodeStatsResponse | null>(null);
   const [buildOpen, setBuildOpen] = useState(false);
   const [workflowsOpen, setWorkflowsOpen] = useState(false);
-  const [refineText, setRefineText] = useState("");
-  const [refining, setRefining] = useState(false);
 
   // Autosave bookkeeping (debounced silent PUT; survives tab switch / reload).
   const nodesRef = useRef<GraphNode[]>(nodes);
@@ -219,28 +216,6 @@ export function BuilderTab({
     mutate(graph);
   };
 
-  const refine = async (): Promise<void> => {
-    const instruction = refineText.trim();
-    if (!instruction || refining) {
-      return;
-    }
-    setRefining(true);
-    setError(null);
-    try {
-      const currentGraph = nodes.map((s) => ({ kind: s.kind, type: s.type, config: s.config }));
-      const res = await api.request<{ nodes: GenNode[] }>(`/campaigns/${campaignId}/generate`, {
-        method: "POST",
-        body: { instruction, currentGraph },
-      });
-      applyGenerated(res.nodes);
-      setRefineText("");
-    } catch (err) {
-      setError(errorMessage(err, "Could not refine the sequence"));
-    } finally {
-      setRefining(false);
-    }
-  };
-
   const loadSamples = useCallback(async (): Promise<PreviewSample[]> => {
     try {
       const res = await api.request<PreviewSample[]>(`/campaigns/${campaignId}/preview-samples`);
@@ -262,13 +237,11 @@ export function BuilderTab({
     }
     savingRef.current = true;
     const gen = editGenRef.current;
-    setSaving(true);
     try {
       await api.request(`/campaigns/${campaignId}/sequence`, {
         method: "PUT",
         body: { nodes: toSavePayload(nodesRef.current) },
       });
-      setLastSavedAt(Date.now());
       setError(null);
       // The graph changed (AI/voice nodes affect required inputs) → refresh the gate.
       onChanged?.();
@@ -277,10 +250,9 @@ export function BuilderTab({
         setDirty(false);
       }
     } catch (err) {
-      setError(errorMessage(err, "Autosave failed — your edits are kept here; click Save now to retry"));
+      setError(errorMessage(err, "Autosave failed — your edits are kept here; they'll retry automatically."));
     } finally {
       savingRef.current = false;
-      setSaving(false);
       if (pendingRef.current) {
         pendingRef.current = false;
         void autosaveRef.current();
@@ -300,10 +272,6 @@ export function BuilderTab({
 
   const scheduleAutosave = useCallback((): void => {
     debouncer.current?.schedule();
-  }, []);
-
-  const flushSave = useCallback((): void => {
-    debouncer.current?.flush();
   }, []);
 
   useEffect(() => {
@@ -349,64 +317,38 @@ export function BuilderTab({
   }
 
   const selected = nodes.find((n) => n.id === selectedId && isComposerType(n.type)) ?? null;
-  const stepCount = nodes.length;
-
   return (
-    <div className="space-y-4">
+    // Full-bleed canvas fills the whole tab; the only chrome is two floating
+    // controls (Build with AI / Workflows) so the sequence gets maximum space.
+    <div className="flex h-full flex-col">
       {running ? (
-        <div className="rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-foreground">
+        <div className="mx-5 mt-4 flex-shrink-0 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-foreground">
           Stop the campaign to edit its sequence.
         </div>
       ) : null}
 
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
-          <p>
-            {stepCount} step{stepCount === 1 ? "" : "s"}
-          </p>
-          {!running ? <SaveStatus saving={saving} dirty={dirty} lastSavedAt={lastSavedAt} /> : null}
-        </div>
-        <div className="flex gap-2">
-          {stepCount === 0 && !running ? (
-            <Button variant="outline" onClick={() => setBuildOpen(true)}>
+      {error ? <p className="flex-shrink-0 px-5 pt-3 text-sm text-destructive">{error}</p> : null}
+
+      {/* Full-bleed canvas — fills the remaining height. Selecting a text-bearing
+          step opens a full-focus SlideOver overlay (same ComposerPanel, props). */}
+      <div className="relative min-h-0 flex-1">
+        <BuilderProvider value={ctx}>
+          <SequenceCanvas />
+        </BuilderProvider>
+
+        {!running ? (
+          <div className="absolute right-3 top-3 z-10 flex gap-2">
+            <Button variant="secondary" size="sm" className="shadow-raised" onClick={() => setBuildOpen(true)}>
               <Wand2 />
               Build with AI
             </Button>
-          ) : null}
-          {!running ? (
-            <Button variant="outline" onClick={() => setWorkflowsOpen(true)}>
+            <Button variant="secondary" size="sm" className="shadow-raised" onClick={() => setWorkflowsOpen(true)}>
               <Workflow />
               Workflows
             </Button>
-          ) : null}
-          <Button onClick={flushSave} disabled={!dirty || saving || running}>
-            {saving ? "Saving…" : "Save now"}
-          </Button>
-        </div>
+          </div>
+        ) : null}
       </div>
-
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-      {stepCount > 0 && !running ? (
-        <div className="flex items-center gap-2 rounded-xl border bg-secondary/40 px-3 py-2">
-          <Wand2 className="size-4 shrink-0 text-primary" />
-          <Input
-            value={refineText}
-            onChange={(e) => setRefineText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                void refine();
-              }
-            }}
-            placeholder="Refine with AI… e.g. add a voice note, make it gentler, remove the InMail"
-            className="h-8 border-0 bg-transparent shadow-none focus-visible:ring-0"
-            disabled={refining}
-          />
-          <Button size="sm" variant="outline" onClick={() => void refine()} disabled={refining || !refineText.trim()}>
-            {refining ? "Refining…" : "Refine"}
-          </Button>
-        </div>
-      ) : null}
 
       <BuildWithAiModal
         open={buildOpen}
@@ -423,54 +365,31 @@ export function BuilderTab({
         onUse={applyWorkflowGraph}
       />
 
-      {/* Canvas keeps a fixed-size viewport; the composer docks beside it (and is
-          collapsible) only when a text-bearing step is selected. minmax(0,1fr) lets
-          the canvas scroll internally instead of growing the page when zoomed. */}
-      <div className={`grid gap-4 lg:items-start ${selected ? "lg:grid-cols-[minmax(0,1fr)_minmax(340px,380px)]" : "lg:grid-cols-1"}`}>
-        <BuilderProvider value={ctx}>
-          <SequenceCanvas />
-        </BuilderProvider>
-
-        {selected ? (
-          <div className="lg:sticky lg:top-4">
-            <div className="surface-card p-4">
-              <ComposerPanel
-                key={selected.id}
-                type={selected.type}
-                config={selected.config}
-                onConfigChange={(config) => setConfig(selected.id, config)}
-                onChangeType={(t) => changeType(selected.id, t)}
-                onCollapse={() => setSelectedId(null)}
-                accounts={accounts}
-                workspaceId={activeWorkspaceId ?? ""}
-                campaignId={campaignId}
-                leadCount={counts[selected.id] ?? 0}
-                running={running}
-                loadSamples={loadSamples}
-              />
-            </div>
+      {selected ? (
+        <SlideOver
+          open
+          onClose={() => setSelectedId(null)}
+          title={nodeLabel(selected.type)}
+          widthClass="w-[448px] max-w-[92vw]"
+        >
+          <div className="p-5">
+            <ComposerPanel
+              key={selected.id}
+              type={selected.type}
+              config={selected.config}
+              onConfigChange={(config) => setConfig(selected.id, config)}
+              onChangeType={(t) => changeType(selected.id, t)}
+              onCollapse={() => setSelectedId(null)}
+              accounts={accounts}
+              workspaceId={activeWorkspaceId ?? ""}
+              campaignId={campaignId}
+              leadCount={counts[selected.id] ?? 0}
+              running={running}
+              loadSamples={loadSamples}
+            />
           </div>
-        ) : null}
-      </div>
+        </SlideOver>
+      ) : null}
     </div>
   );
-}
-
-function SaveStatus({
-  saving,
-  dirty,
-  lastSavedAt,
-}: {
-  saving: boolean;
-  dirty: boolean;
-  lastSavedAt: number | null;
-}) {
-  const text = saving
-    ? "Saving…"
-    : dirty
-      ? "Unsaved changes — autosaving…"
-      : lastSavedAt
-        ? "All changes saved"
-        : "Autosaves as you edit";
-  return <p className="mt-0.5 text-xs text-muted-foreground/80">{text}</p>;
 }

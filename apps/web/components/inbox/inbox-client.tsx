@@ -391,40 +391,40 @@ export function InboxClient() {
   return (
     <div className="flex h-full">
       {/* List */}
-      <div className="flex w-80 shrink-0 flex-col border-r bg-card">
-        <div className="border-b px-4 py-4">
-          <div className="flex items-center justify-between gap-2">
-            <h1 className="font-display text-lg font-bold tracking-tight">Inbox</h1>
+      <div className="flex w-[330px] shrink-0 flex-col border-r border-border bg-card">
+        <div className="px-[18px] pb-3 pt-[18px]">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h1 className="font-display text-[19px] font-semibold tracking-tight text-foreground">Inbox</h1>
             <Button variant="outline" size="sm" onClick={() => void syncConversations()} disabled={syncing}>
               <RefreshCw className={cn("size-4", syncing && "animate-spin")} />
               {syncing ? "Syncing…" : "Sync"}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">Replies auto-stop the sequence and land here.</p>
-          {syncMsg ? <p className="mt-1 text-xs text-primary">{syncMsg}</p> : null}
+          <p className="mb-2.5 text-xs text-muted-foreground">Replies auto-stop the sequence and land here.</p>
+          {syncMsg ? <p className="mb-2.5 text-xs text-primary">{syncMsg}</p> : null}
+          <div className="flex gap-1.5">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                  filter === f.key
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex gap-1 border-b px-3 py-2">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              className={cn(
-                "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
-                filter === f.key
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent",
-              )}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-        <div className="no-scrollbar flex-1 overflow-auto">
+        <div className="no-scrollbar flex flex-1 flex-col gap-0.5 overflow-auto px-2.5 pb-2.5">
           {loading ? (
             <p className="p-4 text-sm text-muted-foreground">Loading…</p>
           ) : items.length === 0 ? (
             <div className="p-8 text-center">
-              <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
                 <Inbox className="size-6" />
               </span>
               <p className="text-sm text-muted-foreground">
@@ -437,22 +437,28 @@ export function InboxClient() {
                 key={c.id}
                 onClick={() => setSelectedId(c.id)}
                 className={cn(
-                  "flex w-full items-center gap-3 border-b border-border/60 px-4 py-3 text-left transition-colors hover:bg-accent",
-                  selectedId === c.id && "bg-primary/5",
+                  "flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-accent",
+                  selectedId === c.id && "bg-accent ring-1 ring-border",
                 )}
               >
                 <Avatar name={c.leadName} size="md" />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium">{c.leadName}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-medium text-foreground">{c.leadName}</span>
+                    {c.needsAttention ? (
+                      <span
+                        aria-hidden="true"
+                        className="size-[7px] shrink-0 rounded-full bg-primary"
+                      />
+                    ) : null}
                     <StageBadge stage={c.pipelineStage} />
                   </div>
-                  <p className="truncate text-xs text-muted-foreground">
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
                     {c.lastMessage?.direction === "outbound" ? "You: " : ""}
                     {c.lastMessage?.body ?? "—"}
                   </p>
                   {c.needsAttention || c.isImportant || c.assignedToMe ? (
-                    <div className="mt-1 flex flex-wrap gap-1">
+                    <div className="mt-1.5 flex flex-wrap gap-1">
                       {c.needsAttention ? (
                         <Badge variant="warning" className="shrink-0">
                           Reply required
@@ -488,11 +494,11 @@ export function InboxClient() {
           </div>
         ) : (
           <>
-            <div className="flex items-center justify-between gap-3 border-b bg-card px-5 py-3">
+            <div className="flex items-center justify-between gap-3 border-b border-border bg-card/60 px-5 py-3.5">
               <div className="flex min-w-0 items-center gap-3">
                 <Avatar name={detail.lead.name} size="md" />
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{detail.lead.name}</div>
+                  <div className="truncate text-[15px] font-semibold text-foreground">{detail.lead.name}</div>
                   <div className="truncate text-xs text-muted-foreground">
                     {[detail.lead.role, detail.lead.company].filter(Boolean).join(" · ") ||
                       detail.lead.headline}
@@ -505,7 +511,7 @@ export function InboxClient() {
                     href={detail.lead.linkedinUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#0A66C2] hover:underline"
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-chart-2 hover:underline"
                   >
                     <Linkedin className="size-4" /> Profile
                   </a>
@@ -538,6 +544,41 @@ export function InboxClient() {
               </div>
             </div>
 
+            {/* Relationship / intent summary (account-safety first: AI-pause + hot-lead) */}
+            {detail.relationship ? (
+              <div className="border-b border-border/70 px-5 py-2.5">
+                <div className="flex items-center gap-2.5 rounded-[10px] border border-border bg-background px-3 py-2.5">
+                  <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[9px] bg-primary/15 font-display text-xs font-bold text-primary">
+                    {detail.relationship.intentScore}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[11.5px] font-semibold leading-tight text-foreground">
+                      {detail.relationship.summary ?? STAGE_LABEL[detail.pipelineStage]}
+                    </div>
+                    {detail.relationship.nextAction ? (
+                      <div className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground">
+                        {detail.relationship.nextAction}
+                      </div>
+                    ) : null}
+                  </div>
+                  {detail.relationship.isHot ? (
+                    <Badge variant="default" className="shrink-0">
+                      🔥 Hot
+                    </Badge>
+                  ) : null}
+                  {detail.relationship.aiPaused ? (
+                    <Badge variant="warning" className="shrink-0">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+                        <rect x="6" y="5" width="4" height="14" rx="1" />
+                        <rect x="14" y="5" width="4" height="14" rx="1" />
+                      </svg>
+                      AI paused
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
             <div className="flex-1 space-y-3 overflow-auto p-5">
               {detail.messages.length > 0 ? (
                 <div className="text-center text-xs text-muted-foreground/70">
@@ -551,10 +592,10 @@ export function InboxClient() {
                 >
                   <div
                     className={cn(
-                      "max-w-[70%] rounded-2xl px-3.5 py-2 text-sm shadow-soft",
+                      "max-w-[70%] rounded-2xl px-3.5 py-2 text-sm",
                       m.direction === "outbound"
                         ? "rounded-br-md bg-primary text-primary-foreground"
-                        : "rounded-bl-md border bg-card",
+                        : "rounded-bl-md border border-border bg-card text-foreground",
                     )}
                   >
                     {m.voiceRef ? <span className="italic">🎤 Voice note</span> : m.body}
@@ -563,23 +604,26 @@ export function InboxClient() {
               ))}
             </div>
 
-            <div className="border-t bg-card p-4">
+            <div className="border-t border-border bg-card p-4">
               {error ? <p className="mb-2 text-xs text-destructive">{error}</p> : null}
               {queuedNote ? <p className="mb-2 text-xs text-primary">{queuedNote}</p> : null}
 
               {/* AI suggested reply (approve_all) */}
               {detail.draft?.status === "pending" && detail.draft.body && editingDraftId !== detail.draft.id ? (
-                <div className="mb-3 rounded-xl border border-primary/30 bg-primary/5 p-3">
-                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-primary">
-                    <Sparkles className="size-3.5" /> Suggested reply
+                <div className="mb-3 overflow-hidden rounded-xl border border-primary/30 bg-primary/[0.07]">
+                  <div className="flex items-center gap-2 border-b border-primary/20 px-3.5 py-2.5">
+                    <Sparkles className="size-3.5 text-primary" />
+                    <span className="text-xs font-semibold text-primary">AI draft</span>
                     {typeof detail.draft.confidence === "number" ? (
-                      <span className="ml-auto font-normal text-muted-foreground">
+                      <span className="ml-auto text-[10.5px] font-normal text-muted-foreground">
                         {Math.round(detail.draft.confidence * 100)}% confidence
                       </span>
                     ) : null}
                   </div>
-                  <p className="whitespace-pre-wrap text-sm text-foreground">{detail.draft.body}</p>
-                  <div className="mt-2.5 flex items-center gap-2">
+                  <p className="whitespace-pre-wrap px-3.5 py-3 text-sm leading-relaxed text-card-foreground">
+                    {detail.draft.body}
+                  </p>
+                  <div className="flex items-center gap-2 px-3.5 pb-3">
                     <Button size="sm" onClick={() => void approveDraft()} disabled={sending}>
                       <Check className="size-4" /> Approve &amp; send
                     </Button>
@@ -595,8 +639,8 @@ export function InboxClient() {
 
               {/* Hot lead — handoff briefing (Phase 4) */}
               {detail.draft?.status === "escalated" && detail.draft.reason === "hot_lead" ? (
-                <div className="mb-3 rounded-xl border border-rose-300 bg-rose-50 p-3 text-xs dark:border-rose-800 dark:bg-rose-950/40">
-                  <div className="mb-1 flex items-center gap-1.5 font-semibold text-rose-700 dark:text-rose-400">
+                <div className="mb-3 rounded-xl border border-destructive/30 bg-destructive/[0.08] p-3 text-xs">
+                  <div className="mb-1 flex items-center gap-1.5 font-semibold text-destructive">
                     🔥 Hot lead — over to you
                     {detail.relationship ? (
                       <span className="ml-auto font-normal text-muted-foreground">
@@ -610,15 +654,15 @@ export function InboxClient() {
                     <p className="text-muted-foreground">{escalationReason(detail.draft.reason)}</p>
                   )}
                   {detail.draft.nextStep ? (
-                    <p className="mt-2 font-medium text-rose-700 dark:text-rose-400">
-                      Suggested next step: <span className="font-normal">{detail.draft.nextStep}</span>
+                    <p className="mt-2 font-medium text-destructive">
+                      Suggested next step: <span className="font-normal text-muted-foreground">{detail.draft.nextStep}</span>
                     </p>
                   ) : null}
                   <p className="mt-2 text-muted-foreground">The AI is paused on this thread — your reply goes out as you.</p>
                 </div>
               ) : detail.draft?.status === "escalated" ? (
-                <div className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs dark:border-amber-800 dark:bg-amber-950/40">
-                  <div className="mb-0.5 flex items-center gap-1.5 font-semibold text-amber-700 dark:text-amber-400">
+                <div className="mb-3 rounded-xl border border-warning/30 bg-warning/[0.08] p-3 text-xs">
+                  <div className="mb-0.5 flex items-center gap-1.5 font-semibold text-warning">
                     <Sparkles className="size-3.5" /> AI escalated to you
                   </div>
                   <p className="text-muted-foreground">{escalationReason(detail.draft.reason)}</p>
@@ -635,7 +679,7 @@ export function InboxClient() {
                     <button
                       key={s.id}
                       onClick={() => setReply(s.body)}
-                      className="rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      className="rounded-full border border-border bg-secondary px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                       title={s.body}
                     >
                       {s.title}
@@ -647,7 +691,7 @@ export function InboxClient() {
                 <Textarea
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
-                  placeholder="Write a reply…"
+                  placeholder="Write a reply, or use the AI draft…"
                   className="min-h-[44px]"
                 />
                 <Button onClick={() => void send()} disabled={!reply.trim() || sending}>
@@ -669,18 +713,18 @@ export function InboxClient() {
         <div className="space-y-2.5">
           <button
             onClick={() => void setInboxType("all_conversations")}
-            className="w-full rounded-xl border bg-card px-4 py-3 text-left shadow-soft transition-shadow hover:shadow-soft-md"
+            className="w-full rounded-xl border border-border bg-secondary px-4 py-3 text-left transition-colors hover:border-input hover:bg-accent"
           >
-            <div className="text-sm font-medium">Extract all conversations</div>
+            <div className="text-sm font-medium text-foreground">Extract all conversations</div>
             <div className="text-xs text-muted-foreground">
               Show every LinkedIn conversation on the account.
             </div>
           </button>
           <button
             onClick={() => void setInboxType("campaign_only")}
-            className="w-full rounded-xl border bg-card px-4 py-3 text-left shadow-soft transition-shadow hover:shadow-soft-md"
+            className="w-full rounded-xl border border-border bg-secondary px-4 py-3 text-left transition-colors hover:border-input hover:bg-accent"
           >
-            <div className="text-sm font-medium">Only campaign conversations</div>
+            <div className="text-sm font-medium text-foreground">Only campaign conversations</div>
             <div className="text-xs text-muted-foreground">
               Show only replies from people in your campaigns.
             </div>

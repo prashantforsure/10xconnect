@@ -45,7 +45,7 @@ export function Modal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm"
       onClick={onClose}
       role="presentation"
     >
@@ -54,7 +54,7 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         className={cn(
-          "relative flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col animate-fade-in rounded-2xl border bg-card p-6 shadow-soft-lg",
+          "relative flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col animate-fade-in rounded-xl border border-[#38321F] bg-popover p-6 text-popover-foreground shadow-overlay",
           className,
         )}
         onClick={(e) => e.stopPropagation()}

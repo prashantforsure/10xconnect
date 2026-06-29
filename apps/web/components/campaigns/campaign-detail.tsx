@@ -9,7 +9,18 @@ import {
   type ProfileAuditItem,
   type RequiredInput,
 } from "@10xconnect/core";
-import { AlertTriangle, ArrowLeft, BookmarkPlus, CheckCircle2, Clock, CopyPlus, Info, Play, Share2, Square } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  BookmarkPlus,
+  CheckCircle2,
+  CopyPlus,
+  Info,
+  MoreHorizontal,
+  Play,
+  Share2,
+  Square,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -23,11 +34,17 @@ import { SettingsTab } from "@/components/campaigns/settings-tab";
 import { type CampaignStatus, CampaignStatusBadge } from "@/components/campaigns/status-badge";
 import { SaveAsTemplateModal } from "@/components/campaigns/templates";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
+import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/lib/workspace/context";
 
 export interface CampaignDetailView {
@@ -43,13 +60,6 @@ interface AccountOption {
   id: string;
   name: string | null;
   status: string;
-}
-
-interface CampaignMetricsSummary {
-  requests: number;
-  messages: number;
-  acceptedInvites: { count: number; pct: number };
-  replies: { count: number; pct: number };
 }
 
 const TABS = ["builder", "leads", "context", "analytics", "settings"] as const;
@@ -73,7 +83,6 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
 
   const [campaign, setCampaign] = useState<CampaignDetailView | null>(null);
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
-  const [metrics, setMetrics] = useState<CampaignMetricsSummary | null>(null);
   const [tab, setTab] = useState<Tab>("builder");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -103,11 +112,6 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
       ]);
       setCampaign(c);
       setAccounts(accs);
-      // Header metric strip — non-blocking; the page renders even if this fails.
-      api
-        .request<CampaignMetricsSummary>(`/analytics/campaign/${campaignId}`)
-        .then(setMetrics)
-        .catch(() => undefined);
     } catch (err) {
       setError(errorMessage(err, "Could not load campaign"));
     } finally {
@@ -154,32 +158,6 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   useEffect(() => {
     void checkGate();
   }, [tab, checkGate, campaign?.accountId, campaign?.leadCount]);
-
-  // Inline fix-it links for a missing launch input.
-  const readinessAction = (key: RequiredInput["key"]): React.ReactNode => {
-    if (key === "contacts") {
-      return (
-        <button type="button" onClick={() => setTab("leads")} className="text-primary hover:underline">
-          Add contacts
-        </button>
-      );
-    }
-    if (key === "knowledge_base") {
-      return (
-        <button type="button" onClick={() => setTab("context")} className="text-primary hover:underline">
-          Add facts
-        </button>
-      );
-    }
-    if (key === "voice_profile") {
-      return (
-        <Link href="/settings/voice-cloner" className="text-primary hover:underline">
-          Set up voice
-        </Link>
-      );
-    }
-    return null; // sender_account: the account selector is in the header above
-  };
 
   const bindAccount = async (accountId: string): Promise<void> => {
     setActionError(null);
@@ -252,25 +230,55 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   }
 
   const isRunning = campaign.status === "running";
+  const hasNotice =
+    Boolean(actionError) || Boolean(shareUrl) || (Boolean(aiOff) && tab !== "context");
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-6">
-      <Link
-        href="/campaigns"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" />
-        Campaigns
-      </Link>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="font-display text-2xl font-bold tracking-tight">{campaign.name}</h1>
+    // Full-height, full-bleed app layout (matches the Command Dark mockup): a
+    // compact tab + action bar, then a content area that fills the viewport.
+    <div className="flex h-[calc(100dvh-4rem)] flex-col">
+      {/* Tab + action bar — name + status, tabs, then one primary + ⋯ overflow. */}
+      <div className="flex h-[54px] flex-shrink-0 items-center gap-3 border-b border-border pl-4 pr-[22px]">
+        <Link
+          href="/campaigns"
+          aria-label="Back to campaigns"
+          className="-ml-1 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" />
+        </Link>
+        <span className="max-w-[180px] truncate font-display text-[15px] font-semibold text-foreground">
+          {campaign.name}
+        </span>
         <CampaignStatusBadge status={campaign.status} />
+
+        <div className="mx-1 h-5 w-px bg-border" />
+
+        {/* Tabs — inline, with a coral underline on the active tab. */}
+        <div className="flex h-full items-stretch">
+          {TABS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={cn(
+                "relative inline-flex items-center px-3 text-[13px] font-semibold transition-colors",
+                tab === t
+                  ? "text-foreground after:absolute after:inset-x-3 after:bottom-0 after:h-[2px] after:rounded-full after:bg-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {TAB_LABEL[t]}
+            </button>
+          ))}
+        </div>
+
+        {/* Actions — account selector, one primary (Run/Stop), ⋯ overflow. */}
         <div className="ml-auto flex items-center gap-2">
           <Select
             value={campaign.accountId ?? ""}
             onChange={(e) => void bindAccount(e.target.value)}
-            className="h-9 w-auto min-w-[12rem]"
+            className="h-9 w-auto min-w-[9rem] text-[12.5px]"
+            aria-label="Sending account"
           >
             <option value="">No account</option>
             {accounts.map((a) => (
@@ -279,31 +287,20 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
               </option>
             ))}
           </Select>
-          <Button variant="outline" onClick={() => setDuplicateOpen(true)}>
-            <CopyPlus />
-            Duplicate
-          </Button>
-          <Button variant="outline" onClick={() => setSaveTemplateOpen(true)}>
-            <BookmarkPlus />
-            Save as template
-          </Button>
-          <Button variant="outline" onClick={() => void share()}>
-            <Share2 />
-            Share
-          </Button>
           {isRunning ? (
-            <Button variant="destructive" onClick={() => void stop()} disabled={busy}>
+            <Button variant="destructive" size="sm" onClick={() => void stop()} disabled={busy}>
               <Square />
               Stop
             </Button>
           ) : (
             <Button
+              size="sm"
               onClick={requestRun}
               // Fail closed: stay disabled until readiness is known AND ready.
               disabled={busy || !readiness?.ready}
               title={
                 readiness && !readiness.ready
-                  ? "Add the required inputs below before launching"
+                  ? `Add before launching: ${readiness.missing.map((m) => m.label).join(", ")}`
                   : undefined
               }
             >
@@ -311,7 +308,92 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
               Run it!
             </Button>
           )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary" size="icon" aria-label="More actions">
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => void share()}>
+                <Share2 />
+                Share
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setSaveTemplateOpen(true)}>
+                <BookmarkPlus />
+                Save as template
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setDuplicateOpen(true)}>
+                <CopyPlus />
+                Duplicate
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
+      </div>
+
+      {/* Slim conditional notices — errors, share link, launch readiness, AI-off. */}
+      {hasNotice ? (
+        <div className="flex flex-shrink-0 flex-col gap-2 border-b border-border px-5 py-3">
+          {actionError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {actionError}
+            </div>
+          ) : null}
+          {shareUrl ? (
+            <div className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-foreground">
+              Share link copied: <span className="font-mono text-xs text-muted-foreground">{shareUrl}</span>
+            </div>
+          ) : null}
+          {aiOff && tab !== "context" ? (
+            <button
+              type="button"
+              onClick={() => setTab("context")}
+              className="flex w-full items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-left text-sm transition-colors hover:bg-warning/20"
+            >
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+              <span>
+                <span className="font-medium">AI replies are off.</span>{" "}
+                <span className="text-muted-foreground">
+                  No aim or knowledge base yet — open the Context tab to configure it →
+                </span>
+              </span>
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Content — fills the remaining height. The builder stays mounted (autosave
+          continuity) but hidden when another tab is active. */}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <div className={tab === "builder" ? "h-full" : "hidden"}>
+          <BuilderTab
+            campaignId={campaignId}
+            running={isRunning}
+            accounts={accounts}
+            onChanged={() => void checkGate()}
+          />
+        </div>
+        {tab === "leads" ? (
+          <div className="h-full overflow-auto px-6 py-5">
+            <LeadsTab campaignId={campaignId} campaignName={campaign?.name ?? ""} onChanged={() => void load()} />
+          </div>
+        ) : null}
+        {tab === "context" ? (
+          <div className="h-full overflow-auto px-6 py-5">
+            <ContextTab campaignId={campaignId} />
+          </div>
+        ) : null}
+        {tab === "analytics" ? (
+          <div className="h-full overflow-auto px-6 py-5">
+            <AnalyticsTab campaignId={campaignId} />
+          </div>
+        ) : null}
+        {tab === "settings" ? (
+          <div className="h-full overflow-auto px-6 py-5">
+            <SettingsTab campaignId={campaignId} onChanged={load} />
+          </div>
+        ) : null}
       </div>
 
       <Modal
@@ -325,7 +407,7 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
             {auditItems.map((item) => (
               <li key={item.id} className="flex items-start gap-2 text-sm">
                 {item.severity === "warn" ? (
-                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
                 ) : item.severity === "info" ? (
                   <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                 ) : (
@@ -363,135 +445,6 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
           router.push(`/campaigns/${newId}`);
         }}
       />
-
-      <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Clock className="size-3" />
-        Testing mode: campaigns run automatically every ~15 seconds so you can see results fast. Your
-        daily limits per account are always respected.
-      </p>
-
-      {actionError ? (
-        <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          {actionError}
-        </div>
-      ) : null}
-      {shareUrl ? (
-        <div className="mt-3 rounded-xl border bg-secondary/50 px-3 py-2 text-sm">
-          Share link copied: <span className="font-mono text-xs">{shareUrl}</span>
-        </div>
-      ) : null}
-
-      {/* Metric strip */}
-      <div className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-3 lg:grid-cols-5">
-        <MetricCell label="Leads" value={campaign.leadCount.toLocaleString()} />
-        <MetricCell label="Sent" value={(metrics?.requests ?? 0).toLocaleString()} />
-        <MetricCell label="Accepted" value={(metrics?.acceptedInvites.count ?? 0).toLocaleString()} />
-        <MetricCell
-          label="Accept rate"
-          value={`${metrics?.acceptedInvites.pct ?? 0}%`}
-          tone="success"
-        />
-        <MetricCell label="Replies" value={(metrics?.replies.count ?? 0).toLocaleString()} tone="primary" />
-      </div>
-
-      {/* Launch readiness — the campaign can't go live until these are supplied (§13). */}
-      {!isRunning && readiness && !readiness.ready ? (
-        <div className="mt-4 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
-          <div className="flex items-center gap-2 font-medium">
-            <AlertTriangle className="size-4 shrink-0 text-warning-foreground" />
-            Before you can launch, add:
-          </div>
-          <ul className="mt-1.5 space-y-1">
-            {readiness.missing.map((m) => (
-              <li key={m.key} className="flex flex-wrap items-center gap-x-2">
-                <span className="text-muted-foreground">• {m.label}</span>
-                {readinessAction(m.key)}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {/* AI-off indicator — the AI won't engage replies until a brain is set (§5.7).
-          Hidden on the Context tab, which shows its own in-tab banner. */}
-      {aiOff && tab !== "context" ? (
-        <button
-          type="button"
-          onClick={() => setTab("context")}
-          className="mt-4 flex w-full items-start gap-2 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-left text-sm transition-colors hover:bg-warning/20"
-        >
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
-          <span>
-            <span className="font-medium">AI replies are off.</span>{" "}
-            <span className="text-muted-foreground">
-              This campaign has no aim or knowledge base, so the AI won&apos;t engage replies. Open the
-              Context tab to configure it →
-            </span>
-          </span>
-        </button>
-      ) : null}
-
-      {/* Tabs */}
-      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} className="mt-6">
-        <TabsList>
-          {TABS.map((t) => (
-            <TabsTrigger key={t} value={t}>
-              {TAB_LABEL[t]}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-
-        <TabsContent value="builder" forceMount>
-          {/* A graph change (incl. Build-with-AI apply) refreshes the gate from the saved sequence. */}
-          <BuilderTab
-            campaignId={campaignId}
-            running={isRunning}
-            accounts={accounts}
-            onChanged={() => void checkGate()}
-          />
-        </TabsContent>
-        <TabsContent value="leads">
-          {/* Enrolling/removing contacts changes leadCount → reload so the gate updates. */}
-          <LeadsTab
-            campaignId={campaignId}
-            campaignName={campaign?.name ?? ""}
-            onChanged={() => void load()}
-          />
-        </TabsContent>
-        <TabsContent value="context">
-          <ContextTab campaignId={campaignId} />
-        </TabsContent>
-        <TabsContent value="analytics">
-          <AnalyticsTab campaignId={campaignId} />
-        </TabsContent>
-        <TabsContent value="settings">
-          <SettingsTab campaignId={campaignId} onChanged={load} />
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
-
-function MetricCell({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: "success" | "primary";
-}) {
-  return (
-    <div className="bg-card px-4 py-3.5">
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div
-        className={
-          "font-display text-[19px] font-bold tracking-tight" +
-          (tone === "success" ? " text-success" : tone === "primary" ? " text-primary" : "")
-        }
-      >
-        {value}
-      </div>
     </div>
   );
 }

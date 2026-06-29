@@ -4,7 +4,6 @@ import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import { useState } from "react";
 
 import { CreateWorkspaceModal } from "@/components/create-workspace-modal";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,15 +26,21 @@ export function WorkspaceSwitcher() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="w-full justify-between gap-2">
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-xs font-semibold text-primary">
-                {(activeWorkspace?.name ?? "?").charAt(0).toUpperCase()}
-              </span>
-              <span className="truncate">{label}</span>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2.5 rounded-[10px] border border-border bg-[hsl(45_22%_8.5%)] px-[11px] py-[9px] text-left transition-colors hover:bg-accent"
+          >
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-success/15 font-display text-[10px] font-bold text-success">
+              {(activeWorkspace?.name ?? "?").charAt(0).toUpperCase()}
             </span>
-            <ChevronsUpDown className="opacity-50" />
-          </Button>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[12.5px] font-semibold text-foreground">
+                {label}
+              </span>
+              <span className="block truncate text-[10.5px] text-muted-foreground">Workspace</span>
+            </span>
+            <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+          </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-[13.5rem]">
           {workspaces.length > 0 ? (

@@ -88,20 +88,41 @@
    * (which read these CSS vars) pick it up automatically; marketing & auth keep
    * the warm :root cream.
    */
+  /*
+   * Direction C — "Command Dark": the in-app surface is a warm-charcoal, coral-accent,
+   * safety-first dark theme. Applied to a root ancestor of the app (AppShell adds the
+   * `app-surface` class to <html> so portaled popovers inherit it too). Marketing & auth
+   * keep the warm cream :root theme.
+   */
   .app-surface {
-    --background: 36 16% 97%; /* near-white, faint warm tint */
-    --card: 0 0% 100%; /* pure white cards */
-    --card-foreground: 30 10% 15%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 30 10% 15%;
-    --secondary: 40 14% 95.5%;
-    --secondary-foreground: 30 12% 20%;
-    --muted: 40 14% 95.5%;
-    --muted-foreground: 30 6% 45%;
-    --accent: 36 20% 94%;
-    --accent-foreground: 30 12% 18%;
-    --border: 36 15% 90.5%;
-    --input: 36 15% 90.5%;
+    --background: 45 22% 7%; /* #16140E canvas */
+    --foreground: 41 42% 93%; /* #F4EFE4 */
+    --card: 42 20% 10%; /* #1E1B14 panel */
+    --card-foreground: 41 42% 93%;
+    --popover: 44 21% 10%; /* #201D15 raised overlay */
+    --popover-foreground: 41 42% 93%;
+    --primary: 15 87% 59%; /* #F2683C unchanged */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 40 19% 13%; /* #26221A */
+    --secondary-foreground: 41 42% 93%;
+    --muted: 40 19% 13%; /* #26221A */
+    --muted-foreground: 39 8% 59%; /* #A39B8C */
+    --accent: 40 21% 11%; /* #221E16 hover surface */
+    --accent-foreground: 41 42% 93%;
+    --destructive: 7 86% 69%; /* #F4796A */
+    --destructive-foreground: 45 22% 7%;
+    --success: 159 64% 52%; /* #34D39A */
+    --success-foreground: 45 22% 7%;
+    --warning: 38 89% 60%; /* #F4B23E */
+    --warning-foreground: 45 22% 7%;
+    --border: 46 25% 13%; /* #2A2619 hairline */
+    --input: 41 19% 16%; /* #322D22 control border */
+    --ring: 15 87% 59%; /* coral focus */
+    --chart-1: 15 87% 59%; /* coral */
+    --chart-2: 210 74% 56%; /* #3C8FE2 blue */
+    --chart-3: 159 64% 52%; /* #34D39A green */
+    --chart-4: 264 80% 71%; /* #A878F0 violet */
+    --chart-5: 38 89% 60%; /* amber */
   }
 
   * {

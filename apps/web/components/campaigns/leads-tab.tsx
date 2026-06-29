@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash2, Upload, UserPlus } from "lucide-react";
+import { Building2, Linkedin, Mail, MapPin, Trash2, Upload, UserPlus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ImportModal } from "@/components/contacts/import-modal";
@@ -17,6 +17,13 @@ import type { ListView } from "@/lib/contacts/types";
 interface LeadRow {
   leadId: string;
   name: string;
+  title: string | null;
+  company: string | null;
+  headline: string | null;
+  location: string | null;
+  linkedinUrl: string | null;
+  email: string | null;
+  connectionDegree: string | null;
   status: string;
   currentNodeType: string | null;
   updatedAt: string;
@@ -138,23 +145,75 @@ export function LeadsTab({
       ) : (
         <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
           {leads.map((l) => (
-            <div key={l.leadId} className="flex items-center gap-3 px-4 py-3">
-              <Avatar name={l.name} size="sm" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{l.name}</div>
-                <div className="text-xs text-muted-foreground">
-                  {l.currentNodeType ? `At: ${nodeLabel(l.currentNodeType)}` : "—"}
+            <div key={l.leadId} className="flex items-start gap-3 px-4 py-3">
+              <Avatar name={l.name} size="md" />
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-sm font-medium">{l.name}</span>
+                  {l.connectionDegree ? (
+                    <span className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {l.connectionDegree}
+                    </span>
+                  ) : null}
+                </div>
+
+                {l.title || l.company ? (
+                  <div className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                    {l.title ? <span className="truncate">{l.title}</span> : null}
+                    {l.title && l.company ? <span className="text-muted-foreground/50">·</span> : null}
+                    {l.company ? (
+                      <span className="inline-flex min-w-0 items-center gap-1">
+                        <Building2 className="size-3 shrink-0" />
+                        <span className="truncate">{l.company}</span>
+                      </span>
+                    ) : null}
+                  </div>
+                ) : l.headline ? (
+                  <div className="truncate text-xs text-muted-foreground">{l.headline}</div>
+                ) : null}
+
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                  {l.location ? (
+                    <span className="inline-flex items-center gap-1">
+                      <MapPin className="size-3" />
+                      {l.location}
+                    </span>
+                  ) : null}
+                  {l.linkedinUrl ? (
+                    <a
+                      href={l.linkedinUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-chart-2 hover:underline"
+                    >
+                      <Linkedin className="size-3" />
+                      Profile
+                    </a>
+                  ) : null}
+                  {l.email ? (
+                    <a
+                      href={`mailto:${l.email}`}
+                      className="inline-flex max-w-[16rem] items-center gap-1 hover:text-foreground hover:underline"
+                    >
+                      <Mail className="size-3 shrink-0" />
+                      <span className="truncate">{l.email}</span>
+                    </a>
+                  ) : null}
+                  <span>{l.currentNodeType ? `At: ${nodeLabel(l.currentNodeType)}` : "Not started"}</span>
                 </div>
               </div>
-              <Badge variant={STATUS_VARIANT[l.status] ?? "muted"}>{l.status}</Badge>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-destructive"
-                onClick={() => void remove(l.leadId)}
-              >
-                <Trash2 className="size-4" />
-              </Button>
+
+              <div className="flex shrink-0 items-center gap-2">
+                <Badge variant={STATUS_VARIANT[l.status] ?? "muted"}>{l.status}</Badge>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-destructive"
+                  onClick={() => void remove(l.leadId)}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
             </div>
           ))}
         </div>

@@ -9,6 +9,8 @@ import {
   ExternalLink,
   LayoutGrid,
   LayoutList,
+  ListFilter,
+  MoreVertical,
   Plus,
   RefreshCw,
   Search,
@@ -16,6 +18,7 @@ import {
   Trash2,
   Upload,
   Users,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -28,12 +31,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { SlideOver } from "@/components/ui/slide-over";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import {
@@ -117,6 +122,11 @@ export function ContactsClient() {
   // Selection + bulk.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = useState<BulkAction>(null);
+  // Lead enrolled directly from a single-row / drawer action (not the bulk selection).
+  const [singleEnroll, setSingleEnroll] = useState<string | null>(null);
+
+  // Lead detail drawer.
+  const [detailLead, setDetailLead] = useState<LeadView | null>(null);
 
   // Modals.
   const [importOpen, setImportOpen] = useState(false);
@@ -198,6 +208,10 @@ export function ContactsClient() {
     await Promise.all([loadLeads(), loadLists()]);
   }, [loadLeads, loadLists]);
 
+  // Active list (for the header title) + a friendly subtitle.
+  const activeList = activeListId ? lists.find((l) => l.id === activeListId) : null;
+  const headerTitle = activeList?.name ?? "All contacts";
+
   if (!activeWorkspaceId) {
     return (
       <p className="p-8 text-sm text-muted-foreground">
@@ -206,24 +220,16 @@ export function ContactsClient() {
     );
   }
 
+  const filtersActive = Boolean(enrichFilter || tagFilter.trim());
+
   return (
-    <div className="flex h-full">
+    <div className="flex h-full bg-background">
       {/* Lists sidebar */}
-      <aside className="w-56 shrink-0 border-r bg-card p-3">
-        <div className="mb-2 flex items-center justify-between px-1">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            My lists
-          </span>
-          <button
-            type="button"
-            onClick={() => setCreateListOpen(true)}
-            className="text-muted-foreground hover:text-foreground"
-            aria-label="Create list"
-          >
-            <Plus className="size-4" />
-          </button>
+      <aside className="flex w-[212px] shrink-0 flex-col overflow-y-auto border-r border-border bg-[#1A1811] p-3">
+        <div className="mb-2.5 px-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#5C564A]">
+          My lists
         </div>
-        <nav className="space-y-0.5">
+        <nav className="flex flex-col gap-0.5">
           <SidebarItem
             active={panel === "contacts" && activeListId === null}
             onClick={() => {
@@ -232,14 +238,16 @@ export function ContactsClient() {
               setOffset(0);
             }}
             label="All contacts"
-            icon={<Users className="size-4" />}
+            count={total || undefined}
+            icon={<Users className="size-3.5" />}
           />
           <SidebarItem
             active={panel === "connections"}
             onClick={() => setPanel("connections")}
             label="Connections"
-            icon={<Contact className="size-4" />}
+            icon={<Contact className="size-3.5" />}
           />
+          {lists.length > 0 ? <div className="mx-1 my-2 h-px bg-border" /> : null}
           {lists.map((l) => (
             <SidebarItem
               key={l.id}
@@ -254,9 +262,14 @@ export function ContactsClient() {
               color={l.color}
             />
           ))}
-          {lists.length === 0 ? (
-            <p className="px-2 py-1 text-xs text-muted-foreground">No lists yet.</p>
-          ) : null}
+          <button
+            type="button"
+            onClick={() => setCreateListOpen(true)}
+            className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-[#7A7363] transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <Plus className="size-3.5" />
+            New list
+          </button>
         </nav>
       </aside>
 
@@ -264,172 +277,265 @@ export function ContactsClient() {
       {panel === "connections" ? (
         <ConnectionsPanel campaigns={campaigns} onChanged={refreshAll} />
       ) : (
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Toolbar */}
-        <div className="flex flex-wrap items-center gap-2 border-b p-3">
-          <div className="relative min-w-48 flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, email, company…"
-              className="pl-8"
-            />
-          </div>
-
-          <Select
-            value={enrichFilter}
-            onChange={(e) => {
-              setEnrichFilter(e.target.value as EnrichStatus | "");
-              setOffset(0);
-            }}
-            className="h-9 w-auto min-w-[8rem]"
-            aria-label="Filter by status"
-          >
-            <option value="">All statuses</option>
-            {ENRICH_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </Select>
-
-          <Input
-            value={tagFilter}
-            onChange={(e) => {
-              setTagFilter(e.target.value);
-              setOffset(0);
-            }}
-            placeholder="Filter by tag"
-            className="h-9 w-36"
-          />
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Columns3 /> Columns
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {COLUMNS.map((c) => (
-                <DropdownMenuItem
-                  key={c.key}
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    setVisibleCols((v) => ({ ...v, [c.key]: !v[c.key] }));
-                  }}
-                >
-                  <span className="flex w-4 justify-center">
-                    {visibleCols[c.key] ? <Check className="size-4" /> : null}
-                  </span>
-                  {c.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <div className="flex overflow-hidden rounded-lg border bg-card">
-            <button
-              type="button"
-              onClick={() => setView("list")}
-              className={cn(
-                "px-2.5 py-2 transition-colors",
-                view === "list" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent",
-              )}
-              aria-label="List view"
-            >
-              <LayoutList className="size-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("board")}
-              className={cn(
-                "px-2.5 py-2 transition-colors",
-                view === "board" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent",
-              )}
-              aria-label="Board view"
-            >
-              <LayoutGrid className="size-4" />
-            </button>
-          </div>
-
-          <Button variant="ghost" size="icon" onClick={() => void refreshAll()} aria-label="Refresh">
-            <RefreshCw className="size-4" />
-          </Button>
-          <Button onClick={() => setImportOpen(true)}>
-            <Upload /> Import
-          </Button>
-        </div>
-
-        {/* Bulk action bar */}
-        {selected.size > 0 ? (
-          <div className="flex items-center gap-2 border-b bg-primary/5 px-3 py-2 text-sm">
-            <span className="font-medium">{selected.size} selected</span>
-            <div className="flex-1" />
-            <Button variant="outline" size="sm" onClick={() => setBulkAction("tag")}>
-              <Tags /> Tag
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setBulkAction("list")}>
-              <Plus /> Add to list
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setBulkAction("campaign")}>
-              Enroll
-            </Button>
-            <Button variant="destructive" size="sm" onClick={() => setBulkAction("delete")}>
-              <Trash2 /> Delete
-            </Button>
-          </div>
-        ) : null}
-
-        {/* Content */}
-        <div className="min-h-0 flex-1 overflow-auto">
-          {error ? <p className="p-4 text-sm text-destructive">{error}</p> : null}
-          {loading ? (
-            <p className="p-4 text-sm text-muted-foreground">Loading contacts…</p>
-          ) : leads.length === 0 ? (
-            <EmptyState onImport={() => setImportOpen(true)} />
-          ) : view === "list" ? (
-            <LeadTable
-              leads={leads}
-              visibleCols={visibleCols}
-              selected={selected}
-              allSelected={allSelected}
-              onToggleAll={toggleAll}
-              onToggleOne={toggleOne}
-            />
-          ) : (
-            <LeadBoard leads={leads} selected={selected} onToggleOne={toggleOne} />
-          )}
-        </div>
-
-        {/* Pagination */}
-        {total > 0 ? (
-          <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
-            <span>
-              {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}
-            </span>
-            <div className="flex gap-1">
+        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-7 py-6">
+          {/* Title row */}
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="truncate font-display text-[22px] font-semibold leading-tight tracking-tight text-foreground">
+                {headerTitle}
+              </h1>
+              <p className="mt-1.5 text-[13px] text-muted-foreground">
+                {total} lead{total === 1 ? "" : "s"} · enriched &amp; deduped automatically on import
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
               <Button
-                variant="outline"
-                size="sm"
-                disabled={offset === 0}
-                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                variant="secondary"
+                size="icon"
+                onClick={() => void refreshAll()}
+                aria-label="Refresh"
               >
-                <ChevronLeft className="size-4" /> Prev
+                <RefreshCw className="size-4" />
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={offset + PAGE_SIZE >= total}
-                onClick={() => setOffset(offset + PAGE_SIZE)}
-              >
-                Next <ChevronRight className="size-4" />
+              <Button onClick={() => setImportOpen(true)}>
+                <Upload /> Import
               </Button>
             </div>
           </div>
-        ) : null}
-      </div>
+
+          {/* Quiet toolbar */}
+          <div className="mb-3.5 flex flex-wrap items-center gap-2">
+            <div className="relative w-[230px] max-w-full">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[#7A7363]" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search contacts…"
+                className="h-9 bg-[#1A1811] pl-9 text-[12.5px]"
+              />
+            </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="secondary" size="sm" className="bg-[#1A1811]">
+                  <ListFilter />
+                  Filter
+                  {filtersActive ? <span className="size-1.5 rounded-full bg-primary" /> : null}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64 p-3">
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="filter-status" className="text-xs text-muted-foreground">
+                      Status
+                    </Label>
+                    <Select
+                      id="filter-status"
+                      value={enrichFilter}
+                      onChange={(e) => {
+                        setEnrichFilter(e.target.value as EnrichStatus | "");
+                        setOffset(0);
+                      }}
+                      className="h-9"
+                      aria-label="Filter by status"
+                    >
+                      <option value="">All statuses</option>
+                      {ENRICH_STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="filter-tag" className="text-xs text-muted-foreground">
+                      Tag
+                    </Label>
+                    <Input
+                      id="filter-tag"
+                      value={tagFilter}
+                      onChange={(e) => {
+                        setTagFilter(e.target.value);
+                        setOffset(0);
+                      }}
+                      placeholder="Filter by tag"
+                      className="h-9"
+                    />
+                  </div>
+                  {filtersActive ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => {
+                        setEnrichFilter("");
+                        setTagFilter("");
+                        setOffset(0);
+                      }}
+                    >
+                      Clear filters
+                    </Button>
+                  ) : null}
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="secondary" size="sm" className="bg-[#1A1811]">
+                  <Columns3 /> Columns
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {COLUMNS.map((c) => (
+                  <DropdownMenuItem
+                    key={c.key}
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      setVisibleCols((v) => ({ ...v, [c.key]: !v[c.key] }));
+                    }}
+                  >
+                    <span className="flex w-4 justify-center">
+                      {visibleCols[c.key] ? <Check className="size-4" /> : null}
+                    </span>
+                    {c.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <div className="ml-auto flex overflow-hidden rounded-[9px] border border-border bg-[#1A1811]">
+              <button
+                type="button"
+                onClick={() => setView("list")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition-colors",
+                  view === "list"
+                    ? "bg-primary/15 text-primary"
+                    : "text-muted-foreground hover:bg-accent",
+                )}
+                aria-label="List view"
+              >
+                <LayoutList className="size-4" /> List
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("board")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 text-xs font-semibold transition-colors",
+                  view === "board"
+                    ? "bg-primary/15 text-primary"
+                    : "text-muted-foreground hover:bg-accent",
+                )}
+                aria-label="Board view"
+              >
+                <LayoutGrid className="size-4" /> Board
+              </button>
+            </div>
+          </div>
+
+          {/* Bulk action bar — appears only on selection */}
+          {selected.size > 0 ? (
+            <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#38321F] bg-[#26221A] px-3.5 py-2.5">
+              <span className="flex items-center gap-2 text-[12.5px] font-semibold text-foreground">
+                <span className="flex size-[18px] items-center justify-center rounded-[5px] bg-primary text-white">
+                  <Check className="size-3" strokeWidth={3.2} />
+                </span>
+                {selected.size} selected
+              </span>
+              <span className="h-[18px] w-px bg-[#38321F]" />
+              <Button variant="secondary" size="sm" className="bg-[#1A1811]" onClick={() => setBulkAction("tag")}>
+                <Tags /> Tag
+              </Button>
+              <Button variant="secondary" size="sm" className="bg-[#1A1811]" onClick={() => setBulkAction("list")}>
+                <Plus /> Add to list
+              </Button>
+              <Button variant="secondary" size="sm" className="bg-[#1A1811]" onClick={() => setBulkAction("campaign")}>
+                Add to campaign
+              </Button>
+              <Button variant="destructive" size="sm" onClick={() => setBulkAction("delete")}>
+                <Trash2 /> Delete
+              </Button>
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                aria-label="Clear selection"
+                className="ml-auto flex size-7 items-center justify-center rounded-[7px] text-[#7A7363] transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          ) : null}
+
+          {/* Content */}
+          <div className="min-h-0 flex-1">
+            {error ? <p className="p-4 text-sm text-destructive">{error}</p> : null}
+            {loading ? (
+              <p className="p-4 text-sm text-muted-foreground">Loading contacts…</p>
+            ) : leads.length === 0 ? (
+              <EmptyState onImport={() => setImportOpen(true)} />
+            ) : view === "list" ? (
+              <LeadTable
+                leads={leads}
+                visibleCols={visibleCols}
+                selected={selected}
+                allSelected={allSelected}
+                onToggleAll={toggleAll}
+                onToggleOne={toggleOne}
+                onOpen={setDetailLead}
+                onEnroll={(id) => setSingleEnroll(id)}
+              />
+            ) : (
+              <LeadBoard leads={leads} selected={selected} onToggleOne={toggleOne} onOpen={setDetailLead} />
+            )}
+
+            {/* Pagination */}
+            {total > 0 ? (
+              <div className="flex items-center justify-between px-1 pt-3 text-xs text-muted-foreground">
+                <span>
+                  {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}
+                </span>
+                <div className="flex gap-1.5">
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className="size-7 bg-[#1A1811]"
+                    disabled={offset === 0}
+                    onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft className="size-3.5" />
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className="size-7 bg-[#1A1811]"
+                    disabled={offset + PAGE_SIZE >= total}
+                    onClick={() => setOffset(offset + PAGE_SIZE)}
+                    aria-label="Next page"
+                  >
+                    <ChevronRight className="size-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
       )}
+
+      {/* Lead detail drawer */}
+      <LeadDetailDrawer
+        lead={detailLead}
+        onClose={() => setDetailLead(null)}
+        onEnroll={(id) => {
+          setDetailLead(null);
+          setSingleEnroll(id);
+        }}
+        onReEnrich={async (id) => {
+          await api.request(`/leads/${id}/enrich`, { method: "POST" });
+          await refreshAll();
+        }}
+      />
 
       <ImportModal
         open={importOpen}
@@ -447,17 +553,22 @@ export function ContactsClient() {
         }}
       />
       <BulkModal
-        action={bulkAction}
-        count={selected.size}
+        action={singleEnroll ? "campaign" : bulkAction}
+        count={singleEnroll ? 1 : selected.size}
         lists={lists}
         campaigns={campaigns}
-        onClose={() => setBulkAction(null)}
+        onClose={() => {
+          setBulkAction(null);
+          setSingleEnroll(null);
+        }}
         onRun={async (body) => {
+          const leadIds = singleEnroll ? [singleEnroll] : [...selected];
           await api.request("/leads/bulk", {
             method: "POST",
-            body: { ...body, leadIds: [...selected] },
+            body: { ...body, leadIds },
           });
           setBulkAction(null);
+          setSingleEnroll(null);
           await refreshAll();
         }}
       />
@@ -485,29 +596,48 @@ function SidebarItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
-        active ? "bg-primary/10 font-medium text-primary" : "text-foreground hover:bg-accent",
+        "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[12.5px] transition-colors",
+        active
+          ? "bg-primary/15 font-semibold text-primary"
+          : "font-medium text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
     >
       {icon ?? (
         <span
-          className="size-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: color ?? "var(--muted-foreground, #94a3b8)" }}
+          className="size-[9px] shrink-0 rounded-[3px]"
+          style={{ backgroundColor: color ?? "hsl(var(--muted-foreground))" }}
         />
       )}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {count !== undefined ? <span className="text-xs text-muted-foreground">{count}</span> : null}
+      {count !== undefined ? (
+        <span
+          className={cn(
+            "font-display text-[11px] font-semibold",
+            active ? "text-primary" : "text-[#7A7363]",
+          )}
+        >
+          {count}
+        </span>
+      ) : null}
     </button>
   );
 }
 
-function Checkbox({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+function Checkbox({
+  checked,
+  onChange,
+  className,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  className?: string;
+}) {
   return (
     <input
       type="checkbox"
       checked={checked}
       onChange={onChange}
-      className="size-4 cursor-pointer rounded border-input accent-primary"
+      className={cn("size-4 cursor-pointer rounded border-input accent-primary", className)}
     />
   );
 }
@@ -519,6 +649,8 @@ function LeadTable({
   allSelected,
   onToggleAll,
   onToggleOne,
+  onOpen,
+  onEnroll,
 }: {
   leads: LeadView[];
   visibleCols: Record<ColumnKey, boolean>;
@@ -526,88 +658,139 @@ function LeadTable({
   allSelected: boolean;
   onToggleAll: () => void;
   onToggleOne: (id: string) => void;
+  onOpen: (lead: LeadView) => void;
+  onEnroll: (id: string) => void;
 }) {
   return (
-    <table className="w-full text-sm">
-      <thead className="sticky top-0 z-10 bg-secondary text-xs uppercase tracking-wide text-muted-foreground">
-        <tr className="border-b">
-          <th className="w-10 px-3 py-2">
-            <Checkbox checked={allSelected} onChange={onToggleAll} />
-          </th>
-          <th className="px-3 py-2 text-left font-medium">Name</th>
-          {visibleCols.title ? <th className="px-3 py-2 text-left font-medium">Title</th> : null}
-          {visibleCols.company ? <th className="px-3 py-2 text-left font-medium">Company</th> : null}
-          {visibleCols.email ? <th className="px-3 py-2 text-left font-medium">Email</th> : null}
-          {visibleCols.linkedin ? <th className="px-3 py-2 text-left font-medium">LinkedIn</th> : null}
-          {visibleCols.tags ? <th className="px-3 py-2 text-left font-medium">Tags</th> : null}
-          {visibleCols.status ? <th className="px-3 py-2 text-left font-medium">Status</th> : null}
-        </tr>
-      </thead>
-      <tbody>
-        {leads.map((lead) => (
-          <tr
-            key={lead.id}
-            className={cn(
-              "border-b transition-colors hover:bg-accent/50",
-              selected.has(lead.id) && "bg-primary/5",
-            )}
-          >
-            <td className="px-3 py-2.5">
-              <Checkbox checked={selected.has(lead.id)} onChange={() => onToggleOne(lead.id)} />
-            </td>
-            <td className="px-3 py-2.5">
-              <div className="flex items-center gap-2.5">
-                <Avatar name={lead.name ?? undefined} size="sm" />
-                <div className="min-w-0">
-                  <div className="truncate font-medium">{lead.name ?? "—"}</div>
-                  {lead.location ? (
-                    <div className="truncate text-xs text-muted-foreground">{lead.location}</div>
-                  ) : null}
-                </div>
-              </div>
-            </td>
-            {visibleCols.title ? <td className="px-3 py-2 text-muted-foreground">{lead.role ?? lead.headline ?? "—"}</td> : null}
-            {visibleCols.company ? <td className="px-3 py-2 text-muted-foreground">{lead.company ?? "—"}</td> : null}
-            {visibleCols.email ? <td className="px-3 py-2 text-muted-foreground">{lead.email ?? "—"}</td> : null}
-            {visibleCols.linkedin ? (
-              <td className="px-3 py-2">
-                {lead.linkedinUrl ? (
-                  <a
-                    href={lead.linkedinUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-primary hover:underline"
-                  >
-                    Profile <ExternalLink className="size-3" />
-                    {degreeLabel(lead.connectionDegree) ? (
-                      <span className="text-xs text-muted-foreground">({degreeLabel(lead.connectionDegree)})</span>
-                    ) : null}
-                  </a>
-                ) : (
-                  "—"
-                )}
-              </td>
-            ) : null}
-            {visibleCols.tags ? (
-              <td className="px-3 py-2">
-                <div className="flex flex-wrap gap-1">
-                  {lead.tags.map((t) => (
-                    <Badge key={t} variant="secondary">
-                      {t}
-                    </Badge>
-                  ))}
-                </div>
-              </td>
-            ) : null}
-            {visibleCols.status ? (
-              <td className="px-3 py-2">
-                <StatusBadge status={lead.enrichStatus} />
-              </td>
-            ) : null}
+    <div className="overflow-hidden rounded-[14px] border border-border bg-card">
+      <table className="w-full text-sm">
+        <thead className="bg-card text-[10.5px] uppercase tracking-[0.08em] text-[#6E675B]">
+          <tr className="border-b border-border">
+            <th className="w-10 px-4 py-3">
+              <span className="flex justify-center">
+                <Checkbox checked={allSelected} onChange={onToggleAll} />
+              </span>
+            </th>
+            <th className="px-4 py-3 text-left font-semibold">Lead</th>
+            {visibleCols.title ? <th className="px-4 py-3 text-left font-semibold">Title</th> : null}
+            {visibleCols.company ? <th className="px-4 py-3 text-left font-semibold">Company</th> : null}
+            {visibleCols.email ? <th className="px-4 py-3 text-left font-semibold">Email</th> : null}
+            {visibleCols.linkedin ? <th className="px-4 py-3 text-left font-semibold">LinkedIn</th> : null}
+            {visibleCols.tags ? <th className="px-4 py-3 text-left font-semibold">Tags</th> : null}
+            {visibleCols.status ? <th className="px-4 py-3 text-left font-semibold">Status</th> : null}
+            <th className="w-12 px-4 py-3" aria-label="Actions" />
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {leads.map((lead) => (
+            <tr
+              key={lead.id}
+              onClick={() => onOpen(lead)}
+              className={cn(
+                "crow group cursor-pointer border-b border-[#221F17] transition-colors last:border-b-0 hover:bg-accent",
+                selected.has(lead.id) && "bg-primary/5",
+              )}
+            >
+              <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                <span className="flex justify-center">
+                  <Checkbox checked={selected.has(lead.id)} onChange={() => onToggleOne(lead.id)} />
+                </span>
+              </td>
+              <td className="px-4 py-2.5">
+                <div className="flex items-center gap-2.5">
+                  <Avatar name={lead.name ?? undefined} size="sm" />
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-foreground">{lead.name ?? "—"}</div>
+                    {lead.location ? (
+                      <div className="truncate text-xs text-[#7A7363]">{lead.location}</div>
+                    ) : null}
+                  </div>
+                </div>
+              </td>
+              {visibleCols.title ? (
+                <td className="px-4 py-2.5 text-muted-foreground">{lead.role ?? lead.headline ?? "—"}</td>
+              ) : null}
+              {visibleCols.company ? (
+                <td className="px-4 py-2.5 text-[#D8D0C2]">{lead.company ?? "—"}</td>
+              ) : null}
+              {visibleCols.email ? (
+                <td className="px-4 py-2.5 text-[#7A7363]">{lead.email ?? "—"}</td>
+              ) : null}
+              {visibleCols.linkedin ? (
+                <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                  {lead.linkedinUrl ? (
+                    <a
+                      href={lead.linkedinUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-chart-2 hover:underline"
+                    >
+                      Profile <ExternalLink className="size-3" />
+                      {degreeLabel(lead.connectionDegree) ? (
+                        <span className="text-xs text-muted-foreground">
+                          ({degreeLabel(lead.connectionDegree)})
+                        </span>
+                      ) : null}
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+              ) : null}
+              {visibleCols.tags ? (
+                <td className="px-4 py-2.5">
+                  <div className="flex flex-wrap gap-1">
+                    {lead.tags.map((t) => (
+                      <Badge key={t} variant="secondary">
+                        {t}
+                      </Badge>
+                    ))}
+                  </div>
+                </td>
+              ) : null}
+              {visibleCols.status ? (
+                <td className="px-4 py-2.5">
+                  <StatusBadge status={lead.enrichStatus} />
+                </td>
+              ) : null}
+              <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                <div className="flex justify-end opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="Row actions"
+                        className="flex size-[26px] items-center justify-center rounded-[7px] bg-secondary text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        <MoreVertical className="size-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => onOpen(lead)}>View details</DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => onEnroll(lead.id)}>
+                        Add to campaign
+                      </DropdownMenuItem>
+                      {lead.linkedinUrl ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() =>
+                              window.open(lead.linkedinUrl!, "_blank", "noopener,noreferrer")
+                            }
+                          >
+                            <ExternalLink /> Open LinkedIn
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -616,10 +799,12 @@ function LeadBoard({
   leads,
   selected,
   onToggleOne,
+  onOpen,
 }: {
   leads: LeadView[];
   selected: Set<string>;
   onToggleOne: (id: string) => void;
+  onOpen: (lead: LeadView) => void;
 }) {
   const columns = useMemo(() => {
     const byTag = new Map<string, LeadView[]>();
@@ -641,30 +826,34 @@ function LeadBoard({
   }, [leads]);
 
   return (
-    <div className="flex h-full gap-3 overflow-x-auto p-3">
+    <div className="flex gap-3 overflow-x-auto pb-1">
       {columns.map(([tag, items]) => (
-        <div key={tag} className="flex w-64 shrink-0 flex-col rounded-2xl border bg-secondary/40">
-          <div className="flex items-center justify-between border-b px-3 py-2.5 text-sm font-medium">
-            <span className="truncate">{tag}</span>
-            <Badge variant="muted">{items.length}</Badge>
+        <div key={tag} className="flex w-64 shrink-0 flex-col rounded-xl border border-border bg-[#1A1811] p-3">
+          <div className="mb-3 flex items-center gap-2 text-[11.5px] font-semibold text-muted-foreground">
+            <span className="size-2 rounded-full bg-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">{tag}</span>
+            <span className="text-[#5C564A]">{items.length}</span>
           </div>
-          <div className="flex-1 space-y-2 overflow-auto p-2">
+          <div className="flex flex-col gap-2">
             {items.map((lead) => (
               <div
                 key={`${tag}-${lead.id}`}
+                onClick={() => onOpen(lead)}
                 className={cn(
-                  "rounded-xl border bg-card p-2.5 text-sm shadow-soft transition-shadow hover:shadow-soft-md",
+                  "cursor-pointer rounded-[9px] border border-border bg-card p-3 text-sm transition-colors hover:border-[#38321F]",
                   selected.has(lead.id) && "ring-2 ring-primary",
                 )}
               >
                 <div className="flex items-start gap-2">
-                  <Checkbox checked={selected.has(lead.id)} onChange={() => onToggleOne(lead.id)} />
+                  <span onClick={(e) => e.stopPropagation()}>
+                    <Checkbox checked={selected.has(lead.id)} onChange={() => onToggleOne(lead.id)} />
+                  </span>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{lead.name ?? "—"}</div>
-                    <div className="truncate text-xs text-muted-foreground">
+                    <div className="truncate font-medium text-foreground">{lead.name ?? "—"}</div>
+                    <div className="mt-1 truncate text-xs text-[#7A7363]">
                       {lead.role ?? lead.headline ?? ""} {lead.company ? `· ${lead.company}` : ""}
                     </div>
-                    <div className="mt-1">
+                    <div className="mt-2">
                       <StatusBadge status={lead.enrichStatus} />
                     </div>
                   </div>
@@ -678,14 +867,183 @@ function LeadBoard({
   );
 }
 
+function LeadDetailDrawer({
+  lead,
+  onClose,
+  onEnroll,
+  onReEnrich,
+}: {
+  lead: LeadView | null;
+  onClose: () => void;
+  onEnroll: (id: string) => void;
+  onReEnrich: (id: string) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset transient state whenever a different lead opens.
+  useEffect(() => {
+    setBusy(false);
+    setError(null);
+  }, [lead?.id]);
+
+  const open = lead !== null;
+  const role = lead?.role ?? lead?.headline ?? null;
+
+  return (
+    <SlideOver open={open} onClose={onClose} title={undefined} widthClass="w-[420px] max-w-[92vw]">
+      {lead ? (
+        <div className="flex h-full flex-col">
+          {/* Header */}
+          <div className="flex items-center gap-3 border-b border-border p-[18px]">
+            <Avatar name={lead.name ?? undefined} size="lg" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-display text-base font-semibold text-foreground">
+                {lead.name ?? "—"}
+              </div>
+              <div className="mt-1 truncate text-xs text-[#7A7363]">
+                {[role, lead.company].filter(Boolean).join(" · ") || "—"}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="flex size-[34px] shrink-0 items-center justify-center rounded-[9px] border border-input bg-secondary text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-[18px]">
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge status={lead.enrichStatus} />
+              {lead.enrichStatus === "enriched" ? (
+                <Badge variant="success">
+                  <Check className="size-3" strokeWidth={2.4} /> Enriched
+                </Badge>
+              ) : null}
+            </div>
+
+            <Section label="Enrichment">
+              <div className="overflow-hidden rounded-xl border border-border">
+                <DetailRow label="Email" value={lead.email ?? "—"} />
+                <DetailRow
+                  label="LinkedIn"
+                  value={
+                    lead.linkedinUrl ? (
+                      <a
+                        href={lead.linkedinUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-chart-2 hover:underline"
+                      >
+                        View profile <ExternalLink className="size-3" />
+                        {degreeLabel(lead.connectionDegree) ? (
+                          <span className="text-xs text-muted-foreground">
+                            ({degreeLabel(lead.connectionDegree)})
+                          </span>
+                        ) : null}
+                      </a>
+                    ) : (
+                      "—"
+                    )
+                  }
+                />
+                <DetailRow label="Location" value={lead.location ?? "—"} last />
+              </div>
+            </Section>
+
+            <Section label="Tags">
+              {lead.tags.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {lead.tags.map((t) => (
+                    <Badge key={t} variant="secondary">
+                      {t}
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No tags yet.</p>
+              )}
+            </Section>
+          </div>
+
+          {/* Footer actions */}
+          <div className="border-t border-border p-[18px]">
+            {error ? <p className="mb-2 text-xs text-destructive">{error}</p> : null}
+            <div className="flex gap-2.5">
+              <Button className="flex-1" onClick={() => onEnroll(lead.id)}>
+                Add to campaign
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError(null);
+                  try {
+                    await onReEnrich(lead.id);
+                  } catch (err) {
+                    setError(errorMessage(err, "Could not re-enrich"));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <RefreshCw className={cn("size-4", busy && "animate-spin")} />
+                {busy ? "Re-enriching…" : "Re-enrich"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </SlideOver>
+  );
+}
+
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="mb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.09em] text-[#7A7363]">
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  last,
+}: {
+  label: string;
+  value: React.ReactNode;
+  last?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2.5 px-3.5 py-2.5",
+        !last && "border-b border-[#221F17]",
+      )}
+    >
+      <span className="w-16 shrink-0 text-[11.5px] text-[#7A7363]">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">{value}</span>
+    </div>
+  );
+}
+
 function EmptyState({ onImport }: { onImport: () => void }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-      <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-[14px] border border-border bg-card p-12 text-center">
+      <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/15 text-primary">
         <Users className="size-7" />
       </span>
       <div>
-        <p className="font-display text-lg font-semibold">No contacts yet</p>
+        <p className="font-display text-lg font-semibold text-foreground">No contacts yet</p>
         <p className="text-sm text-muted-foreground">
           Import leads from a CSV or a LinkedIn source to get started.
         </p>
@@ -707,7 +1065,7 @@ function CreateListModal({
   onCreate: (name: string, color: string | null) => Promise<void>;
 }) {
   const [name, setName] = useState("");
-  const [color, setColor] = useState("#6366f1");
+  const [color, setColor] = useState("#F2683C");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

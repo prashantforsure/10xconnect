@@ -112,7 +112,9 @@ export function HeroAreaChart({
       {spark ? (
         <path d={spark.line} fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
       ) : null}
-      {spark ? <circle cx={spark.last.x} cy={spark.last.y} r={4} fill={color} stroke="#1A1714" strokeWidth={2.5} /> : null}
+      {spark ? (
+        <circle cx={spark.last.x} cy={spark.last.y} r={4} fill={color} stroke="hsl(var(--card))" strokeWidth={2.5} />
+      ) : null}
     </svg>
   );
 }
@@ -132,7 +134,7 @@ export function HorizontalFunnel({ steps }: { steps: FunnelStep[] }) {
       {steps.map((s, i) => (
         <Fragment key={s.label}>
           <div className="flex items-center gap-3.5">
-            <div className="w-24 shrink-0 text-[13px] font-semibold text-foreground/70">{s.label}</div>
+            <div className="w-24 shrink-0 text-[13px] font-semibold text-muted-foreground">{s.label}</div>
             <div
               className="flex h-[34px] items-center rounded-[9px] px-3 font-display text-sm font-bold text-white"
               style={{ width: `${Math.max((s.value / max) * 100, 12)}%`, minWidth: 64, background: s.color }}

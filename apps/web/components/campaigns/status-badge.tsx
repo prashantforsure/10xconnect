@@ -7,7 +7,7 @@ const VARIANT: Record<CampaignStatus, NonNullable<BadgeProps["variant"]>> = {
   pending: "warning",
   running: "success",
   stopped: "destructive",
-  completed: "default",
+  completed: "info",
 };
 const LABELS: Record<CampaignStatus, string> = {
   draft: "Draft",
@@ -19,8 +19,7 @@ const LABELS: Record<CampaignStatus, string> = {
 
 export function CampaignStatusBadge({ status }: { status: CampaignStatus }) {
   return (
-    <Badge variant={VARIANT[status] ?? "muted"}>
-      {status === "running" ? <span className="size-1.5 rounded-full bg-current" /> : null}
+    <Badge variant={VARIANT[status] ?? "muted"} dot={status === "running"}>
       {LABELS[status] ?? status}
     </Badge>
   );

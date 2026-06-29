@@ -11,6 +11,7 @@ import {
   MessagesSquare,
   PanelLeftClose,
   Plus,
+  Search,
   Settings,
   Users,
   X,
@@ -20,9 +21,15 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { CommandPalette } from "@/components/ui/command-palette";
 import { UserMenu } from "@/components/user-menu";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { cn } from "@/lib/utils";
+
+/** Open the global ⌘K command palette from anywhere (topbar trigger). */
+function openCommandPalette(): void {
+  window.dispatchEvent(new Event("command-palette:open"));
+}
 
 interface NavItem {
   href: string;
@@ -80,6 +87,18 @@ export function AppShell({ userEmail, children }: { userEmail: string; children:
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // Apply the Command Dark in-app theme to <html> so PORTALED overlays
+  // (Radix dropdown/select/tooltip, custom modals, slide-overs) that render at
+  // document.body — and therefore escape the in-page `.app-surface` div below —
+  // still inherit the dark CSS variables. Removed on unmount so marketing/auth
+  // shells keep the warm cream :root theme.
+  useEffect(() => {
+    document.documentElement.classList.add("app-surface");
+    return () => {
+      document.documentElement.classList.remove("app-surface");
+    };
+  }, []);
+
   // Close the mobile drawer on navigation.
   useEffect(() => {
     setMobileOpen(false);
@@ -92,8 +111,8 @@ export function AppShell({ userEmail, children }: { userEmail: string; children:
 
   return (
     <div className="app-surface flex min-h-screen bg-background">
-      {/* Desktop sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r bg-card lg:flex">
+      {/* Desktop sidebar — 248px, sits just off the canvas. */}
+      <aside className="sticky top-0 hidden h-screen w-[248px] shrink-0 flex-col border-r border-border bg-[hsl(45_22%_5.5%)] lg:flex">
         <SidebarContent isActive={isActive} userEmail={userEmail} />
       </aside>
 
@@ -101,11 +120,11 @@ export function AppShell({ userEmail, children }: { userEmail: string; children:
       {mobileOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div
-            className="absolute inset-0 bg-foreground/30 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             onClick={() => setMobileOpen(false)}
             role="presentation"
           />
-          <aside className="absolute left-0 top-0 flex h-full w-72 animate-fade-in flex-col border-r bg-card shadow-soft-lg">
+          <aside className="absolute left-0 top-0 flex h-full w-[248px] animate-fade-in flex-col border-r border-border bg-[hsl(45_22%_5.5%)] shadow-overlay">
             <button
               type="button"
               aria-label="Close menu"
@@ -121,7 +140,7 @@ export function AppShell({ userEmail, children }: { userEmail: string; children:
 
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur lg:px-8">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-border bg-background/80 px-4 backdrop-blur lg:px-7">
           <button
             type="button"
             aria-label="Open menu"
@@ -130,24 +149,34 @@ export function AppShell({ userEmail, children }: { userEmail: string; children:
           >
             <PanelLeftClose className="size-5" />
           </button>
-          <div className="flex items-center gap-2 text-sm">
-            <span className="font-medium text-muted-foreground">Workspace</span>
-            <span className="text-muted-foreground/50">/</span>
-            <span className="font-semibold text-foreground">{sectionLabel(pathname)}</span>
+          <div className="flex min-w-0 items-center gap-2 text-sm">
+            <span className="hidden text-muted-foreground sm:inline">Workspace</span>
+            <span className="hidden text-muted-foreground/50 sm:inline">/</span>
+            <span className="truncate font-semibold text-foreground">{sectionLabel(pathname)}</span>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
-              <Link href="/tutorials">Help</Link>
-            </Button>
-            <Button asChild size="sm">
-              <Link href="/campaigns">
-                <Plus className="size-4" /> New campaign
-              </Link>
-            </Button>
-          </div>
+          {/* Quiet search / ⌘K trigger. */}
+          <button
+            type="button"
+            onClick={openCommandPalette}
+            className="ml-auto flex w-[300px] min-w-[44px] max-w-[34vw] shrink items-center gap-2.5 rounded-[10px] border border-input bg-[hsl(45_22%_5.5%)] px-3 py-2 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Search className="size-[15px] shrink-0" />
+            <span className="hidden truncate sm:inline">Search or run a command…</span>
+            <span className="ml-auto hidden rounded-[5px] bg-muted px-1.5 py-[3px] font-mono text-[10px] font-semibold text-muted-foreground sm:inline">
+              ⌘K
+            </span>
+          </button>
+          <Button asChild size="sm" className="shadow-[0_0_18px_-5px_hsl(var(--primary)/0.6)]">
+            <Link href="/campaigns">
+              <Plus className="size-4" /> <span className="hidden sm:inline">New campaign</span>
+            </Link>
+          </Button>
         </header>
         <main className="flex-1">{children}</main>
       </div>
+
+      {/* Global ⌘K command palette — mounted once, available app-wide. */}
+      <CommandPalette />
     </div>
   );
 }
@@ -161,20 +190,20 @@ function SidebarContent({
 }) {
   return (
     <>
-      <div className="flex h-16 items-center gap-2.5 px-5">
-        <span className="flex size-[30px] items-center justify-center rounded-[9px] bg-primary font-display text-xs font-bold tracking-tight text-primary-foreground shadow-soft">
+      <div className="flex h-[60px] items-center gap-2.5 border-b border-border px-[18px]">
+        <span className="flex size-[30px] items-center justify-center rounded-lg bg-primary font-display text-xs font-bold tracking-tight text-primary-foreground shadow-[0_0_16px_-2px_hsl(var(--primary)/0.55)]">
           10×
         </span>
-        <span className="font-display text-lg font-semibold tracking-tight">10xConnect</span>
+        <span className="font-display text-base font-semibold tracking-tight">10xConnect</span>
       </div>
-      <div className="px-3 pb-2">
+      <div className="px-3 pb-2 pt-3.5">
         <WorkspaceSwitcher />
       </div>
-      <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-3">
+      <nav className="flex-1 space-y-1.5 overflow-y-auto px-3 pb-3 pt-1.5">
         {navSections.map((section, i) => (
-          <div key={section.title ?? i} className="space-y-1">
+          <div key={section.title ?? i} className="space-y-0.5">
             {section.title ? (
-              <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              <p className="px-[11px] pb-1.5 pt-4 text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground/60">
                 {section.title}
               </p>
             ) : null}
@@ -184,7 +213,7 @@ function SidebarContent({
           </div>
         ))}
       </nav>
-      <div className="border-t p-3">
+      <div className="border-t border-border p-3">
         <UserMenu email={userEmail} />
       </div>
     </>
@@ -197,13 +226,18 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
     <Link
       href={item.href}
       className={cn(
-        "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+        "group flex items-center gap-[11px] rounded-[10px] px-[11px] py-[9px] text-[13px] font-semibold transition-colors",
         active
-          ? "bg-primary/10 text-primary"
+          ? "bg-primary/15 text-primary"
           : "text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
     >
-      <Icon className={cn("size-[18px] transition-colors", active ? "text-primary" : "text-muted-foreground group-hover:text-foreground")} />
+      <Icon
+        className={cn(
+          "size-[18px] transition-colors",
+          active ? "text-primary" : "text-muted-foreground group-hover:text-foreground",
+        )}
+      />
       {item.label}
     </Link>
   );

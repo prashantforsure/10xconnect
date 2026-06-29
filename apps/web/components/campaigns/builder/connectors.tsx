@@ -40,7 +40,7 @@ export function InsertButton({ edge }: { edge: Edge }) {
           <button
             type="button"
             aria-label="Insert step"
-            className="flex size-6 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-soft transition-colors hover:border-primary hover:text-primary"
+            className="flex size-6 items-center justify-center rounded-full border border-input bg-card text-primary shadow-soft transition-colors hover:border-primary hover:bg-primary/10"
           >
             <Plus className="size-3.5" />
           </button>
@@ -153,13 +153,13 @@ export function DelayPill({ node }: { node: GraphNode }) {
   );
 }
 
-/** Branch label pill at the top of a fork column (true = active/violet, false = muted). */
+/** Branch label pill at the top of a fork column (true = active wash, false = muted). */
 export function BranchLabel({ text, active }: { text: string; active: boolean }) {
   return (
     <span
       className={
-        "rounded-full px-3 py-1 text-xs font-medium " +
-        (active ? "bg-tint-violet text-[hsl(255_55%_50%)]" : "bg-secondary text-muted-foreground")
+        "rounded-full px-3 py-1 text-xs font-bold " +
+        (active ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive")
       }
     >
       {text}
@@ -172,7 +172,7 @@ export function EndChip() {
   return (
     <div className="flex flex-col items-center">
       <Line className="h-2" />
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed bg-secondary/50 px-3 py-1 text-[11px] text-muted-foreground">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-input bg-background/60 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
         <X className="size-3" /> End of sequence
       </span>
     </div>

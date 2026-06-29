@@ -1,21 +1,33 @@
 "use client";
 
+import {
+  AudioLines,
+  CreditCard,
+  KeyRound,
+  Palette,
+  Plug,
+  Settings2,
+  ShieldCheck,
+  Users,
+  Webhook,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-const settingsNav = [
-  { href: "/settings/general", label: "General" },
-  { href: "/settings/accounts", label: "Accounts" },
-  { href: "/settings/members", label: "Members" },
-  { href: "/settings/billing", label: "Billing" },
-  { href: "/settings/voice-cloner", label: "Voice Cloner" },
-  { href: "/settings/white-label", label: "White Label" },
-  { href: "/settings/webhooks", label: "Webhooks" },
-  { href: "/settings/integrations", label: "Integrations" },
-  { href: "/settings/api", label: "API" },
+const settingsNav: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/settings/general", label: "General", icon: Settings2 },
+  { href: "/settings/accounts", label: "Accounts & safety", icon: ShieldCheck },
+  { href: "/settings/members", label: "Members", icon: Users },
+  { href: "/settings/billing", label: "Billing", icon: CreditCard },
+  { href: "/settings/voice-cloner", label: "Voice Cloner", icon: AudioLines },
+  { href: "/settings/white-label", label: "White Label", icon: Palette },
+  { href: "/settings/webhooks", label: "Webhooks", icon: Webhook },
+  { href: "/settings/integrations", label: "Integrations", icon: Plug },
+  { href: "/settings/api", label: "API", icon: KeyRound },
 ];
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
@@ -23,26 +35,60 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-full">
-      <div className="w-56 shrink-0 border-r bg-card p-4">
-        <h2 className="mb-3 px-2 font-display text-sm font-bold tracking-tight">Settings</h2>
-        <nav className="space-y-1">
-          {settingsNav.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "block rounded-lg px-3 py-2 text-sm transition-colors",
-                pathname === item.href
-                  ? "bg-primary/10 font-medium text-primary"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
-              )}
-            >
-              {item.label}
-            </Link>
-          ))}
+      {/* Quiet left nav (desktop) */}
+      <aside className="hidden w-56 shrink-0 border-r border-border bg-card/40 p-4 md:block">
+        <h2 className="mb-3 px-3 font-display text-sm font-semibold tracking-tight">Settings</h2>
+        <nav className="space-y-0.5">
+          {settingsNav.map((item) => {
+            const active = pathname === item.href;
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-2.5 rounded-[10px] px-3 py-2 text-sm transition-colors",
+                  active
+                    ? "bg-accent font-medium text-foreground"
+                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                )}
+              >
+                <Icon
+                  className={cn(
+                    "size-4 shrink-0",
+                    active ? "text-primary" : "text-muted-foreground",
+                  )}
+                />
+                {item.label}
+              </Link>
+            );
+          })}
         </nav>
+      </aside>
+
+      <div className="min-w-0 flex-1">
+        {/* Mobile horizontal nav */}
+        <nav className="flex gap-1 overflow-x-auto border-b border-border bg-card/40 px-4 py-2 md:hidden">
+          {settingsNav.map((item) => {
+            const active = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+                  active
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                )}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+        {children}
       </div>
-      <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
 }

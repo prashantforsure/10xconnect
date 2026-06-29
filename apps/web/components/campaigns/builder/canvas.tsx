@@ -7,8 +7,11 @@ import { Stat, StatChip } from "./connectors";
 import { useBuilder } from "./context";
 import { Segment } from "./flow";
 
+// Dark dotted-grid canvas: warm hairline dots over the recessed canvas tone
+// (matches the Command Dark mockup — #2A2619 dots on a #15130C field).
 const DOTTED_BG: React.CSSProperties = {
-  backgroundImage: "radial-gradient(hsl(255 30% 60% / 0.12) 1px, transparent 1px)",
+  backgroundColor: "hsl(48 24% 6%)",
+  backgroundImage: "radial-gradient(hsl(var(--border)) 1px, transparent 1px)",
   backgroundSize: "22px 22px",
   backgroundPosition: "11px 11px",
 };
@@ -41,10 +44,10 @@ export function SequenceCanvas() {
   }, []);
 
   return (
-    <div className="relative">
+    <div className="relative h-full">
       <div
         ref={scrollRef}
-        className="h-[78vh] min-h-[32rem] overflow-auto rounded-2xl border bg-[hsl(250_30%_99%)]"
+        className="h-full overflow-auto border-t border-border"
         style={DOTTED_BG}
       >
         {/* zoom scales the layout box (CSS `zoom`) so scrollbars track the real size */}

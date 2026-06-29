@@ -17,9 +17,21 @@ export function UserMenu({ email }: { email: string }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-auto w-full justify-start gap-2.5 px-2 py-2">
-          <Avatar name={email} size="sm" />
-          <span className="truncate text-sm font-medium">{email}</span>
+        <Button
+          variant="ghost"
+          className="h-auto w-full justify-start gap-2.5 rounded-[10px] px-2.5 py-2 text-left"
+        >
+          <span className="flex size-[30px] shrink-0 items-center justify-center rounded-full border border-input bg-muted font-display text-[11px] font-bold text-primary">
+            {email.charAt(0).toUpperCase()}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[12.5px] font-semibold text-foreground">
+              {email.split("@")[0]}
+            </span>
+            <span className="block truncate text-[10.5px] font-normal text-muted-foreground">
+              {email}
+            </span>
+          </span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top" className="w-60">
