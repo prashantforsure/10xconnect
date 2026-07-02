@@ -3,8 +3,10 @@
 import {
   AlertTriangle,
   ExternalLink,
+  Infinity as InfinityIcon,
   Info,
   Linkedin,
+  Lock,
   MoreHorizontal,
   Puzzle,
   RefreshCw,
@@ -13,6 +15,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { Avatar } from "@/components/ui/avatar";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,11 +49,13 @@ interface AccountView {
   type: "linkedin" | "mailbox";
   connection_method: ConnectionMethod | null;
   name: string | null;
+  label: string | null;
   proxy_type: "bundled" | "own" | null;
   proxy_region: string | null;
   country: string | null;
   status: AccountStatus;
   health_score: number;
+  avatar_url: string | null;
 }
 
 interface NotificationView {
@@ -91,7 +96,7 @@ const METHOD_LABEL: Record<ConnectionMethod, string> = {
   hosted_auth: "Hosted login",
   extension: "Extension",
   cookie: "Session cookie",
-  credentials: "Credentials",
+  credentials: "Infinite login",
 };
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -252,18 +257,40 @@ export function AccountsClient() {
     }
   };
 
-  const linkedInAccount = accounts.find((a) => a.type === "linkedin") ?? null;
+  const linkedInAccounts = accounts.filter((a) => a.type === "linkedin");
 
-  // Primary: Hosted Auth (lowest friction — one login on the provider's page).
+  // Open the method chooser (equal options). `target` = the account to reconnect,
+  // or null to connect a brand-new account.
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [chooserTarget, setChooserTarget] = useState<AccountView | null>(null);
+  const [connectInitialMode, setConnectInitialMode] = useState<ConnectMode>("extension");
+  const [infiniteOpen, setInfiniteOpen] = useState(false);
+  const [infiniteTarget, setInfiniteTarget] = useState<AccountView | null>(null);
+
   const openConnect = (target: AccountView | null): void => {
-    setHostedTarget(target);
-    setHostedOpen(true);
+    setChooserTarget(target);
+    setChooserOpen(true);
   };
-  // Secondary: the extension / manual li_at modal ("connect another way").
+  // The chooser routes to one of the four connect flows.
+  const pickMethod = (method: ConnectChoice): void => {
+    setChooserOpen(false);
+    if (method === "infinite") {
+      setInfiniteTarget(chooserTarget);
+      setInfiniteOpen(true);
+    } else if (method === "hosted") {
+      setHostedTarget(chooserTarget);
+      setHostedOpen(true);
+    } else {
+      setReconnectTarget(chooserTarget);
+      setConnectInitialMode(method === "manual" ? "manual" : "extension");
+      setConnectOpen(true);
+    }
+  };
+  // Secondary link inside the hosted modal ("connect another way") → back to chooser.
   const openOtherWays = (target: AccountView | null): void => {
     setHostedOpen(false);
-    setReconnectTarget(target);
-    setConnectOpen(true);
+    setChooserTarget(target);
+    setChooserOpen(true);
   };
 
   const setStatus = async (account: AccountView, action: "pause" | "resume"): Promise<void> => {
@@ -307,31 +334,22 @@ export function AccountsClient() {
     return <p className="text-sm text-destructive">{error}</p>;
   }
 
-  const needsReconnect =
-    linkedInAccount != null &&
-    (linkedInAccount.status === "restricted" || linkedInAccount.status === "disconnected");
-
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="font-display text-base font-semibold tracking-tight">Connected account</h2>
+          <h2 className="font-display text-base font-semibold tracking-tight">
+            LinkedIn accounts{linkedInAccounts.length > 0 ? ` (${linkedInAccounts.length})` : ""}
+          </h2>
           <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
-            Account safety is the priority — sending is paced per account to keep it healthy. One
-            LinkedIn account per workspace; log in once and we handle the rest.
+            Account safety is the priority — each account gets its own region-matched proxy and is
+            paced independently to stay healthy. Connect as many accounts as your plan allows.
           </p>
         </div>
-        {linkedInAccount ? (
-          <Button variant="outline" onClick={() => openConnect(linkedInAccount)} className="shrink-0">
-            <RefreshCw />
-            Reconnect
-          </Button>
-        ) : (
-          <Button onClick={() => openConnect(null)} className="shrink-0">
-            <Puzzle />
-            Connect LinkedIn
-          </Button>
-        )}
+        <Button onClick={() => openConnect(null)} className="shrink-0">
+          <Puzzle />
+          Connect account
+        </Button>
       </div>
 
       {actionError ? (
@@ -342,138 +360,44 @@ export function AccountsClient() {
 
       <IncidentNotices notices={notices} onDismiss={dismissNotice} />
 
-      {!linkedInAccount ? (
+      {linkedInAccounts.length === 0 ? (
         <div className="surface-card flex flex-col items-center border-dashed p-12 text-center">
           <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <ShieldCheck className="size-7" />
           </span>
-          <p className="mt-4 font-display text-lg font-semibold">Connect your LinkedIn account</p>
+          <p className="mt-4 font-display text-lg font-semibold">Connect your first LinkedIn account</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            Click connect and log in to LinkedIn once on the secure hosted page — no password to
-            hand over, no third-party account to set up. We run the automation for you, warm the
-            account up gradually, and never exceed safe daily limits.
+            Log in once — no password to hand over. We run the automation for you, warm the account
+            up gradually, and never exceed safe daily limits. Add more accounts any time.
           </p>
           <Button className="mt-5" onClick={() => openConnect(null)}>
-            Connect LinkedIn
+            Connect account
           </Button>
         </div>
       ) : (
-        <div className="space-y-3">
-          {needsReconnect ? (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
-              <span className="text-destructive">
-                This account is {linkedInAccount.status}. Reconnect to resume outreach — your
-                campaigns and history are kept.
-              </span>
-              <Button size="sm" onClick={() => openConnect(linkedInAccount)}>
-                <RefreshCw />
-                Reconnect
-              </Button>
-            </div>
-          ) : null}
-
-          <div className="flex items-center gap-4 rounded-2xl border border-border bg-card p-5 sm:gap-5">
-            {/* Health ring — the safety focal point */}
-            <HealthRing score={linkedInAccount.health_score} />
-
-            {/* Identity */}
-            <div className="min-w-0 sm:w-52">
-              <div className="flex items-center gap-2">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-[7px] bg-chart-2/15 text-chart-2">
-                  <Linkedin className="size-3.5 fill-current" />
-                </span>
-                <span className="truncate text-sm font-semibold">
-                  {linkedInAccount.name ?? "LinkedIn account"}
-                </span>
-              </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-                {linkedInAccount.country ? <span>{linkedInAccount.country}</span> : null}
-                {linkedInAccount.country ? <span>·</span> : null}
-                <span>
-                  {linkedInAccount.connection_method
-                    ? METHOD_LABEL[linkedInAccount.connection_method]
-                    : "—"}
-                </span>
-                {linkedInAccount.proxy_type ? (
-                  <>
-                    <span>·</span>
-                    <span>
-                      {linkedInAccount.proxy_type === "bundled" ? "Bundled proxy" : "Own proxy"}
-                    </span>
-                  </>
-                ) : null}
-              </div>
-            </div>
-
-            {/* Daily pacing bar — visible account-safety language */}
-            <div className="hidden min-w-0 flex-1 sm:block">
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <span className="text-[11.5px] font-medium text-muted-foreground">
-                  Daily pacing · safe limits
-                </span>
-                <StatusBadge status={linkedInAccount.status} />
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
-                <div
-                  className={cn(
-                    "h-full rounded-full",
-                    healthTone(linkedInAccount.health_score).track,
-                  )}
-                  style={{
-                    width: `${Math.max(6, Math.min(100, linkedInAccount.health_score))}%`,
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Status pill (mobile, where the pacing bar is hidden) */}
-            <div className="sm:hidden">
-              <StatusBadge status={linkedInAccount.status} />
-            </div>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" aria-label="Account actions" className="shrink-0">
-                  <MoreHorizontal />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => openConnect(linkedInAccount)}>
-                  Reconnect
-                </DropdownMenuItem>
-                {linkedInAccount.status === "paused" ? (
-                  <DropdownMenuItem onSelect={() => void setStatus(linkedInAccount, "resume")}>
-                    Resume
-                  </DropdownMenuItem>
-                ) : linkedInAccount.status === "active" || linkedInAccount.status === "warming" ? (
-                  <DropdownMenuItem onSelect={() => void setStatus(linkedInAccount, "pause")}>
-                    Pause
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onSelect={() => setDisconnectTarget(linkedInAccount)}
-                >
-                  Disconnect
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          {/* Safety engine reassurance — first-class, always visible */}
-          <div className="flex items-start gap-3 rounded-2xl border border-success/20 bg-success/[0.06] p-4">
-            <ShieldCheck className="mt-0.5 size-[17px] shrink-0 text-success" />
-            <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-              <strong className="font-semibold text-foreground">
-                How the safety engine protects you.
-              </strong>{" "}
-              Each account warms up gradually, respects human-like daily limits, and auto-pauses on
-              any LinkedIn checkpoint — so you never risk a restriction. The score reflects sending
-              velocity, acceptance, and account age.
-            </p>
-          </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {linkedInAccounts.map((acct) => (
+            <AccountCard
+              key={acct.id}
+              account={acct}
+              onReconnect={() => openConnect(acct)}
+              onStatus={(action) => void setStatus(acct, action)}
+              onDisconnect={() => setDisconnectTarget(acct)}
+            />
+          ))}
         </div>
       )}
+
+      {/* Safety engine reassurance — first-class, always visible */}
+      <div className="flex items-start gap-3 rounded-2xl border border-success/20 bg-success/[0.06] p-4">
+        <ShieldCheck className="mt-0.5 size-[17px] shrink-0 text-success" />
+        <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+          <strong className="font-semibold text-foreground">How the safety engine protects you.</strong>{" "}
+          Each account warms up gradually, respects human-like daily limits, and auto-pauses on any
+          LinkedIn checkpoint — so you never risk a restriction. The score reflects sending velocity,
+          acceptance, and account age.
+        </p>
+      </div>
 
       <HostedAuthModal
         open={hostedOpen}
@@ -489,15 +413,39 @@ export function AccountsClient() {
         onOtherWays={() => openOtherWays(hostedTarget)}
       />
 
+      <ConnectChooserModal
+        open={chooserOpen}
+        isReconnect={chooserTarget != null}
+        onClose={() => setChooserOpen(false)}
+        onPick={pickMethod}
+      />
+
       <ConnectModal
         open={connectOpen}
         existing={reconnectTarget}
+        initialMode={connectInitialMode}
         onClose={() => setConnectOpen(false)}
         onConnected={async (res) => {
           setGuidance(res.guidance);
           await load();
         }}
         connect={(body) => api.request<ConnectResponse>("/accounts/connect", { method: "POST", body })}
+      />
+
+      <InfiniteLoginModal
+        open={infiniteOpen}
+        existing={infiniteTarget}
+        onClose={() => setInfiniteOpen(false)}
+        onConnected={async (res) => {
+          setGuidance(res.guidance);
+          await load();
+        }}
+        connect={(body) => api.request<ConnectResponse>("/accounts/connect", { method: "POST", body })}
+        onOtherWays={() => {
+          setInfiniteOpen(false);
+          setChooserTarget(infiniteTarget);
+          setChooserOpen(true);
+        }}
       />
 
       <Modal
@@ -535,43 +483,223 @@ export function AccountsClient() {
   );
 }
 
+type HostedOutcome = "success" | "failure" | "unknown";
+
 /**
  * Resolve when the Hosted Auth popup signals completion: either the
- * /connect/callback page postMessages back, the popup is closed, or a hard
- * timeout elapses. We refresh the account list either way.
+ * /connect/callback page postMessages back (carrying success/failure), the popup
+ * is closed, or a hard timeout elapses. "unknown" = we never got an explicit
+ * signal (popup closed / timed out) — the account only appears if the provider
+ * webhook succeeded, so the caller re-checks the list.
  */
-function waitForHostedCompletion(popup: Window | null): Promise<void> {
+function waitForHostedCompletion(popup: Window | null): Promise<HostedOutcome> {
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (): void => {
+    const finish = (outcome: HostedOutcome): void => {
       if (settled) {
         return;
       }
       settled = true;
       window.removeEventListener("message", onMessage);
       window.clearInterval(timer);
-      resolve();
+      resolve(outcome);
     };
     const onMessage = (event: MessageEvent): void => {
       if (event.origin !== window.location.origin) {
         return;
       }
-      const data = event.data as { source?: string } | null;
+      const data = event.data as { source?: string; status?: string } | null;
       if (data && data.source === "10xconnect-hosted-auth") {
-        finish();
+        finish(data.status === "failure" ? "failure" : "success");
       }
     };
     window.addEventListener("message", onMessage);
     const startedAt = Date.now();
     const timer = window.setInterval(() => {
       if ((popup && popup.closed) || Date.now() - startedAt > 3 * 60_000) {
-        finish();
+        finish("unknown");
       }
     }, 1000);
   });
 }
 
 type HostedAuthPhase = "idle" | "connecting";
+
+/** One LinkedIn account in the multi-account grid: health ring, identity, pacing, actions. */
+function AccountCard({
+  account,
+  onReconnect,
+  onStatus,
+  onDisconnect,
+}: {
+  account: AccountView;
+  onReconnect: () => void;
+  onStatus: (action: "pause" | "resume") => void;
+  onDisconnect: () => void;
+}) {
+  const needsReconnect = account.status === "restricted" || account.status === "disconnected";
+  const title = account.label || account.name || "LinkedIn account";
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5">
+      <div className="flex items-center gap-4">
+        <HealthRing score={account.health_score} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2.5">
+            {/* Profile photo with a LinkedIn channel badge. */}
+            <span className="relative shrink-0">
+              <Avatar name={title} src={account.avatar_url} size="md" />
+              <span className="absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-chart-2 ring-2 ring-card">
+                <Linkedin className="size-2 fill-current text-white" />
+              </span>
+            </span>
+            <span className="truncate text-sm font-semibold">{title}</span>
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+            {account.country ? <span>{account.country}</span> : null}
+            {account.country ? <span>·</span> : null}
+            <span>{account.connection_method ? METHOD_LABEL[account.connection_method] : "—"}</span>
+            {account.proxy_type ? (
+              <>
+                <span>·</span>
+                <span>{account.proxy_type === "bundled" ? "Bundled proxy" : "Own proxy"}</span>
+              </>
+            ) : null}
+          </div>
+        </div>
+        <StatusBadge status={account.status} />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" aria-label="Account actions" className="shrink-0">
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={onReconnect}>Reconnect</DropdownMenuItem>
+            {account.status === "paused" ? (
+              <DropdownMenuItem onSelect={() => onStatus("resume")}>Resume</DropdownMenuItem>
+            ) : account.status === "active" || account.status === "warming" ? (
+              <DropdownMenuItem onSelect={() => onStatus("pause")}>Pause</DropdownMenuItem>
+            ) : null}
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={onDisconnect}
+            >
+              Disconnect
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div>
+        <span className="mb-1.5 block text-[11.5px] font-medium text-muted-foreground">
+          Daily pacing · safe limits
+        </span>
+        <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+          <div
+            className={cn("h-full rounded-full", healthTone(account.health_score).track)}
+            style={{ width: `${Math.max(6, Math.min(100, account.health_score))}%` }}
+          />
+        </div>
+      </div>
+
+      {needsReconnect ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
+          <span className="text-destructive">
+            This account is {account.status}. Reconnect to resume — campaigns are kept.
+          </span>
+          <Button size="sm" onClick={onReconnect}>
+            <RefreshCw />
+            Reconnect
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** The four connect methods the chooser routes to. */
+type ConnectChoice = "infinite" | "hosted" | "extension" | "manual";
+
+/** Equal-option connect chooser: Infinite login / Hosted login / Extension / Paste li_at. */
+function ConnectChooserModal({
+  open,
+  isReconnect,
+  onClose,
+  onPick,
+}: {
+  open: boolean;
+  isReconnect: boolean;
+  onClose: () => void;
+  onPick: (method: ConnectChoice) => void;
+}) {
+  const options: {
+    key: ConnectChoice;
+    icon: typeof Linkedin;
+    title: string;
+    desc: string;
+    badge?: string;
+    devOnly?: boolean;
+  }[] = [
+    {
+      key: "infinite",
+      icon: InfinityIcon,
+      title: "Infinite login",
+      desc: "Stays connected — we log in with your LinkedIn credentials + 2FA and silently re-authenticate whenever the session drops. No more reconnecting. Requires authenticator-app 2FA.",
+      badge: "Best · stays connected",
+    },
+    {
+      key: "hosted",
+      icon: ShieldCheck,
+      title: "Log in on LinkedIn",
+      desc: "Log in once on LinkedIn's secure page in a popup. No password shared, no extension.",
+      badge: "No password",
+    },
+    {
+      key: "extension",
+      icon: Puzzle,
+      title: "Browser extension",
+      desc: "Connect through the 10xConnect extension — it rides your real signed-in session.",
+    },
+    {
+      key: "manual",
+      icon: ExternalLink,
+      title: "Paste li_at cookie",
+      desc: "Advanced/testing: paste your li_at session cookie + matching user-agent manually.",
+      devOnly: true,
+    },
+  ];
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={isReconnect ? "Reconnect LinkedIn" : "Connect a LinkedIn account"}
+      description="Choose how you'd like to connect. All methods are safe — pick whatever's easiest for you."
+    >
+      <div className="space-y-2.5">
+        {options
+          .filter((o) => !o.devOnly || MANUAL_CONNECT_ENABLED)
+          .map((o) => (
+            <button
+              key={o.key}
+              onClick={() => onPick(o.key)}
+              className="flex w-full items-start gap-3 rounded-xl border border-border bg-secondary px-4 py-3 text-left transition-colors hover:border-input hover:bg-accent"
+            >
+              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <o.icon className="size-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  {o.title}
+                  {o.badge ? <Badge variant="success">{o.badge}</Badge> : null}
+                </span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">{o.desc}</span>
+              </span>
+            </button>
+          ))}
+      </div>
+    </Modal>
+  );
+}
 
 function HostedAuthModal({
   open,
@@ -585,7 +713,10 @@ function HostedAuthModal({
   existing: AccountView | null;
   onClose: () => void;
   onConnected: () => Promise<void>;
-  createLink: (body: { country: string }) => Promise<{ url: string; expiresAt: string }>;
+  createLink: (body: { country: string; reconnectAccountId?: string }) => Promise<{
+    url: string;
+    expiresAt: string;
+  }>;
   onOtherWays: () => void;
 }) {
   const [country, setCountry] = useState("US");
@@ -620,13 +751,26 @@ function HostedAuthModal({
     setPhase("connecting");
     void (async () => {
       try {
-        const { url } = await createLink({ country: country.trim().toUpperCase() });
+        const { url } = await createLink({
+          country: country.trim().toUpperCase(),
+          ...(existing ? { reconnectAccountId: existing.id } : {}),
+        });
         if (popup) {
           popup.location.href = url;
         } else {
           window.open(url, "10xconnect-linkedin");
         }
-        await waitForHostedCompletion(popup);
+        const outcome = await waitForHostedCompletion(popup);
+        if (outcome === "failure") {
+          // LinkedIn login was cancelled or a checkpoint failed — do NOT claim
+          // connected. The account list is unchanged.
+          setError(
+            "LinkedIn didn't complete the connection (login cancelled or a security checkpoint). Please try again.",
+          );
+          return;
+        }
+        // success / unknown → refresh; the account appears once the provider
+        // webhook finalizes it.
         await onConnected();
         onClose();
       } catch (err) {
@@ -717,10 +861,17 @@ type ConnectBody = {
   liAt: string;
   userAgent: string;
   proxy: ProxyBody;
+  /** Set to refresh a specific account (reconnect); omit to connect a new one. */
+  reconnectAccountId?: string;
+  label?: string;
 };
 
 type ConnectPhase = "idle" | "capturing" | "connecting";
 type ConnectMode = "extension" | "manual";
+
+// scheme://[user:pass@]host:port — mirrors the server-side PROXY_URL_RE so an
+// invalid own-proxy is caught before we ever call the API (clear, instant error).
+const PROXY_URL_RE = /^(https?|socks5h?):\/\/([^\s:@/]+(:[^\s@/]*)?@)?[^\s:@/]+:\d{2,5}$/i;
 
 // The manual li_at path is a testing affordance — the extension is the product
 // method. Shown only outside production, or when explicitly enabled.
@@ -731,17 +882,19 @@ const MANUAL_CONNECT_ENABLED =
 function ConnectModal({
   open,
   existing,
+  initialMode = "extension",
   onClose,
   onConnected,
   connect,
 }: {
   open: boolean;
   existing: AccountView | null;
+  initialMode?: ConnectMode;
   onClose: () => void;
   onConnected: (res: ConnectResponse) => Promise<void>;
   connect: (body: ConnectBody) => Promise<ConnectResponse>;
 }) {
-  const [mode, setMode] = useState<ConnectMode>("extension");
+  const [mode, setMode] = useState<ConnectMode>(initialMode);
   const [country, setCountry] = useState("US");
   const [liAt, setLiAt] = useState("");
   const [userAgent, setUserAgent] = useState("");
@@ -759,7 +912,7 @@ function ConnectModal({
     if (!open) {
       return;
     }
-    setMode("extension");
+    setMode(initialMode);
     setCountry(existing?.country ?? "US");
     setLiAt("");
     // Default the user-agent to THIS browser — for the manual path it must match
@@ -779,7 +932,7 @@ function ConnectModal({
     return () => {
       active = false;
     };
-  }, [open, existing]);
+  }, [open, existing, initialMode]);
 
   const busy = phase !== "idle";
 
@@ -796,7 +949,8 @@ function ConnectModal({
     setExtInstalled(await detectExtension());
   };
 
-  const proxyValid = proxyMode === "bundled" || proxyUrl.trim().length > 0;
+  const proxyUrlValid = PROXY_URL_RE.test(proxyUrl.trim());
+  const proxyValid = proxyMode === "bundled" || proxyUrlValid;
   const manualValid = liAt.trim().length >= 20 && userAgent.trim().length > 0;
   const valid =
     country.trim().length >= 2 && proxyValid && (mode === "extension" || manualValid);
@@ -819,6 +973,7 @@ function ConnectModal({
           liAt: liAt.trim(),
           userAgent: userAgent.trim(),
           proxy,
+          ...(existing ? { reconnectAccountId: existing.id } : {}),
         };
       } else {
         // Capture the li_at session from the user's logged-in LinkedIn tab,
@@ -832,6 +987,7 @@ function ConnectModal({
           liAt: captured.liAt,
           userAgent: navigator.userAgent,
           proxy,
+          ...(existing ? { reconnectAccountId: existing.id } : {}),
         };
       }
       const res = await connect(body);
@@ -998,13 +1154,21 @@ function ConnectModal({
             ))}
           </div>
           {proxyMode === "own" ? (
-            <Input
-              value={proxyUrl}
-              onChange={(e) => setProxyUrl(e.target.value)}
-              placeholder="http://user:pass@host:port"
-              autoComplete="off"
-              disabled={busy}
-            />
+            <>
+              <Input
+                value={proxyUrl}
+                onChange={(e) => setProxyUrl(e.target.value)}
+                placeholder="http://user:pass@host:port"
+                autoComplete="off"
+                disabled={busy}
+              />
+              {proxyUrl.trim().length > 0 && !proxyUrlValid ? (
+                <p className="mt-1 text-xs text-destructive">
+                  Use scheme://[user:pass@]host:port — e.g. http://user:pass@host:8080 or
+                  socks5://host:1080.
+                </p>
+              ) : null}
+            </>
           ) : null}
         </div>
 
@@ -1035,6 +1199,287 @@ function ConnectModal({
           </Button>
         </div>
       </div>
+    </Modal>
+  );
+}
+
+type CredentialsConnectBody = {
+  method: "credentials";
+  country: string;
+  email: string;
+  password: string;
+  totpSecret?: string;
+  proxy: ProxyBody;
+  /** Set to refresh a specific account (reconnect); omit to connect a new one. */
+  reconnectAccountId?: string;
+  label?: string;
+};
+
+/**
+ * Infinite login (CLAUDE.md §6): connect with LinkedIn email + password + the
+ * authenticator-app TOTP secret. Because we hold the credentials + 2FA secret, we
+ * silently re-authenticate whenever LinkedIn drops the session — the account stays
+ * connected. Gated on authenticator-app 2FA (not SMS), mirroring the provider's
+ * requirement. Password + TOTP secret are sent once and stored encrypted at rest.
+ */
+function InfiniteLoginModal({
+  open,
+  existing,
+  onClose,
+  onConnected,
+  connect,
+  onOtherWays,
+}: {
+  open: boolean;
+  existing: AccountView | null;
+  onClose: () => void;
+  onConnected: (res: ConnectResponse) => Promise<void>;
+  connect: (body: CredentialsConnectBody) => Promise<ConnectResponse>;
+  onOtherWays: () => void;
+}) {
+  const [stage, setStage] = useState<"gate" | "form">("gate");
+  const [country, setCountry] = useState("US");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [totpSecret, setTotpSecret] = useState("");
+  const [proxyMode, setProxyMode] = useState<"bundled" | "own">("bundled");
+  const [proxyUrl, setProxyUrl] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isReconnect = existing != null;
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setStage("gate");
+    setCountry(existing?.country ?? "US");
+    setEmail("");
+    setPassword("");
+    setTotpSecret("");
+    setProxyMode(existing?.proxy_type === "own" ? "own" : "bundled");
+    setProxyUrl("");
+    setConnecting(false);
+    setError(null);
+  }, [open, existing]);
+
+  const close = (): void => {
+    if (!connecting) {
+      onClose();
+    }
+  };
+
+  const proxyUrlValid = PROXY_URL_RE.test(proxyUrl.trim());
+  const proxyValid = proxyMode === "bundled" || proxyUrlValid;
+  const valid =
+    country.trim().length >= 2 &&
+    /.+@.+\..+/.test(email.trim()) &&
+    password.length >= 1 &&
+    // TOTP secret is what makes login "infinite" — required here (it's the whole point).
+    totpSecret.trim().length >= 8 &&
+    proxyValid;
+
+  const submit = async (): Promise<void> => {
+    if (connecting || !valid) {
+      return;
+    }
+    setError(null);
+    setConnecting(true);
+    const proxy: ProxyBody =
+      proxyMode === "own" ? { mode: "own", url: proxyUrl.trim() } : { mode: "bundled" };
+    try {
+      const res = await connect({
+        method: "credentials",
+        country: country.trim(),
+        email: email.trim(),
+        password,
+        totpSecret: totpSecret.trim(),
+        proxy,
+        ...(existing ? { reconnectAccountId: existing.id } : {}),
+      });
+      await onConnected(res);
+      onClose();
+    } catch (err) {
+      setError(errorMessage(err, "Could not connect the account"));
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={close}
+      title={isReconnect ? "Reconnect with Infinite login" : "Infinite login"}
+      description="Stay connected: we sign the account in and silently re-authenticate whenever LinkedIn drops the session — no more reconnecting."
+    >
+      {stage === "gate" ? (
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/[0.06] p-4">
+            <InfinityIcon className="mt-0.5 size-[18px] shrink-0 text-primary" />
+            <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+              Infinite login needs <strong className="text-foreground">authenticator-app 2FA</strong>{" "}
+              (TOTP — e.g. Google Authenticator / Authy) enabled on the account. That&apos;s what lets
+              us solve LinkedIn&apos;s security checkpoint for you and re-log in automatically. SMS 2FA
+              won&apos;t work.
+            </p>
+          </div>
+          <div className="space-y-1.5 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5 font-medium text-foreground">
+              <Info className="size-3.5" />
+              Turn on authenticator 2FA (if you haven&apos;t)
+            </div>
+            <ul className="list-disc space-y-1 pl-4">
+              <li>LinkedIn → Settings &amp; Privacy → Sign in &amp; security → Two-step verification.</li>
+              <li>Choose <strong>Authenticator app</strong>, and keep the setup key (the base32 secret) — you&apos;ll paste it next.</li>
+            </ul>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={onOtherWays}
+              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            >
+              Connect another way
+            </button>
+            <Button type="button" onClick={() => setStage("form")}>
+              I have authenticator 2FA — continue
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="inf-email">LinkedIn email</Label>
+            <Input
+              id="inf-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@company.com"
+              autoComplete="off"
+              disabled={connecting}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="inf-password">LinkedIn password</Label>
+            <Input
+              id="inf-password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              autoComplete="off"
+              disabled={connecting}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="inf-totp">Authenticator 2FA secret (setup key)</Label>
+            <Input
+              id="inf-totp"
+              value={totpSecret}
+              onChange={(e) => setTotpSecret(e.target.value)}
+              placeholder="JBSWY3DPEHPK3PXP"
+              autoComplete="off"
+              spellCheck={false}
+              disabled={connecting}
+            />
+            <p className="text-xs text-muted-foreground">
+              The base32 secret shown when you set up authenticator 2FA (not the 6-digit code). We
+              store it encrypted and use it only to re-log in for you.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="inf-country">Account country</Label>
+            <Select
+              id="inf-country"
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              disabled={connecting}
+            >
+              {COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name} ({c.code})
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Pick where this account normally signs in — it runs on a matching residential proxy, so
+              LinkedIn never sees impossible travel.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>Proxy</Label>
+            <div className="grid grid-cols-2 gap-2">
+              {(["bundled", "own"] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  disabled={connecting}
+                  onClick={() => setProxyMode(p)}
+                  className={cn(
+                    "rounded-md border px-3 py-2 text-sm capitalize transition-colors disabled:opacity-50",
+                    proxyMode === p ? "border-primary bg-primary/5" : "hover:bg-accent",
+                  )}
+                >
+                  {p === "bundled" ? "Use our proxy" : "Use my own"}
+                </button>
+              ))}
+            </div>
+            {proxyMode === "own" ? (
+              <>
+                <Input
+                  value={proxyUrl}
+                  onChange={(e) => setProxyUrl(e.target.value)}
+                  placeholder="http://user:pass@host:port"
+                  autoComplete="off"
+                  disabled={connecting}
+                />
+                {proxyUrl.trim().length > 0 && !proxyUrlValid ? (
+                  <p className="mt-1 text-xs text-destructive">
+                    Use scheme://[user:pass@]host:port — e.g. http://user:pass@host:8080 or
+                    socks5://host:1080.
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+
+          <div className="flex items-start gap-2 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">
+            <Lock className="mt-0.5 size-3.5 shrink-0" />
+            <span>
+              Your password + 2FA secret are encrypted at rest (AES-256-GCM) and never shown again.
+              Don&apos;t change the account password afterwards — it invalidates the stored login.
+            </span>
+          </div>
+
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setStage("gate")}
+              disabled={connecting}
+              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+            >
+              Back
+            </button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={close} disabled={connecting}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={() => void submit()} disabled={!valid || connecting}>
+                <InfinityIcon />
+                {connecting
+                  ? "Connecting…"
+                  : isReconnect
+                    ? "Reconnect"
+                    : "Connect with Infinite login"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

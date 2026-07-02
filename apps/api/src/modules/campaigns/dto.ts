@@ -50,11 +50,28 @@ export type SaveFrequencyDto = z.infer<typeof saveFrequencySchema>;
 // --- Schedule (per-weekday working hours, UTC) -----------------------------
 
 const HHMM = /^\d{1,2}:\d{2}$/;
-const daySchedule = z.object({
-  enabled: z.boolean(),
-  start: z.string().regex(HHMM, "Use HH:MM (24h, UTC)"),
-  end: z.string().regex(HHMM, "Use HH:MM (24h, UTC)"),
-});
+const toMinutes = (s: string): number => {
+  const [h = 0, m = 0] = s.split(":").map(Number);
+  return h * 60 + m;
+};
+const isClockTime = (s: string): boolean => {
+  const [h = -1, m = -1] = s.split(":").map(Number);
+  return h >= 0 && h <= 23 && m >= 0 && m <= 59;
+};
+const daySchedule = z
+  .object({
+    enabled: z.boolean(),
+    start: z.string().regex(HHMM, "Use HH:MM (24h, UTC)"),
+    end: z.string().regex(HHMM, "Use HH:MM (24h, UTC)"),
+  })
+  .refine((d) => isClockTime(d.start) && isClockTime(d.end), {
+    message: "Times must be within 00:00–23:59",
+  })
+  // An inverted window (start ≥ end) would make the dispatch scheduler's
+  // working-hours math undefined — reject it for enabled days (§6).
+  .refine((d) => !d.enabled || toMinutes(d.start) < toMinutes(d.end), {
+    message: "Start must be before end",
+  });
 
 export const saveScheduleSchema = z.object({
   schedule: z.object({
@@ -138,8 +155,10 @@ export const enrollLeadsSchema = z
   .object({
     leadIds: z.array(z.string().uuid()).max(5000).optional(),
     listId: z.string().uuid().optional(),
+    /** Enroll every contact in the workspace (respects suppression + skip-already-contacted). */
+    allContacts: z.boolean().optional(),
   })
-  .refine((v) => (v.leadIds && v.leadIds.length > 0) || v.listId, {
-    message: "Provide leadIds or a listId",
+  .refine((v) => (v.leadIds && v.leadIds.length > 0) || v.listId || v.allContacts, {
+    message: "Provide leadIds, a listId, or allContacts",
   });
 export type EnrollLeadsDto = z.infer<typeof enrollLeadsSchema>;

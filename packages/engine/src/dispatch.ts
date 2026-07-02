@@ -21,7 +21,7 @@ import type { Json } from "@10xconnect/db";
 
 import { maybeChargeActivityProfileVisit } from "./activity-budget";
 import { runConversationTurn } from "./brain/turn";
-import { advanceLead, type CampaignRow } from "./campaign-runner";
+import { advanceLead, type CampaignRow, maybeCompleteCampaign } from "./campaign-runner";
 import { evaluateCondition } from "./conditions";
 import { executeTransportAction } from "./executor";
 import { isConditionType, isOrchestrationNode, nodeToActionType } from "./nodes";
@@ -199,8 +199,9 @@ async function processAction(
     return;
   }
 
-  // --- conversation turn (AI brain: draft a grounded suggestion) -----------
-  // Also node-less. Produces a message_drafts row (never sends — approve_all).
+  // --- conversation turn (AI brain: draft, then apply the autonomy dial) ---
+  // Also node-less. Produces a message_drafts row; the autonomy dial then either
+  // leaves it pending (approve_all) or auto-sends it (Balanced/Autopilot).
   if (asObject(action.config).kind === "conversation_turn") {
     await handleConversationTurn(deps, action, now, stats);
     return;
@@ -442,6 +443,7 @@ async function processAction(
     .set({ status: "failed" })
     .where("id", "=", (state as LeadStateRow).id)
     .execute();
+  await maybeCompleteCampaign(deps, campaign.id);
   stats.failed += 1;
 }
 
@@ -536,6 +538,13 @@ async function handleConversationReply(
 
   const attempts = action.attempts + 1;
   if (result.status === "success") {
+    // Mark who sent it: "ai" when the autonomy dial auto-sent (no human in the
+    // loop), else "human" (manual reply / approved draft). Drives the inbox
+    // "sent by AI" chip + AI-SDR analytics.
+    const authoredBy = asObject(action.config).authoredBy === "ai" ? "ai" : "human";
+    // dispatch_key + ON CONFLICT: the provider send is idempotent, but a retry
+    // after a mid-crash (send ok, finalize failed) must not append the same
+    // message to the thread twice.
     await deps.db
       .insertInto("messages")
       .values({
@@ -544,7 +553,10 @@ async function handleConversationReply(
         direction: "outbound",
         channel: convo.channel,
         body,
+        authored_by: authoredBy,
+        dispatch_key: action.idempotency_key,
       })
+      .onConflict((oc) => oc.column("dispatch_key").doNothing())
       .execute();
     // The thread has been answered → clear "reply required".
     await deps.db
@@ -586,8 +598,10 @@ async function handleConversationReply(
 }
 
 /**
- * Process a conversation-turn action: run the brain to draft a grounded
- * suggestion into the inbox (autonomy=approve_all → never sends). Failures are
+ * Process a conversation-turn action: run the brain to draft a grounded reply,
+ * then apply the campaign's autonomy dial — leave it pending for a human
+ * (approve_all) or auto-send it (Balanced/Autopilot), always behind the
+ * grounding guard, hot-lead escalation, and budget/turn caps. Failures are
  * non-fatal — the thread stays flagged for a human regardless.
  */
 async function handleConversationTurn(

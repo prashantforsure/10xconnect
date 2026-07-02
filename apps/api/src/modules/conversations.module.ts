@@ -380,7 +380,7 @@ export class ConversationsService {
     }
     const messages = await this.db
       .selectFrom("messages")
-      .select(["id", "direction", "channel", "body", "voice_ref as voiceRef", "created_at as at"])
+      .select(["id", "direction", "channel", "body", "voice_ref as voiceRef", "authored_by as authoredBy", "created_at as at"])
       .where("conversation_id", "=", id)
       .orderBy("created_at", "asc")
       .execute();
@@ -411,10 +411,22 @@ export class ConversationsService {
     const relRow = c.leadId
       ? await this.db
           .selectFrom("relationship_state")
-          .select(["stage", "intent_score as intentScore", "summary", "next_action as nextAction", "do_not_reply as doNotReply"])
+          .select(["stage", "intent_score as intentScore", "summary", "next_action as nextAction", "do_not_reply as doNotReply", "campaign_id as campaignId"])
           .where("lead_id", "=", c.leadId)
           .executeTakeFirst()
       : undefined;
+    // The AI reply mode of the campaign this conversation belongs to (drives the
+    // inbox copy: Manual drafts-for-approval vs Balanced/Autopilot auto-send).
+    const brainRow = relRow?.campaignId
+      ? await this.db
+          .selectFrom("campaigns")
+          .select(["autonomy", "objective", "knowledge_base_id as knowledgeBaseId"])
+          .where("id", "=", relRow.campaignId)
+          .executeTakeFirst()
+      : undefined;
+    const aiMode =
+      (asObject(brainRow?.autonomy).mode as string | undefined) ?? null;
+    const hasBrain = Boolean(brainRow?.objective || brainRow?.knowledgeBaseId);
     const relationship = relRow
       ? {
           stage: relRow.stage,
@@ -423,6 +435,8 @@ export class ConversationsService {
           nextAction: relRow.nextAction,
           aiPaused: relRow.doNotReply,
           isHot: relRow.stage === "hot_lead",
+          aiMode,
+          hasBrain,
         }
       : null;
 

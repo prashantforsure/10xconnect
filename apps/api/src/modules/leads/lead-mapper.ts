@@ -8,6 +8,8 @@ type LeadRow = Tables<"leads">;
 export interface LeadEnrichment {
   firstName?: string;
   lastName?: string;
+  /** Profile photo URL (LinkedIn avatar), when known. */
+  avatarUrl?: string;
   headline?: string;
   about?: string;
   company?: string;
@@ -40,6 +42,7 @@ export interface LeadView {
   firstName: string | null;
   lastName: string | null;
   name: string | null;
+  avatarUrl: string | null;
   headline: string | null;
   company: string | null;
   role: string | null;
@@ -129,6 +132,7 @@ export function candidateFromSourced(lead: SourcedLead, source: string): Candida
     enrichment: pruneEnrichment({
       firstName: lead.firstName,
       lastName: lead.lastName,
+      avatarUrl: lead.avatarUrl,
       headline: lead.headline,
       company: lead.company,
       role: lead.role,
@@ -146,6 +150,7 @@ export function enrichmentFromProfile(profile: EnrichedProfile): LeadEnrichment 
   return pruneEnrichment({
     firstName: profile.firstName,
     lastName: profile.lastName,
+    avatarUrl: profile.avatarUrl,
     headline: profile.headline,
     about: profile.about,
     company: profile.company,
@@ -202,6 +207,7 @@ export function toLeadView(row: LeadRow): LeadView {
     firstName,
     lastName,
     name,
+    avatarUrl: enrichment.avatarUrl ?? null,
     headline: enrichment.headline ?? null,
     company: enrichment.company ?? null,
     role: enrichment.role ?? null,

@@ -10,6 +10,7 @@ export interface LeadView {
   firstName: string | null;
   lastName: string | null;
   name: string | null;
+  avatarUrl: string | null;
   headline: string | null;
   company: string | null;
   role: string | null;
@@ -83,6 +84,7 @@ export interface ConnectionView {
   name: string | null;
   firstName: string | null;
   lastName: string | null;
+  avatarUrl: string | null;
   headline: string | null;
   company: string | null;
   location: string | null;

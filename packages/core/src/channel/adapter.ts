@@ -8,6 +8,7 @@ import type {
   ConnectionRequestOptions,
   Conversation,
   ConversationPage,
+  CredentialsAuth,
   EmailContent,
   EnrichedProfile,
   HostedAuthCallback,
@@ -21,6 +22,7 @@ import type {
   MailboxHealth,
   MailboxRef,
   MessageContent,
+  ProxyConfig,
   SendOptions,
   VoiceNoteRef,
 } from "./types";
@@ -119,6 +121,30 @@ export function isHostedAuthCapable(value: unknown): value is HostedAuthCapable 
     value !== null &&
     typeof (value as { createHostedAuthLink?: unknown }).createHostedAuthLink === "function" &&
     typeof (value as { parseHostedAuthCallback?: unknown }).parseHostedAuthCallback === "function"
+  );
+}
+
+/**
+ * Optional adapter capability: the "Infinite login" re-auth (CLAUDE.md §6). When a
+ * credentials-connected account's session drops (provider emits a disconnect /
+ * CREDENTIALS event), orchestration silently re-logs in with the STORED
+ * credentials and, on the LinkedIn 2FA checkpoint, generates a TOTP from the
+ * stored `totpSecret` and solves it — no end-user action. Narrow with
+ * isCredentialsReconnectCapable before use. Not every adapter implements it.
+ */
+export interface CredentialsReconnectCapable {
+  reconnectWithCredentials(
+    account: AccountRef,
+    creds: CredentialsAuth,
+    proxy?: ProxyConfig,
+  ): Promise<AccountConnection>;
+}
+
+export function isCredentialsReconnectCapable(value: unknown): value is CredentialsReconnectCapable {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { reconnectWithCredentials?: unknown }).reconnectWithCredentials === "function"
   );
 }
 

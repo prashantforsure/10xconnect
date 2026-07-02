@@ -255,6 +255,73 @@ export class AnalyticsService {
     };
   }
 
+  /**
+   * AI SDR performance — what the autonomous agent actually did: replies it sent
+   * on the user's behalf, distinct conversations it handled, hot leads it
+   * escalated (with a briefing), total handoffs, and drafts still awaiting
+   * approval. Powers the "AI replied to N, escalated M hot leads, saved ~X hrs"
+   * surface — the answer to "is this real AI or a scheduler with GPT on top".
+   */
+  async aiSdr(workspaceId: string, range: AnalyticsRange = "all") {
+    const { since } = rangeWindow(range);
+    const [aiReplies, conversationsHandled, hotLeads, escalations, pendingDrafts] = await Promise.all([
+      this.countMessages(workspaceId, { authoredBy: "ai", since }),
+      this.countMessages(workspaceId, { authoredBy: "ai", since, distinctConversations: true }),
+      this.countNotifications(workspaceId, "hot_lead", since),
+      this.countDrafts(workspaceId, { status: "escalated", since }),
+      this.countDrafts(workspaceId, { status: "pending" }),
+    ]);
+    // Rough time-saved estimate: ~3 minutes of human reply-writing per AI reply.
+    const estimatedHoursSaved = Math.round((aiReplies * 3) / 6) / 10;
+    return { range, aiReplies, conversationsHandled, hotLeads, escalations, pendingDrafts, estimatedHoursSaved };
+  }
+
+  /** Outbound message count, optionally by author + window, or distinct conversations. */
+  private async countMessages(
+    workspaceId: string,
+    opts: { authoredBy?: "human" | "ai"; since?: Date | null; distinctConversations?: boolean },
+  ): Promise<number> {
+    let q = this.db
+      .selectFrom("messages")
+      .select((eb) =>
+        (opts.distinctConversations
+          ? eb.fn.count<string>("conversation_id").distinct()
+          : eb.fn.countAll<string>()
+        ).as("count"),
+      )
+      .where("workspace_id", "=", workspaceId)
+      .where("direction", "=", "outbound");
+    if (opts.authoredBy) q = q.where("authored_by", "=", opts.authoredBy);
+    if (opts.since) q = q.where("created_at", ">=", opts.since.toISOString());
+    const { count } = await q.executeTakeFirstOrThrow();
+    return Number(count);
+  }
+
+  private async countNotifications(workspaceId: string, type: string, since?: Date | null): Promise<number> {
+    let q = this.db
+      .selectFrom("notifications")
+      .select((eb) => eb.fn.countAll<string>().as("count"))
+      .where("workspace_id", "=", workspaceId)
+      .where("type", "=", type);
+    if (since) q = q.where("created_at", ">=", since.toISOString());
+    const { count } = await q.executeTakeFirstOrThrow();
+    return Number(count);
+  }
+
+  private async countDrafts(
+    workspaceId: string,
+    opts: { status: "pending" | "escalated"; since?: Date | null },
+  ): Promise<number> {
+    let q = this.db
+      .selectFrom("message_drafts")
+      .select((eb) => eb.fn.countAll<string>().as("count"))
+      .where("workspace_id", "=", workspaceId)
+      .where("status", "=", opts.status);
+    if (opts.since) q = q.where("created_at", ">=", opts.since.toISOString());
+    const { count } = await q.executeTakeFirstOrThrow();
+    return Number(count);
+  }
+
   async campaign(workspaceId: string, campaignId: string) {
     const counts = await this.actionCounts(workspaceId, { campaignId });
     const requests = counts.connection_request ?? 0;
@@ -449,6 +516,11 @@ export class AnalyticsController {
   @Get("accounts")
   accounts(@WorkspaceId() workspaceId: string) {
     return this.analytics.accounts(workspaceId);
+  }
+
+  @Get("ai-sdr")
+  aiSdr(@WorkspaceId() workspaceId: string, @Query("range") range?: string) {
+    return this.analytics.aiSdr(workspaceId, parseAnalyticsRange(range));
   }
 
   @Get("unit-economics")

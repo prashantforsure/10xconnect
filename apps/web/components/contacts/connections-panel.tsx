@@ -262,7 +262,7 @@ export function ConnectionsPanel({
                         </td>
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-2.5">
-                            <Avatar name={c.name ?? undefined} size="sm" />
+                            <Avatar name={c.name ?? undefined} src={c.avatarUrl} size="sm" />
                             <div className="min-w-0">
                               <div className="truncate font-medium text-foreground">{c.name ?? "—"}</div>
                               {c.location ? (

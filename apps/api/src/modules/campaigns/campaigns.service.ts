@@ -27,7 +27,8 @@ import type {
   UpdateCampaignDto,
 } from "./dto";
 
-export type CampaignStatus = "draft" | "pending" | "running" | "stopped" | "completed";
+// "pending" was removed — no flow ever set it (a scheduled-launch feature may reintroduce it).
+export type CampaignStatus = "draft" | "running" | "stopped" | "completed";
 
 export interface CampaignSettings {
   skip_already_contacted: boolean;

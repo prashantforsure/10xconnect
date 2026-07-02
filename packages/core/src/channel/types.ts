@@ -38,6 +38,24 @@ export interface ConnectInput {
    * logging the account out (CLAUDE.md §6/§14). SECRET — MUST never be logged.
    */
   cookie?: { liAt: string; userAgent?: string };
+  /**
+   * Credentials material for the "Infinite login" method (method === "credentials"):
+   * the LinkedIn email + password, and — for silent, no-touch re-auth — the
+   * base32 TOTP shared secret behind the account's authenticator-app 2FA. The
+   * provider logs in in a stable residential-proxy browser context and, on the
+   * 2FA checkpoint, the adapter generates the TOTP from `totpSecret` and solves it
+   * automatically. SECRET — MUST never be logged. Requires authenticator-app 2FA
+   * (not SMS) on the account.
+   */
+  credentials?: CredentialsAuth;
+}
+
+/** LinkedIn credentials for the Infinite-login connect/reconnect flow. SECRET. */
+export interface CredentialsAuth {
+  email: string;
+  password: string;
+  /** Base32 TOTP shared secret ("setup key") — enables silent 2FA solving on re-auth. */
+  totpSecret?: string;
 }
 
 export interface AccountConnection {
@@ -46,6 +64,8 @@ export interface AccountConnection {
   status: AccountStatus;
   /** Provider-reported display name / handle, if available. */
   name?: string;
+  /** Provider-reported profile photo URL of the connected account, if available. */
+  avatarUrl?: string;
 }
 
 // --- Hosted auth (provider-hosted connect flow) ---------------------------
@@ -244,6 +264,8 @@ export interface EnrichedProfile {
   providerId?: string;
   firstName?: string;
   lastName?: string;
+  /** Profile photo URL (LinkedIn avatar), when the provider exposes one. */
+  avatarUrl?: string;
   headline?: string;
   about?: string;
   company?: string;

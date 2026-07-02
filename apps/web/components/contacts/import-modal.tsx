@@ -1,6 +1,21 @@
 "use client";
 
 import { LEAD_FIELD_KEYS, parseCsv, type ColumnTarget } from "@10xconnect/core";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Calendar,
+  ChevronRight,
+  Compass,
+  FileSpreadsheet,
+  FolderInput,
+  Image as ImageIcon,
+  Link2,
+  Search,
+  SlidersHorizontal,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -10,6 +25,7 @@ import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
+import { cn } from "@/lib/utils";
 import {
   type CampaignSummary,
   IMPORT_SOURCES,
@@ -17,6 +33,46 @@ import {
   type ImportSourceKind,
   type ListView,
 } from "@/lib/contacts/types";
+
+/** Icon + one-line description per import source, for the card picker (step 1). */
+const SOURCE_META: Record<ImportSourceKind, { icon: LucideIcon; description: string }> = {
+  linkedin_search: {
+    icon: Search,
+    description: "Find targets by doing an integrated LinkedIn people search",
+  },
+  post: {
+    icon: ImageIcon,
+    description: "Target users who liked or commented on a LinkedIn post",
+  },
+  event: {
+    icon: Calendar,
+    description: "Target attendees of a LinkedIn event",
+  },
+  group: {
+    icon: Users,
+    description: "Target members of a LinkedIn group",
+  },
+  csv: {
+    icon: FileSpreadsheet,
+    description: "Upload a CSV of profiles or emails and map the columns",
+  },
+  profile_urls: {
+    icon: Link2,
+    description: "Paste LinkedIn profile URLs — one by one or in bulk",
+  },
+  sales_navigator: {
+    icon: Compass,
+    description: "Import people from a Sales Navigator search URL",
+  },
+  lead_finder: {
+    icon: SlidersHorizontal,
+    description: "Search by filters + keywords across LinkedIn data",
+  },
+  list: {
+    icon: FolderInput,
+    description: "Copy leads from another contact list",
+  },
+};
 
 const FIELD_LABELS: Record<string, string> = {
   ignore: "— Ignore —",
@@ -104,7 +160,15 @@ export function ImportModal({
   onImported: () => void | Promise<void>;
 }) {
   const api = useApi();
+  // Two-step wizard: pick a source (cards) → fill in its config.
+  const [step, setStep] = useState<"source" | "config">("source");
   const [source, setSource] = useState<ImportSourceKind>("csv");
+
+  // Lists shown in the "Existing list" source + "Import into" target. We re-fetch
+  // them ourselves on open (authoritative) so the dropdowns are always populated
+  // even if the parent hasn't loaded its `lists` prop yet.
+  const [fetchedLists, setFetchedLists] = useState<ListView[]>([]);
+  const listOptions = fetchedLists.length > 0 ? fetchedLists : lists;
 
   // Common target fields. "none" = import without creating/linking a contact list.
   const [listMode, setListMode] = useState<"existing" | "new" | "none">(
@@ -145,6 +209,7 @@ export function ImportModal({
   const [error, setError] = useState<string | null>(null);
 
   const reset = useCallback(() => {
+    setStep("source");
     setSource("csv");
     setCsvText("");
     setCsvName("");
@@ -227,12 +292,31 @@ export function ImportModal({
   // being stuck on "+ New list…".
   useEffect(() => {
     if (!open) return;
+    setStep("source");
+    setStatus(null);
+    setError(null);
     setListMode(lockedCampaign ? "none" : lists.length ? "existing" : "new");
     setListId(lists[0]?.id ?? "");
     setSourceListId(lists[0]?.id ?? "");
     if (lockedCampaign) setCampaignId(lockedCampaign.id);
     void fetchSources();
-  }, [open, lists, lockedCampaign, fetchSources]);
+    // Authoritative lists load (independent of the parent's timing).
+    api
+      .request<ListView[]>("/lists")
+      .then(setFetchedLists)
+      .catch(() => undefined);
+  }, [open, lists, lockedCampaign, fetchSources, api]);
+
+  // Once our own lists arrive, backfill the list pickers if they were empty
+  // (the parent may have opened us before it loaded any lists).
+  useEffect(() => {
+    if (fetchedLists.length === 0) return;
+    setSourceListId((cur) => cur || (fetchedLists[0]?.id ?? ""));
+    if (!lockedCampaign) {
+      setListId((cur) => cur || (fetchedLists[0]?.id ?? ""));
+      setListMode((cur) => (cur === "new" ? "existing" : cur));
+    }
+  }, [fetchedLists, lockedCampaign]);
 
   const onFile = async (file: File): Promise<void> => {
     const text = await file.text();
@@ -332,12 +416,24 @@ export function ImportModal({
     for (let i = 0; i < 40; i += 1) {
       const job = await api.request<ImportJobView>(`/leads/import-jobs/${jobId}`);
       if (job.status === "completed") {
-        setStatus(
-          `Imported ${job.createdCount} new lead${job.createdCount === 1 ? "" : "s"}` +
-            (job.duplicateCount ? `, ${job.duplicateCount} duplicate${job.duplicateCount === 1 ? "" : "s"} skipped` : "") +
-            (job.failedCount ? `, ${job.failedCount} failed` : "") +
-            ". Enrichment is running in the background.",
-        );
+        // Existing-list source: the leads already exist, so "0 new" is expected —
+        // the meaningful count is how many were pulled in (and enrolled, if a
+        // campaign is locked). Show that instead of a misleading "0 imported".
+        if (source === "list") {
+          const n = job.totalCount;
+          setStatus(
+            `${n} contact${n === 1 ? "" : "s"} from the list ` +
+              (lockedCampaign ? "added to this campaign." : "processed.") +
+              (n === 0 ? " (That list is empty.)" : ""),
+          );
+        } else {
+          setStatus(
+            `Imported ${job.createdCount} new lead${job.createdCount === 1 ? "" : "s"}` +
+              (job.duplicateCount ? `, ${job.duplicateCount} duplicate${job.duplicateCount === 1 ? "" : "s"} skipped` : "") +
+              (job.failedCount ? `, ${job.failedCount} failed` : "") +
+              ". Enrichment is running in the background.",
+          );
+        }
         return;
       }
       if (job.status === "failed") {
@@ -375,6 +471,8 @@ export function ImportModal({
     [source],
   );
   const done = status !== null && !submitting && !error;
+  const SourceIcon = SOURCE_META[source].icon;
+  const sourceLabel = IMPORT_SOURCES.find((s) => s.kind === source)?.label ?? source;
 
   return (
     <Modal
@@ -382,64 +480,113 @@ export function ImportModal({
       onClose={close}
       title={lockedCampaign ? "Import leads into this campaign" : "Import contacts"}
       description={
-        lockedCampaign
-          ? "Bring in new leads and enroll them straight into this campaign. Duplicates are removed automatically."
-          : "Bring in leads from a CSV or a LinkedIn source. Duplicates are removed automatically."
+        step === "source"
+          ? lockedCampaign
+            ? "Choose where these leads come from. Duplicates are removed automatically."
+            : "Choose a source to bring in leads. Duplicates are removed automatically."
+          : SOURCE_META[source].description
       }
       className="max-w-2xl"
     >
-      <form onSubmit={onSubmit} className="space-y-5">
-        {liveSources.length > 0 ? (
-          <div className="space-y-2 rounded-xl border bg-secondary/30 p-3">
-            <p className="text-xs font-semibold text-muted-foreground">Live imports</p>
-            {liveSources.map((s) => (
-              <div key={s.id} className="flex items-center gap-2 rounded-lg bg-card px-2.5 py-1.5 text-xs">
-                <span className="min-w-0 flex-1 truncate">
-                  <span className="font-medium capitalize">{s.source.replace(/_/g, " ")}</span>
-                  {" · "}
-                  {INTERVAL_OPTIONS.find((o) => o.value === s.intervalMinutes)?.label ?? `every ${s.intervalMinutes}m`}
-                  {" · "}
-                  <span className={s.status === "active" ? "text-success" : "text-muted-foreground"}>{s.status}</span>
-                </span>
-                {s.status === "active" ? (
-                  <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => void sourceAction(s.id, "pause")}>
-                    Pause
+      {step === "source" ? (
+        <div className="space-y-4">
+          {liveSources.length > 0 ? (
+            <div className="space-y-2 rounded-xl border bg-secondary/30 p-3">
+              <p className="text-xs font-semibold text-muted-foreground">Live imports</p>
+              {liveSources.map((s) => (
+                <div key={s.id} className="flex items-center gap-2 rounded-lg bg-card px-2.5 py-1.5 text-xs">
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="font-medium capitalize">{s.source.replace(/_/g, " ")}</span>
+                    {" · "}
+                    {INTERVAL_OPTIONS.find((o) => o.value === s.intervalMinutes)?.label ?? `every ${s.intervalMinutes}m`}
+                    {" · "}
+                    <span className={s.status === "active" ? "text-success" : "text-muted-foreground"}>{s.status}</span>
+                  </span>
+                  {s.status === "active" ? (
+                    <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => void sourceAction(s.id, "pause")}>
+                      Pause
+                    </button>
+                  ) : (
+                    <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => void sourceAction(s.id, "resume")}>
+                      Resume
+                    </button>
+                  )}
+                  <button type="button" className="text-muted-foreground hover:text-destructive" onClick={() => void sourceAction(s.id, "delete")}>
+                    Remove
                   </button>
-                ) : (
-                  <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => void sourceAction(s.id, "resume")}>
-                    Resume
-                  </button>
-                )}
-                <button type="button" className="text-muted-foreground hover:text-destructive" onClick={() => void sourceAction(s.id, "delete")}>
-                  Remove
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {/* Source cards — pick one, then Next */}
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            {IMPORT_SOURCES.map((s) => {
+              const Icon = SOURCE_META[s.kind].icon;
+              const active = source === s.kind;
+              return (
+                <button
+                  key={s.kind}
+                  type="button"
+                  onClick={() => setSource(s.kind)}
+                  onDoubleClick={() => setStep("config")}
+                  className={cn(
+                    "flex items-start gap-3 rounded-xl border p-3.5 text-left transition-colors",
+                    active
+                      ? "border-primary bg-primary/10 ring-1 ring-primary/30"
+                      : "border-border bg-card hover:border-[#38321F] hover:bg-accent",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-flex size-9 shrink-0 items-center justify-center rounded-lg",
+                      active ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground",
+                    )}
+                  >
+                    <Icon className="size-[18px]" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-foreground">{s.label}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {SOURCE_META[s.kind].description}
+                    </span>
+                  </span>
                 </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
-        ) : null}
 
-        {/* Source picker */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {IMPORT_SOURCES.map((s) => (
-            <button
-              key={s.kind}
-              type="button"
-              onClick={() => setSource(s.kind)}
-              className={`rounded-xl border px-3 py-2.5 text-left text-xs transition-colors ${
-                source === s.kind
-                  ? "border-primary/40 bg-primary/15 font-medium text-primary"
-                  : "border-border bg-card text-foreground hover:border-[#38321F] hover:bg-accent"
-              }`}
-            >
-              <div className="font-medium">{s.label}</div>
-            </button>
-          ))}
+          <div className="flex justify-end pt-1">
+            <Button type="button" onClick={() => setStep("config")}>
+              Next
+              <ArrowRight />
+            </Button>
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {IMPORT_SOURCES.find((s) => s.kind === source)?.hint}
-        </p>
+      ) : (
+        <form onSubmit={onSubmit} className="space-y-5">
+          {/* Selected-source header — click to change */}
+          <button
+            type="button"
+            onClick={() => setStep("source")}
+            className="flex w-full items-center gap-3 rounded-xl border bg-secondary/40 p-3 text-left transition-colors hover:bg-accent"
+          >
+            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <SourceIcon className="size-[18px]" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold">{sourceLabel}</span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {SOURCE_META[source].description}
+              </span>
+            </span>
+            <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              Change
+              <ChevronRight className="size-3.5" />
+            </span>
+          </button>
 
-        {/* Source-specific fields */}
+          {/* Source-specific fields */}
         {source === "csv" ? (
           <div className="space-y-3">
             <input
@@ -604,14 +751,21 @@ export function ImportModal({
         {source === "list" ? (
           <div className="space-y-1.5">
             <Label htmlFor="src-list">Source list</Label>
-            <Select id="src-list" value={sourceListId} onChange={(e) => setSourceListId(e.target.value)}>
-              <option value="">Select a list…</option>
-              {lists.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name} ({l.leadCount})
-                </option>
-              ))}
-            </Select>
+            {listOptions.length === 0 ? (
+              <p className="rounded-xl border border-dashed bg-secondary/30 px-3 py-2.5 text-xs text-muted-foreground">
+                You don&apos;t have any contact lists yet. Create one from the Contacts page (or
+                import via another source first).
+              </p>
+            ) : (
+              <Select id="src-list" value={sourceListId} onChange={(e) => setSourceListId(e.target.value)}>
+                <option value="">Select a list…</option>
+                {listOptions.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name} ({l.leadCount} {l.leadCount === 1 ? "contact" : "contacts"})
+                  </option>
+                ))}
+              </Select>
+            )}
           </div>
         ) : null}
 
@@ -677,7 +831,7 @@ export function ImportModal({
               }}
             >
               <option value="__none__">Don&apos;t add to a list (Contacts only)</option>
-              {lists.map((l) => (
+              {listOptions.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
                 </option>
@@ -721,15 +875,22 @@ export function ImportModal({
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         {status ? <p className="text-sm text-muted-foreground">{status}</p> : null}
 
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={close} disabled={submitting}>
-            {done ? "Close" : "Cancel"}
+        <div className="flex items-center justify-between gap-2">
+          <Button type="button" variant="ghost" onClick={() => setStep("source")} disabled={submitting}>
+            <ArrowLeft />
+            Back
           </Button>
-          <Button type="submit" disabled={submitting}>
-            {submitting ? "Importing…" : "Run import"}
-          </Button>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={close} disabled={submitting}>
+              {done ? "Close" : "Cancel"}
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Importing…" : "Run import"}
+            </Button>
+          </div>
         </div>
       </form>
+    )}
     </Modal>
   );
 }

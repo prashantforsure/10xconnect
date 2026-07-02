@@ -323,8 +323,17 @@ function ScheduleCard({ campaignId }: { campaignId: string }) {
     setSchedule({ ...schedule, [day]: { ...schedule[day], ...patch } });
   };
 
+  // Enabled days must have start < end — an inverted window makes the dispatch
+  // scheduler's working-hours math undefined (mirrors the server-side check).
+  const invalidDays = schedule
+    ? DAYS.filter((d) => {
+        const day = schedule[d.key];
+        return day?.enabled && day.start >= day.end;
+      }).map((d) => d.label)
+    : [];
+
   const save = async (): Promise<void> => {
-    if (!schedule) {
+    if (!schedule || invalidDays.length > 0) {
       return;
     }
     setSaving(true);
@@ -387,9 +396,14 @@ function ScheduleCard({ campaignId }: { campaignId: string }) {
           );
         })}
       </div>
+      {invalidDays.length > 0 ? (
+        <p className="mt-3 text-sm text-destructive">
+          Start must be before end on: {invalidDays.join(", ")}.
+        </p>
+      ) : null}
       <Warnings items={warnings} />
       <div className="mt-4 flex items-center gap-3">
-        <Button onClick={() => void save()} disabled={saving}>
+        <Button onClick={() => void save()} disabled={saving || invalidDays.length > 0}>
           {saving ? "Saving…" : "Save schedule"}
         </Button>
         {msg ? <span className="text-sm text-muted-foreground">{msg}</span> : null}

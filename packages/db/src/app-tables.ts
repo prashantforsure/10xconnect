@@ -184,6 +184,22 @@ export interface ConversationsExtraColumns {
   assigned_to: NullableWithDefault<string>;
 }
 
+/** Who wrote an outbound message: a human (manual / approved a draft) or the AI
+ * SDR autonomously (auto-sent by the autonomy dial, no human in the loop). */
+export type MessageAuthor = "human" | "ai";
+
+/**
+ * AI-SDR authorship marker on messages (not yet in the generated types).
+ * Intersected into the generated messages table so `messages` carries it.
+ */
+export interface MessagesExtraColumns {
+  authored_by: WithDefault<MessageAuthor>;
+  /** Dispatcher-written outbound messages carry the action's idempotency key
+   * (unique when set) so a retry after a mid-crash can't append the same
+   * message to the thread twice. Null for inbound/manual inserts. */
+  dispatch_key: NullableWithDefault<string>;
+}
+
 export type AccountLinkRequestType = "create" | "reconnect";
 export type AccountLinkRequestStatus = "pending" | "completed" | "expired";
 
@@ -194,11 +210,21 @@ export interface AccountLinkRequestsTable {
   token: ColumnType<string, string, string>;
   type: ColumnType<AccountLinkRequestType, AccountLinkRequestType, AccountLinkRequestType>;
   reconnect_provider_account_id: NullableWithDefault<string>;
+  /** Our sending_accounts.id to finalize on a reconnect (multi-account). */
+  reconnect_account_id: NullableWithDefault<string>;
   country: ColumnType<string, string, string>;
   status: WithDefault<AccountLinkRequestStatus>;
   expires_at: ColumnType<string, string, string>;
   created_at: WithDefault<string>;
   updated_at: WithDefault<string>;
+}
+
+/**
+ * New sending_accounts column (multi-account) not yet in the generated types.
+ * Intersected into the generated sending_accounts table.
+ */
+export interface SendingAccountsExtraColumns {
+  label: NullableWithDefault<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -406,9 +432,13 @@ export interface AppExtraTables {
   do_not_contact: DoNotContactTable;
   notifications: NotificationsTable;
   account_link_requests: AccountLinkRequestsTable;
+  // Augments the generated sending_accounts table with the multi-account label.
+  sending_accounts: SendingAccountsExtraColumns;
   relationship_state: RelationshipStateTable;
   // Augments the generated conversations table with Phase 1 columns.
   conversations: ConversationsExtraColumns;
+  // Augments the generated messages table with the AI-SDR authorship marker.
+  messages: MessagesExtraColumns;
   // Phase 2 — conversation brain.
   knowledge_bases: KnowledgeBasesTable;
   kb_chunks: KbChunksTable;

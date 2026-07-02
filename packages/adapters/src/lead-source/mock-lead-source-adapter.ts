@@ -93,6 +93,9 @@ export class MockLeadSourceAdapter implements LeadSourceAdapter {
     const lead: SourcedLead = {
       firstName: first,
       lastName: last,
+      // Deterministic placeholder portrait so mock leads show a face locally
+      // (real photos come from the provider). Stable per slug.
+      avatarUrl: `https://i.pravatar.cc/128?u=${encodeURIComponent(slug)}`,
       headline: `${role} at ${company}`,
       company,
       role,

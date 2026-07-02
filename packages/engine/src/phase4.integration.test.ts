@@ -27,6 +27,7 @@ import {
 import { ingestText } from "./brain/kb";
 import { runConversationTurn } from "./brain/turn";
 import { utcDay } from "./brain/window";
+import { processInboundEvent } from "./inbound";
 import { seedWorkspace } from "./testing/seed-workspace";
 import type { EngineDeps } from "./types";
 
@@ -315,4 +316,64 @@ test("an 'are you AI?' question returns the canned honest disclosure (no model)"
   } finally {
     await w.cleanup();
   }
+});
+
+test("an auto-sent reply is stamped AI-authored (drives the inbox chip + analytics)", async () => {
+  await inWorkspace(async ({ db, workspaceId }) => {
+    const counter = { text: 0, embed: 0 };
+    const embedder = countingEmbedder(counter);
+    const { accountId, leadId, campaignId } = await seedBrain(db, workspaceId, { embedder, autonomy: { mode: "auto_easy_escalate_hard", confidence_threshold: 0.1 } });
+    const convoId = await seedConversation(db, workspaceId, accountId, leadId, "How does onboarding work?");
+    const outcome = await runConversationTurn(deps(db, recordingAdapter([]), { textAdapter: countingText(counter), embeddingAdapter: embedder }), { conversationId: convoId, campaignId, leadId });
+    assert.equal(outcome.status, "auto_sent");
+    const actions = await replyActions(db, leadId);
+    assert.equal(actions.length, 1, "a reply was enqueued through the spine");
+    assert.equal(
+      (actions[0].config as { authoredBy?: string }).authoredBy,
+      "ai",
+      "the autonomy dial's auto-send is marked AI-authored (no human in the loop)",
+    );
+  });
+});
+
+test("the workspace AI SDR master switch gates the conversation_turn enqueue", async () => {
+  async function enroll(db: EngineDeps["db"], workspaceId: string, campaignId: string, leadId: string) {
+    const node = await db
+      .insertInto("sequence_nodes")
+      .values({ workspace_id: workspaceId, campaign_id: campaignId, kind: "action", type: "send_message", config: JSON.stringify({}) })
+      .returning("id")
+      .executeTakeFirstOrThrow();
+    await db
+      .insertInto("lead_campaign_state")
+      .values({ workspace_id: workspaceId, campaign_id: campaignId, lead_id: leadId, current_node_id: node.id, status: "active", history: JSON.stringify([]) })
+      .execute();
+  }
+  const replyEvent = (accountId: string, leadId: string) => ({
+    id: `evt-${randomUUID()}`,
+    type: "reply",
+    accountId,
+    channel: "linkedin",
+    occurredAt: FIXED.toISOString(),
+    lead: { leadId },
+    message: { providerMessageId: `m-${randomUUID()}`, direction: "inbound", channel: "linkedin", body: "How does onboarding work?", sentAt: FIXED.toISOString() },
+  });
+  const turnCount = async (db: EngineDeps["db"], leadId: string) =>
+    (await db.selectFrom("actions").select("id").where("lead_id", "=", leadId).where("type", "=", "conversation_turn").execute()).length;
+
+  // Switch ON (default / unset) → a reply enqueues a brain turn.
+  await inWorkspace(async ({ db, workspaceId }) => {
+    const { accountId, leadId, campaignId } = await seedBrain(db, workspaceId, { autonomy: { mode: "auto_easy_escalate_hard" } });
+    await enroll(db, workspaceId, campaignId, leadId);
+    await processInboundEvent({ db }, replyEvent(accountId, leadId) as never);
+    assert.equal(await turnCount(db, leadId), 1, "master switch ON → brain turn enqueued");
+  });
+
+  // Switch OFF → the same reply enqueues NO brain turn (the safety valve).
+  await inWorkspace(async ({ db, workspaceId }) => {
+    const { accountId, leadId, campaignId } = await seedBrain(db, workspaceId, { autonomy: { mode: "auto_easy_escalate_hard" } });
+    await enroll(db, workspaceId, campaignId, leadId);
+    await db.updateTable("workspaces").set({ settings: JSON.stringify({ ai_sdr_enabled: false }) as never }).where("id", "=", workspaceId).execute();
+    await processInboundEvent({ db }, replyEvent(accountId, leadId) as never);
+    assert.equal(await turnCount(db, leadId), 0, "master switch OFF → no brain turn (safety valve)");
+  });
 });

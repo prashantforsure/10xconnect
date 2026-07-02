@@ -698,7 +698,7 @@ function LeadTable({
               </td>
               <td className="px-4 py-2.5">
                 <div className="flex items-center gap-2.5">
-                  <Avatar name={lead.name ?? undefined} size="sm" />
+                  <Avatar name={lead.name ?? undefined} src={lead.avatarUrl} size="sm" />
                   <div className="min-w-0">
                     <div className="truncate font-medium text-foreground">{lead.name ?? "—"}</div>
                     {lead.location ? (
@@ -896,7 +896,7 @@ function LeadDetailDrawer({
         <div className="flex h-full flex-col">
           {/* Header */}
           <div className="flex items-center gap-3 border-b border-border p-[18px]">
-            <Avatar name={lead.name ?? undefined} size="lg" />
+            <Avatar name={lead.name ?? undefined} src={lead.avatarUrl} size="lg" />
             <div className="min-w-0 flex-1">
               <div className="truncate font-display text-base font-semibold text-foreground">
                 {lead.name ?? "—"}

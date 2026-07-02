@@ -17,6 +17,7 @@ import type { ListView } from "@/lib/contacts/types";
 interface LeadRow {
   leadId: string;
   name: string;
+  avatarUrl: string | null;
   title: string | null;
   company: string | null;
   headline: string | null;
@@ -146,7 +147,7 @@ export function LeadsTab({
         <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
           {leads.map((l) => (
             <div key={l.leadId} className="flex items-start gap-3 px-4 py-3">
-              <Avatar name={l.name} size="md" />
+              <Avatar name={l.name} src={l.avatarUrl} size="md" />
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium">{l.name}</span>
@@ -223,8 +224,11 @@ export function LeadsTab({
         open={enrollOpen}
         onClose={() => setEnrollOpen(false)}
         loadLists={() => api.request<ListOption[]>("/lists")}
-        enroll={(listId) =>
-          api.request<EnrollResult>(`/campaigns/${campaignId}/leads`, { method: "POST", body: { listId } })
+        loadContactCount={async () =>
+          (await api.request<{ total: number }>("/leads?limit=1")).total
+        }
+        enroll={(body) =>
+          api.request<EnrollResult>(`/campaigns/${campaignId}/leads`, { method: "POST", body })
         }
         onEnrolled={loadAndNotify}
       />
@@ -241,46 +245,59 @@ export function LeadsTab({
   );
 }
 
+const ALL_CONTACTS = "__all__";
+
 function EnrollModal({
   open,
   onClose,
   loadLists,
+  loadContactCount,
   enroll,
   onEnrolled,
 }: {
   open: boolean;
   onClose: () => void;
   loadLists: () => Promise<ListOption[]>;
-  enroll: (listId: string) => Promise<EnrollResult>;
+  loadContactCount: () => Promise<number>;
+  enroll: (body: { listId?: string; allContacts?: boolean }) => Promise<EnrollResult>;
   onEnrolled: () => Promise<void>;
 }) {
   const [lists, setLists] = useState<ListOption[]>([]);
-  const [listId, setListId] = useState("");
+  const [contactCount, setContactCount] = useState<number | null>(null);
+  // Default to "All contacts" so newly-imported leads (which often aren't in any
+  // list) can be enrolled without first building a list.
+  const [choice, setChoice] = useState<string>(ALL_CONTACTS);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<EnrollResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
+      setChoice(ALL_CONTACTS);
       loadLists()
         .then(setLists)
         .catch(() => undefined);
+      loadContactCount()
+        .then(setContactCount)
+        .catch(() => setContactCount(null));
     } else {
-      setListId("");
       setResult(null);
       setError(null);
+      setContactCount(null);
     }
-  }, [open, loadLists]);
+  }, [open, loadLists, loadContactCount]);
 
   const onSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
-    if (!listId || submitting) {
+    if (!choice || submitting) {
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
-      const res = await enroll(listId);
+      const res = await enroll(
+        choice === ALL_CONTACTS ? { allContacts: true } : { listId: choice },
+      );
       setResult(res);
       await onEnrolled();
     } catch (err) {
@@ -295,18 +312,32 @@ function EnrollModal({
       open={open}
       onClose={onClose}
       title="Enroll leads"
-      description="Add a contact list to this campaign. Suppressed and already-contacted leads are skipped automatically."
+      description="Add your contacts to this campaign. Suppressed and already-contacted leads are skipped automatically."
     >
       <form onSubmit={onSubmit} className="space-y-4">
-        <Select value={listId} onChange={(e) => setListId(e.target.value)}>
-          <option value="">Select a list…</option>
-          {lists.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-              {typeof l.leadCount === "number" ? ` (${l.leadCount})` : ""}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Enroll from</label>
+          <Select value={choice} onChange={(e) => setChoice(e.target.value)}>
+            <option value={ALL_CONTACTS}>
+              All contacts{contactCount !== null ? ` (${contactCount})` : ""}
             </option>
-          ))}
-        </Select>
+            {lists.length > 0 ? (
+              <optgroup label="Lists">
+                {lists.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                    {typeof l.leadCount === "number" ? ` (${l.leadCount})` : ""}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {choice === ALL_CONTACTS
+              ? "Every contact in your workspace will be enrolled."
+              : "Only contacts in the selected list will be enrolled."}
+          </p>
+        </div>
 
         {result ? (
           <div className="rounded-xl border bg-secondary/50 px-3 py-2 text-sm">
@@ -320,7 +351,7 @@ function EnrollModal({
           <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
             {result ? "Done" : "Cancel"}
           </Button>
-          <Button type="submit" disabled={!listId || submitting}>
+          <Button type="submit" disabled={!choice || submitting}>
             {submitting ? "Enrolling…" : "Enroll"}
           </Button>
         </div>

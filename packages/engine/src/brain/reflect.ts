@@ -27,10 +27,14 @@ export interface ApproveResult {
 /**
  * Approve a pending draft: enqueue the reply through the safety spine, mark the
  * draft approved, and reflect. `editedBody` overrides the suggested text.
+ * `authoredBy` marks who is sending: "human" (a person approved/edited the draft
+ * — the default) or "ai" (the autonomy dial auto-sent it with no human in the
+ * loop). It rides the reply action config → stamps messages.authored_by so the
+ * inbox can show a "sent by AI" chip and analytics can count autonomous replies.
  */
 export async function approveDraft(
   deps: EngineDeps,
-  input: { workspaceId: string; draftId: string; editedBody?: string },
+  input: { workspaceId: string; draftId: string; editedBody?: string; authoredBy?: "human" | "ai" },
 ): Promise<ApproveResult> {
   const { db } = deps;
   const draft = await db
@@ -68,6 +72,7 @@ export async function approveDraft(
         conversationId: draft.conversationId,
         body,
         channel: convo.channel,
+        authoredBy: input.authoredBy ?? "human",
       }),
     })
     .onConflict((oc) => oc.column("idempotency_key").doNothing())

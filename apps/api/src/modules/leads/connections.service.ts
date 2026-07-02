@@ -16,6 +16,7 @@ export interface ConnectionView {
   name: string | null;
   firstName: string | null;
   lastName: string | null;
+  avatarUrl: string | null;
   headline: string | null;
   company: string | null;
   location: string | null;
@@ -126,6 +127,7 @@ function toConnectionView(lead: SourcedLead, alreadyContact: boolean): Connectio
     name,
     firstName: lead.firstName ?? null,
     lastName: lead.lastName ?? null,
+    avatarUrl: lead.avatarUrl ?? null,
     headline: lead.headline ?? null,
     company: lead.company ?? null,
     location: lead.location ?? null,

@@ -368,7 +368,8 @@ async function commitDraft(
     .executeTakeFirstOrThrow();
 
   if (decision.send) {
-    const res = await approveDraft(deps, { workspaceId: input.convo.workspaceId, draftId: draft.id });
+    // Autonomy dial auto-send: no human in the loop → stamp the reply AI-authored.
+    const res = await approveDraft(deps, { workspaceId: input.convo.workspaceId, draftId: draft.id, authoredBy: "ai" });
     if (res.status === "approved") {
       deps.log?.(`brain: auto-sent draft ${draft.id} (${decision.reason}) on conversation ${input.convo.id}`);
       return { status: "auto_sent", draftId: draft.id, confidence: input.confidence };

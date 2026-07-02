@@ -157,9 +157,18 @@ test("7.2 duplicate clones structure + list swap → both run on mock, results c
     const listB = await seedList(db, workspaceId, "Avatar B", avatarB);
 
     // Source campaign: a 1-step connection-request sequence, bound to the account.
+    // approve_all: this test exercises outbound A/B dispatch, not AI replies —
+    // the DB default is Balanced (ai_sdr_activation migration), which would trip
+    // the grounding gate (no KB) at start.
     const original = await db
       .insertInto("campaigns")
-      .values({ workspace_id: workspaceId, name: "Avatar A/B", status: "draft", account_id: accountId })
+      .values({
+        workspace_id: workspaceId,
+        name: "Avatar A/B",
+        status: "draft",
+        account_id: accountId,
+        autonomy: JSON.stringify({ mode: "approve_all" }),
+      })
       .returning("id")
       .executeTakeFirstOrThrow();
     await db

@@ -10,6 +10,7 @@ export * from "./orchestration";
 export * from "./ai";
 export * from "./composer";
 export * from "./campaign-gen";
+export * from "./sequence";
 export * from "./brain";
 export * from "./personalization";
 export * from "./voice";

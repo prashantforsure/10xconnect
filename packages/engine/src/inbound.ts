@@ -8,6 +8,7 @@ import { hasCampaignBrain, type InboundEvent } from "@10xconnect/core";
 import type { DB } from "@10xconnect/db";
 import type { Kysely } from "kysely";
 
+import { maybeCompleteCampaign } from "./campaign-runner";
 import { flagAccountIncident } from "./restrictions";
 
 export interface InboundDeps {
@@ -70,6 +71,25 @@ async function resolveLeadId(
 /** lead_events.type for an inbound event. */
 function eventType(event: InboundEvent): string {
   return event.type;
+}
+
+/**
+ * Workspace-level AI SDR master switch. Reads workspaces.settings.ai_sdr_enabled;
+ * a missing flag means ON (opt-out, not opt-in) so existing workspaces keep the
+ * default behavior. Setting it false stops new autonomous turns from being
+ * enqueued at all — the safety valve.
+ */
+async function aiSdrEnabled(db: Kysely<DB>, workspaceId: string): Promise<boolean> {
+  const ws = await db
+    .selectFrom("workspaces")
+    .select("settings")
+    .where("id", "=", workspaceId)
+    .executeTakeFirst();
+  const settings =
+    ws?.settings && typeof ws.settings === "object" && !Array.isArray(ws.settings)
+      ? (ws.settings as Record<string, unknown>)
+      : {};
+  return settings.ai_sdr_enabled !== false;
 }
 
 /**
@@ -203,12 +223,13 @@ async function handleReply(
   }
 
   // Auto-stop: mark active states 'replied' and cancel their pending actions.
-  await db
+  const stopped = await db
     .updateTable("lead_campaign_state")
     .set({ status: "replied" })
     .where("workspace_id", "=", account.workspaceId)
     .where("lead_id", "=", leadId)
     .where("status", "=", "active")
+    .returning("campaign_id")
     .execute();
   await db
     .updateTable("actions")
@@ -217,6 +238,11 @@ async function handleReply(
     .where("lead_id", "=", leadId)
     .where("status", "=", "pending")
     .execute();
+
+  // A reply may have been the campaign's last open lead → flip it to completed.
+  for (const campaign of new Set(stopped.map((s) => s.campaign_id).filter((id): id is string => !!id))) {
+    await maybeCompleteCampaign({ db }, campaign);
+  }
 
   // Land in the inbox: find/create the conversation, append the inbound message.
   const existing = await db
@@ -277,10 +303,13 @@ async function handleReply(
     )
     .execute();
 
-  // Phase 2: if the lead's campaign has a brain configured, enqueue an AI turn.
-  // The worker drafts a grounded suggestion into the inbox for human approval
-  // (autonomy=approve_all). Keyed by the provider event id → one turn per reply.
-  if (campaignId) {
+  // AI SDR: enqueue an AI turn when the workspace master switch is on AND the
+  // lead's campaign has a brain configured. The worker runs the turn pipeline
+  // (grounding guard, hot-lead escalation, budget/turn caps) and then the
+  // campaign's autonomy dial either leaves a draft for a human (approve_all) or
+  // auto-sends it (Balanced/Autopilot). Keyed by the provider event id → one
+  // turn per reply. The master switch is the workspace-level kill switch.
+  if (campaignId && (await aiSdrEnabled(db, account.workspaceId))) {
     const brain = await db
       .selectFrom("campaigns")
       .select(["objective", "knowledge_base_id"])

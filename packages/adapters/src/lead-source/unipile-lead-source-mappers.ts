@@ -82,6 +82,8 @@ export function mapSearchItemToSourcedLead(raw: UnipileSearchItem): SourcedLead 
   if (providerId) lead.providerId = providerId;
   if (firstName) lead.firstName = firstName;
   if (lastName) lead.lastName = lastName;
+  const avatarUrl = pictureUrl(item);
+  if (avatarUrl) lead.avatarUrl = avatarUrl;
   const headline = item.headline ?? item.occupation;
   if (headline) lead.headline = headline;
   const company = item.current_company ?? item.company;
@@ -110,6 +112,8 @@ export function mapRelationItemToSourcedLead(item: UnipileRelationItem): Sourced
   if (providerId) lead.providerId = providerId;
   if (firstName) lead.firstName = firstName;
   if (lastName) lead.lastName = lastName;
+  const avatarUrl = pictureUrl(item);
+  if (avatarUrl) lead.avatarUrl = avatarUrl;
   const headline = item.headline ?? item.occupation;
   if (headline) lead.headline = headline;
   const company = item.current_company ?? item.company;
@@ -128,6 +132,12 @@ function profileUrl(item: UnipileSearchItem | UnipileRelationItem): string | und
     return `https://www.linkedin.com/in/${item.public_identifier}`;
   }
   return undefined;
+}
+
+/** Best-available profile photo URL across Unipile surfaces (naming varies). */
+function pictureUrl(item: UnipileSearchItem | UnipileRelationItem): string | undefined {
+  const url = item.profile_picture_url_large ?? item.profile_picture_url ?? item.picture_url;
+  return url && /^https?:\/\//i.test(url) ? url : undefined;
 }
 
 function splitName(

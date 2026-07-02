@@ -131,8 +131,41 @@ function resolveWaitChain(
 }
 
 /**
+ * Flip a running campaign to `completed` once every enrolled lead is terminal
+ * (completed/replied/failed/stopped). One atomic guarded UPDATE — the active-
+ * lead check happens at execution time, so concurrent lead completions are
+ * idempotent and a concurrently-enrolled active lead blocks the flip. Campaigns
+ * with no enrolled leads are never auto-completed (a live import may still feed
+ * them), and enrolling into a completed campaign reopens it (see enrollLeads).
+ */
+export async function maybeCompleteCampaign(deps: { db: Kysely<DB> }, campaignId: string): Promise<void> {
+  await deps.db
+    .updateTable("campaigns")
+    .set({ status: "completed" })
+    .where("id", "=", campaignId)
+    .where("status", "=", "running")
+    .where((eb) =>
+      eb.not(
+        eb.exists(
+          eb
+            .selectFrom("lead_campaign_state")
+            .select("id")
+            .where("campaign_id", "=", campaignId)
+            .where("status", "=", "active"),
+        ),
+      ),
+    )
+    .where((eb) =>
+      eb.exists(eb.selectFrom("lead_campaign_state").select("id").where("campaign_id", "=", campaignId)),
+    )
+    .execute();
+}
+
+/**
  * Move a lead from `node` (just executed/evaluated) to its next node and schedule
- * that node's action. Marks the lead completed when the graph ends.
+ * that node's action. Marks the lead completed when the graph ends. State update
+ * + next-action insert are atomic — a failure between them can no longer strand
+ * the lead on a node with no pending action.
  */
 export async function advanceLead(
   deps: EngineDeps,
@@ -147,11 +180,14 @@ export async function advanceLead(
 
   const { node: target, extraMs } = resolveWaitChain(nextNodeId(node, outcome), byId);
   if (!target) {
-    await deps.db
-      .updateTable("lead_campaign_state")
-      .set({ status: "completed", current_node_id: null, history: JSON.stringify(history) })
-      .where("id", "=", state.id)
-      .execute();
+    await deps.db.transaction().execute(async (trx) => {
+      await trx
+        .updateTable("lead_campaign_state")
+        .set({ status: "completed", current_node_id: null, history: JSON.stringify(history) })
+        .where("id", "=", state.id)
+        .execute();
+      await maybeCompleteCampaign({ ...deps, db: trx }, campaign.id);
+    });
     return;
   }
 
@@ -170,12 +206,15 @@ export async function advanceLead(
           ignoreWorkingHours: deps.config.ignoreWorkingHours,
         });
 
-  await deps.db
-    .updateTable("lead_campaign_state")
-    .set({ current_node_id: target.id, history: JSON.stringify(history) })
-    .where("id", "=", state.id)
-    .execute();
-  await scheduleNodeAction(deps, campaign, { ...state, history: history as never }, target, scheduledAt, history.length);
+  await deps.db.transaction().execute(async (trx) => {
+    const tdeps: EngineDeps = { ...deps, db: trx };
+    await trx
+      .updateTable("lead_campaign_state")
+      .set({ current_node_id: target.id, history: JSON.stringify(history) })
+      .where("id", "=", state.id)
+      .execute();
+    await scheduleNodeAction(tdeps, campaign, { ...state, history: history as never }, target, scheduledAt, history.length);
+  });
 }
 
 /**
@@ -321,10 +360,23 @@ export async function enrollLeads(
     }
     result.enrolled += 1;
 
-    // If the campaign is already running, schedule the new lead immediately.
-    if (campaign.status === "running" && rootId && byId.get(rootId)) {
+    // If the campaign is already running (or auto-completed — new leads reopen
+    // it, so continuous imports keep flowing), schedule the new lead immediately.
+    if ((campaign.status === "running" || campaign.status === "completed") && rootId && byId.get(rootId)) {
       await scheduleLead(deps, campaign, byId.get(rootId) as SequenceNodeRow, inserted as LeadStateRow);
     }
+  }
+
+  // Reopen an auto-completed campaign that just received fresh leads. Runs on
+  // the status guard (not the possibly-stale read above) so a completion racing
+  // this enroll converges to "running" either way.
+  if (result.enrolled > 0) {
+    await deps.db
+      .updateTable("campaigns")
+      .set({ status: "running" })
+      .where("id", "=", campaignId)
+      .where("status", "=", "completed")
+      .execute();
   }
   return result;
 }
@@ -333,62 +385,94 @@ export interface StartResult {
   scheduled: number;
 }
 
-/** Start a campaign: mark running and schedule the root for unstarted leads. */
+/**
+ * Start a campaign: mark running and schedule the root for unstarted leads.
+ * Runs inside ONE transaction holding a row lock on the campaign — this
+ * serializes start against saveSequence (which takes the same lock): either
+ * the save commits first and start reads the NEW graph, or start wins and the
+ * save is rejected. It also makes the status flip atomic with lead scheduling,
+ * so a mid-start failure never leaves a "running" campaign with unscheduled leads.
+ */
 export async function startCampaign(
   deps: EngineDeps,
   workspaceId: string,
   campaignId: string,
 ): Promise<StartResult> {
-  const campaign = await getCampaign(deps.db, workspaceId, campaignId);
-  if (!campaign) {
-    throw new Error("Campaign not found");
-  }
-  if (!campaign.account_id) {
-    throw new Error("Bind a sending account before starting the campaign.");
-  }
-  const { rootId, byId } = await loadGraph(deps.db, campaignId);
-  if (!rootId) {
-    throw new Error("Add at least one step to the sequence before starting.");
-  }
+  return await deps.db.transaction().execute(async (trx) => {
+    const tdeps: EngineDeps = { ...deps, db: trx };
+    const campaign = (await trx
+      .selectFrom("campaigns")
+      .select([
+        "id",
+        "workspace_id",
+        "status",
+        "account_id",
+        "schedule",
+        "settings",
+        "caps",
+        "autonomy",
+        "knowledge_base_id",
+      ])
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", campaignId)
+      .forUpdate()
+      .executeTakeFirst()) as
+      | (CampaignRow & { caps: unknown; autonomy: unknown; knowledge_base_id: string | null })
+      | undefined;
+    if (!campaign) {
+      throw new Error("Campaign not found");
+    }
+    if (!campaign.account_id) {
+      throw new Error("Bind a sending account before starting the campaign.");
+    }
 
-  // Grounding gate (Phase 6 invariant 5): a campaign that REPLIES autonomously
-  // must have a knowledge base, or AI replies could answer factual questions
-  // ungrounded (inventing pricing/claims). approve_all is exempt — a human
-  // approves every reply. Outbound personalization writes from enrichment, so
-  // this gates only the autonomous-reply risk.
-  const brain = await deps.db
-    .selectFrom("campaigns")
-    .select(["autonomy", "knowledge_base_id"])
-    .where("workspace_id", "=", workspaceId)
-    .where("id", "=", campaignId)
-    .executeTakeFirst();
-  const mode = autonomyFrom(brain?.autonomy).mode;
-  if ((mode === "auto_easy_escalate_hard" || mode === "full_auto") && !brain?.knowledge_base_id) {
-    throw new Error(
-      "Add a knowledge base before launching an auto-replying campaign, so AI replies stay grounded.",
-    );
-  }
+    // All-zero caps would "run" the campaign without ever sending anything —
+    // surface that instead of sitting silently idle. (Empty caps use defaults.)
+    const capValues = Object.values(asObject(campaign.caps)).filter((v): v is number => typeof v === "number");
+    if (capValues.length > 0 && capValues.every((v) => v === 0)) {
+      throw new Error(
+        "Every action cap is 0, so no actions would ever send — raise at least one daily cap (Settings → Frequency) before starting.",
+      );
+    }
 
-  await deps.db
-    .updateTable("campaigns")
-    .set({ status: "running" })
-    .where("workspace_id", "=", workspaceId)
-    .where("id", "=", campaignId)
-    .execute();
+    const { rootId, byId } = await loadGraph(trx, campaignId);
+    if (!rootId) {
+      throw new Error("Add at least one step to the sequence before starting.");
+    }
 
-  const states = (await deps.db
-    .selectFrom("lead_campaign_state")
-    .select(["id", "workspace_id", "lead_id", "campaign_id", "current_node_id", "status", "history"])
-    .where("campaign_id", "=", campaignId)
-    .where("status", "=", "active")
-    .where("current_node_id", "is", null)
-    .execute()) as LeadStateRow[];
+    // Grounding gate (Phase 6 invariant 5): a campaign that REPLIES autonomously
+    // must have a knowledge base, or AI replies could answer factual questions
+    // ungrounded (inventing pricing/claims). approve_all is exempt — a human
+    // approves every reply. Outbound personalization writes from enrichment, so
+    // this gates only the autonomous-reply risk.
+    const mode = autonomyFrom(campaign.autonomy).mode;
+    if ((mode === "auto_easy_escalate_hard" || mode === "full_auto") && !campaign.knowledge_base_id) {
+      throw new Error(
+        "Add a knowledge base before launching an auto-replying campaign, so AI replies stay grounded.",
+      );
+    }
 
-  const root = byId.get(rootId) as SequenceNodeRow;
-  for (const state of states) {
-    await scheduleLead(deps, campaign, root, state);
-  }
-  return { scheduled: states.length };
+    await trx
+      .updateTable("campaigns")
+      .set({ status: "running" })
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", campaignId)
+      .execute();
+
+    const states = (await trx
+      .selectFrom("lead_campaign_state")
+      .select(["id", "workspace_id", "lead_id", "campaign_id", "current_node_id", "status", "history"])
+      .where("campaign_id", "=", campaignId)
+      .where("status", "=", "active")
+      .where("current_node_id", "is", null)
+      .execute()) as LeadStateRow[];
+
+    const root = byId.get(rootId) as SequenceNodeRow;
+    for (const state of states) {
+      await scheduleLead(tdeps, campaign, root, state);
+    }
+    return { scheduled: states.length };
+  });
 }
 
 /** Stop a campaign: mark stopped + cancel its pending actions. */

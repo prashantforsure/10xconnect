@@ -1,7 +1,7 @@
 "use client";
 
 import { hasCampaignBrain } from "@10xconnect/core";
-import { AlertTriangle, FileText, Link2, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, FileText, Link2, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
+import { cn } from "@/lib/utils";
 
 // --- types -----------------------------------------------------------------
 
@@ -249,36 +250,104 @@ function SamplesEditor({
  * hasCampaignBrain). Until then replies just land in the inbox. Re-fetches when
  * `key` (a version bump) changes after the Aim / Knowledge cards save.
  */
+/** Plain-English label for a campaign's AI reply mode. */
+function modeLabelOf(mode: Autonomy["mode"] | undefined): string {
+  switch (mode) {
+    case "full_auto":
+      return "Autopilot — replies to everything except hot leads";
+    case "approve_all":
+      return "Manual — you approve every reply";
+    default:
+      return "Balanced — auto-replies, escalates hot leads";
+  }
+}
+
+/**
+ * AI SDR readiness — the guided-activation surface. Turns the previously-buried
+ * brain config into a first-class, named "AI SDR" with a checklist (aim,
+ * knowledge base, reply mode) so a user can SEE whether the AI will actually
+ * engage replies and what it takes to switch it on.
+ */
 function AiStatusBanner({ campaignId }: { campaignId: string }) {
   const api = useApi();
-  const [off, setOff] = useState<boolean | null>(null);
+  const [brain, setBrain] = useState<BrainView | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const b = await api.request<BrainView>(`/campaigns/${campaignId}/brain`);
-      setOff(!hasCampaignBrain({ objective: b.objective, knowledgeBaseId: b.knowledgeBaseId }));
+      setBrain(await api.request<BrainView>(`/campaigns/${campaignId}/brain`));
     } catch {
-      setOff(null);
+      setBrain(null);
     }
   }, [api, campaignId]);
   useEffect(() => {
     void load();
   }, [load]);
 
-  if (off !== true) {
+  if (!brain) {
     return null;
   }
+
+  const hasAim = Boolean(brain.objective?.goal || brain.objective?.offer);
+  const hasKb = Boolean(brain.knowledgeBaseId);
+  const on = hasCampaignBrain({ objective: brain.objective, knowledgeBaseId: brain.knowledgeBaseId });
+  const mode = brain.autonomy?.mode;
+  const autoSends = mode !== "approve_all";
+  const modeLabel = modeLabelOf(mode);
+
   return (
-    <div className="flex items-start gap-2 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
-      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-foreground" />
-      <div>
-        <p className="font-medium">AI replies are off for this campaign.</p>
-        <p className="text-muted-foreground">
-          The AI won&apos;t engage incoming replies until this campaign has a brain. Add an aim below or
-          link a knowledge base to turn it on — replies still land in your inbox in the meantime.
+    <div
+      className={cn(
+        "rounded-xl border px-4 py-3.5 text-sm",
+        on ? "border-primary/30 bg-primary/[0.06]" : "border-warning/40 bg-warning/10",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <Sparkles className={cn("size-4", on ? "text-primary" : "text-warning-foreground")} />
+        <p className="font-semibold">
+          {on ? "AI SDR is on for this campaign" : "AI SDR is off for this campaign"}
         </p>
+        {on ? <span className="ml-auto text-xs text-muted-foreground">{modeLabel}</span> : null}
       </div>
+      <p className="mt-1 text-muted-foreground">
+        {on
+          ? autoSends
+            ? "The AI answers incoming replies automatically, stays grounded in your knowledge base, and hands hot leads to you with a briefing. Tune it below."
+            : "The AI drafts a reply for every incoming message; you approve each one in the inbox. Switch to Balanced below to let it auto-send the easy ones."
+          : "The AI won't engage incoming replies until this campaign has a brain. Complete the checklist below — replies still land in your inbox in the meantime."}
+      </p>
+      <ul className="mt-2.5 space-y-1">
+        <ChecklistItem done={hasAim} label="Campaign aim & offer" hint="what the AI steers toward" />
+        <ChecklistItem
+          done={hasKb}
+          label="Knowledge base linked"
+          hint="so factual answers stay grounded (required for auto-answers)"
+        />
+        <ChecklistItem done label={`Reply mode — ${modeLabel}`} />
+      </ul>
+      {on && autoSends && !hasKb ? (
+        <p className="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning-foreground" />
+          Without a linked knowledge base the AI still handles conversation, but any factual question is
+          escalated to you rather than answered.
+        </p>
+      ) : null}
     </div>
+  );
+}
+
+function ChecklistItem({ done, label, hint }: { done: boolean; label: string; hint?: string }) {
+  return (
+    <li className="flex items-start gap-2 text-xs">
+      {done ? (
+        <Check className="mt-0.5 size-3.5 shrink-0 text-primary" />
+      ) : (
+        <span className="mt-0.5 size-3.5 shrink-0 rounded-full border border-muted-foreground/50" />
+      )}
+      <span className={done ? "text-foreground" : "text-muted-foreground"}>
+        {label}
+        {hint ? <span className="text-muted-foreground"> — {hint}</span> : null}
+      </span>
+    </li>
   );
 }
 

@@ -11,8 +11,10 @@ import {
   deterministicBlueprint,
   deterministicGraph,
   type GenNode,
+  type GraphIssue,
   parseBlueprint,
   parseGeneratedGraph,
+  validateSequenceGraph,
 } from "@10xconnect/core";
 import type { DB } from "@10xconnect/db";
 import {
@@ -56,6 +58,7 @@ export interface SequenceNodeView {
 export interface CampaignLeadView {
   leadId: string;
   name: string;
+  avatarUrl: string | null;
   title: string | null;
   company: string | null;
   headline: string | null;
@@ -126,10 +129,26 @@ export class CampaignRunService {
     workspaceId: string,
     campaignId: string,
     dto: SaveSequenceDto,
-  ): Promise<{ nodes: SequenceNodeView[] }> {
-    const campaign = await this.campaigns.getRowOr404(workspaceId, campaignId);
-    if (campaign.status === "running") {
-      throw new BadRequestException("Stop the campaign before editing its sequence.");
+  ): Promise<{ nodes: SequenceNodeView[]; warnings?: GraphIssue[] }> {
+    await this.campaigns.getRowOr404(workspaceId, campaignId);
+
+    // Reject graphs the engine can't execute safely (cycles, dangling refs,
+    // unknown/email node types, disconnected chains) BEFORE touching the DB.
+    const validation = validateSequenceGraph(
+      dto.nodes.map((n) => ({
+        id: n.id,
+        kind: n.kind,
+        type: n.type,
+        next: n.next ?? null,
+        true: n.true ?? null,
+        false: n.false ?? null,
+      })),
+    );
+    if (!validation.ok) {
+      throw new BadRequestException({
+        message: validation.errors.map((e) => e.message).join(" "),
+        errors: validation.errors,
+      });
     }
 
     // Remap client ids → fresh uuids so edges stay consistent.
@@ -141,7 +160,29 @@ export class CampaignRunService {
       id ? (idMap.get(id) ?? null) : null;
 
     await this.db.transaction().execute(async (trx) => {
-      await trx.deleteFrom("sequence_nodes").where("campaign_id", "=", campaignId).execute();
+      // Row-lock the campaign and re-check status INSIDE the transaction: a
+      // start landing between a naive check and the node swap would leave
+      // running leads pointing at deleted nodes (check-then-act race). With the
+      // lock, start either waits for this commit (and reads the new graph) or
+      // wins first (and this save rejects).
+      const row = await trx
+        .selectFrom("campaigns")
+        .select(["id", "status"])
+        .where("workspace_id", "=", workspaceId)
+        .where("id", "=", campaignId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!row) {
+        throw new NotFoundException("Campaign not found");
+      }
+      if (row.status === "running") {
+        throw new BadRequestException("Stop the campaign before editing its sequence.");
+      }
+      await trx
+        .deleteFrom("sequence_nodes")
+        .where("workspace_id", "=", workspaceId)
+        .where("campaign_id", "=", campaignId)
+        .execute();
       if (dto.nodes.length === 0) {
         return;
       }
@@ -165,7 +206,8 @@ export class CampaignRunService {
     });
 
     this.logger.log(`Saved sequence for campaign ${campaignId} (${dto.nodes.length} nodes)`);
-    return this.getSequence(workspaceId, campaignId);
+    const saved = await this.getSequence(workspaceId, campaignId);
+    return validation.warnings.length > 0 ? { ...saved, warnings: validation.warnings } : saved;
   }
 
   /** Per-node lead counts (lead_campaign_state grouped by current_node_id). */
@@ -410,6 +452,14 @@ export class CampaignRunService {
   async enroll(workspaceId: string, campaignId: string, dto: EnrollLeadsDto): Promise<EnrollResult> {
     await this.campaigns.getRowOr404(workspaceId, campaignId);
     let leadIds = dto.leadIds ?? [];
+    if (dto.allContacts) {
+      const rows = await this.db
+        .selectFrom("leads")
+        .select("id")
+        .where("workspace_id", "=", workspaceId)
+        .execute();
+      leadIds = [...new Set([...leadIds, ...rows.map((r) => r.id)])];
+    }
     if (dto.listId) {
       const rows = await this.db
         .selectFrom("list_leads")
@@ -420,7 +470,11 @@ export class CampaignRunService {
       leadIds = [...new Set([...leadIds, ...rows.map((r) => r.lead_id)])];
     }
     if (leadIds.length === 0) {
-      throw new BadRequestException("No leads to enroll.");
+      throw new BadRequestException(
+        dto.allContacts
+          ? "You have no contacts yet. Import contacts first, then enroll them."
+          : "That list has no contacts. Add contacts to it, or import new leads.",
+      );
     }
     return enrollLeads(this.engine, workspaceId, campaignId, leadIds);
   }
@@ -467,6 +521,7 @@ export class CampaignRunService {
       return {
         leadId: r.leadId,
         name,
+        avatarUrl: str(e.avatarUrl),
         title: str(e.role) ?? str(e.jobTitle),
         company: str(e.company) ?? str(e.companyName),
         headline: str(e.headline),

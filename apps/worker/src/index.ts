@@ -4,7 +4,7 @@ import {
   createTextAdapter,
   resolveAdapterKind,
 } from "@10xconnect/adapters";
-import { env } from "@10xconnect/config";
+import { assertProductionEnv, env } from "@10xconnect/config";
 import { createDb } from "@10xconnect/db";
 import {
   createCachedAiResolver,
@@ -23,6 +23,8 @@ import {
  * seam). Inbound webhooks are handled by the API process, not here.
  */
 function main(): void {
+  // Fail fast in production if critical secrets are missing (no-op in dev/test).
+  assertProductionEnv();
   console.log(`worker up (${env.NODE_ENV})`);
 
   const adapterKind = resolveAdapterKind();
@@ -81,14 +83,32 @@ function main(): void {
     }
   };
 
-  setInterval(() => void tick(), env.DISPATCH_TICK_MS);
+  const timer = setInterval(() => void tick(), env.DISPATCH_TICK_MS);
   void tick();
+  installGracefulShutdown(timer);
 }
 
 function keepAlive(): void {
   setInterval(() => {
     // Idle heartbeat.
   }, 60_000);
+}
+
+/** Stop claiming new work on SIGTERM/SIGINT, let an in-flight tick drain, then exit. */
+function installGracefulShutdown(timer: NodeJS.Timeout): void {
+  let shuttingDown = false;
+  const shutdown = (signal: string): void => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    console.log(`worker received ${signal} — draining and shutting down`);
+    clearInterval(timer);
+    // Give an in-flight tick a moment to finish before exiting.
+    setTimeout(() => process.exit(0), 3_000);
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 main();

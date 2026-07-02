@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 
 import { ChannelAdapterModule } from "./adapter/channel-adapter.module";
 import { SupabaseAuthGuard } from "./auth/supabase-auth.guard";
@@ -30,6 +31,9 @@ import { WorkspacesModule } from "./modules/workspaces.module";
 
 @Module({
   imports: [
+    // HTTP rate limiting (abuse guard). Per-IP: 300 requests/minute by default.
+    // Provider webhooks are exempted with @SkipThrottle() so retries never drop.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     DatabaseModule,
     ChannelAdapterModule,
     EngineModule,
@@ -55,6 +59,7 @@ import { WorkspacesModule } from "./modules/workspaces.module";
   ],
   controllers: [HealthController, MeController],
   providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: SupabaseAuthGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],

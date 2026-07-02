@@ -58,7 +58,9 @@ export interface CampaignDetailView {
 
 interface AccountOption {
   id: string;
+  type: "linkedin" | "mailbox";
   name: string | null;
+  label: string | null;
   status: string;
 }
 
@@ -281,11 +283,13 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
             aria-label="Sending account"
           >
             <option value="">No account</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name ?? "LinkedIn account"} ({a.status})
-              </option>
-            ))}
+            {accounts
+              .filter((a) => a.type === "linkedin")
+              .map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label ?? a.name ?? "LinkedIn account"} ({a.status})
+                </option>
+              ))}
           </Select>
           {isRunning ? (
             <Button variant="destructive" size="sm" onClick={() => void stop()} disabled={busy}>

@@ -149,6 +149,10 @@ export interface UnipileSearchItem {
   company?: string;
   location?: string;
   network_distance?: string;
+  /** Profile photo URL (naming varies across surfaces). */
+  profile_picture_url?: string;
+  profile_picture_url_large?: string;
+  picture_url?: string;
   /** Engagement endpoints nest the person under author/actor. */
   author?: UnipileSearchItem;
   actor?: UnipileSearchItem;
@@ -182,6 +186,9 @@ export interface UnipileRelationItem {
   current_company?: string;
   company?: string;
   location?: string;
+  profile_picture_url?: string;
+  profile_picture_url_large?: string;
+  picture_url?: string;
 }
 
 export interface UnipileRelationsResponse {

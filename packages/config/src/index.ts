@@ -157,6 +157,15 @@ const envSchema = z.object({
   // Payments (Phase 9+)
   CREEM_API_KEY: optionalString,
 
+  // Accounts. Multiple LinkedIn accounts per workspace are gated by the billing
+  // slot count; set true to bypass the slot cap (dev / self-host).
+  ALLOW_UNLIMITED_ACCOUNTS: booleanWithDefault(false),
+
+  // Shared secret for inbound provider webhooks (Unipile notify_url, payments).
+  // When set, webhook routes REQUIRE it (x-webhook-secret header or ?secret=…)
+  // and reject anything else — fail closed. Unset → allowed (dev / mock adapter).
+  WEBHOOK_SECRET: optionalString,
+
   // Observability (Phase 12+)
   SENTRY_DSN: optionalString,
 
@@ -199,3 +208,28 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
 
 /** Eagerly-validated environment object. */
 export const env: Env = loadEnv();
+
+/**
+ * Fail fast at SERVER STARTUP if production is missing critical secrets. Call
+ * from the api/worker bootstrap — NOT at import time, so it never breaks a build
+ * (Next.js sets NODE_ENV=production during `next build`). In non-production it is
+ * a no-op, keeping local dev and tests frictionless.
+ */
+export function assertProductionEnv(e: Env = env): void {
+  if (e.NODE_ENV !== "production") {
+    return;
+  }
+  const required: [keyof Env, string][] = [
+    ["SECRETS_ENCRYPTION_KEY", "encrypts connected-account sessions at rest"],
+    ["SUPABASE_URL", "Supabase project URL"],
+    ["SUPABASE_SERVICE_ROLE_KEY", "service-role database access"],
+    ["SUPABASE_JWT_SECRET", "verifies user session JWTs"],
+    ["DATABASE_URL", "database connection"],
+  ];
+  const missing = required.filter(([key]) => !e[key]).map(([key, why]) => `  - ${key} (${why})`);
+  if (missing.length > 0) {
+    throw new Error(
+      `Refusing to start in production — missing required environment:\n${missing.join("\n")}`,
+    );
+  }
+}

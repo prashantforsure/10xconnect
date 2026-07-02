@@ -7,9 +7,11 @@ import { useEffect, useState } from "react";
 // see PUBLIC_PATHS in lib/supabase/middleware.ts.
 export default function ConnectCallbackPage() {
   const [closed, setClosed] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     const status = new URLSearchParams(window.location.search).get("status") ?? "success";
+    setFailed(status === "failure");
     if (window.opener) {
       window.opener.postMessage(
         { source: "10xconnect-hosted-auth", status },
@@ -28,11 +30,15 @@ export default function ConnectCallbackPage() {
   return (
     <main className="flex min-h-screen items-center justify-center p-6 text-center">
       <div>
-        <p className="font-display text-lg font-semibold">LinkedIn connected</p>
+        <p className="font-display text-lg font-semibold">
+          {failed ? "LinkedIn connection didn't finish" : "LinkedIn connected"}
+        </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          {closed
-            ? "You can close this tab and return to 10xConnect."
-            : "Finishing up — this window will close automatically."}
+          {failed
+            ? "The login was cancelled or hit a checkpoint. Close this tab and try again from 10xConnect."
+            : closed
+              ? "You can close this tab and return to 10xConnect."
+              : "Finishing up — this window will close automatically."}
         </p>
       </div>
     </main>

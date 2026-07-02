@@ -13,6 +13,7 @@ import {
   Plus,
   Search,
   Settings,
+  ShieldCheck,
   Users,
   X,
 } from "lucide-react";
@@ -50,6 +51,7 @@ const navSections: NavSection[] = [
       { href: "/campaigns", label: "Campaigns", icon: Megaphone },
       { href: "/contacts", label: "Contacts", icon: Users },
       { href: "/inbox", label: "Inbox", icon: Inbox },
+      { href: "/accounts", label: "Accounts", icon: ShieldCheck, match: "/accounts" },
     ],
   },
   {
@@ -72,6 +74,7 @@ const SECTION_LABELS: { prefix: string; label: string }[] = [
   { prefix: "/campaigns", label: "Campaigns" },
   { prefix: "/contacts", label: "Contacts" },
   { prefix: "/inbox", label: "Inbox" },
+  { prefix: "/accounts", label: "Accounts" },
   { prefix: "/settings", label: "Settings" },
   { prefix: "/affiliate", label: "Affiliate" },
   { prefix: "/tutorials", label: "Tutorials" },

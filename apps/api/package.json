@@ -20,6 +20,8 @@
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/throttler": "^6.5.0",
+    "helmet": "^8.2.0",
     "jose": "^5.9.6",
     "kysely": "^0.27.5",
     "mammoth": "^1.8.0",

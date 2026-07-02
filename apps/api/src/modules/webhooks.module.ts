@@ -15,12 +15,14 @@ import {
   Post,
   UseGuards,
 } from "@nestjs/common";
+import { SkipThrottle } from "@nestjs/throttler";
 import type { Kysely } from "kysely";
 import { z } from "zod";
 
 import { CHANNEL_ADAPTER } from "../adapter/channel-adapter.module";
 import { Public } from "../common/decorators/public.decorator";
 import { WorkspaceId } from "../common/decorators/workspace-id.decorator";
+import { WebhookSecretGuard } from "../common/guards/webhook-secret.guard";
 import { WorkspaceScopeGuard } from "../common/guards/workspace-scope.guard";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { KYSELY_DB } from "../database/database.module";
@@ -93,7 +95,11 @@ export class WebhooksController {
   }
 }
 
-// Inbound receivers from external services — public.
+// Inbound receivers from external services — public, secret-authenticated, and
+// exempt from rate limiting (provider retries must never be throttled).
+@Public()
+@SkipThrottle()
+@UseGuards(WebhookSecretGuard)
 @Controller("webhooks")
 export class InboundWebhooksController {
   private readonly logger = new Logger("InboundWebhooks");
@@ -102,7 +108,6 @@ export class InboundWebhooksController {
   // types cross into the app layer. The mock adapter does not ingest webhooks.
   constructor(@Inject(CHANNEL_ADAPTER) private readonly adapter: unknown) {}
 
-  @Public()
   @Post("inbound/unipile")
   async unipile(@Body() body: unknown): Promise<{ received: true }> {
     if (isInboundWebhookReceiver(this.adapter)) {
@@ -114,7 +119,6 @@ export class InboundWebhooksController {
     return { received: true };
   }
 
-  @Public()
   @Post("payments")
   payments(): never {
     throw new NotImplementedException();

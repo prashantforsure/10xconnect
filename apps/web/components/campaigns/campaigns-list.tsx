@@ -36,10 +36,9 @@ interface CampaignView {
 }
 
 // Order + labels for the status filter chips (only statuses that occur are shown).
-const STATUS_ORDER: CampaignStatus[] = ["running", "draft", "pending", "stopped", "completed"];
+const STATUS_ORDER: CampaignStatus[] = ["running", "draft", "stopped", "completed"];
 const STATUS_LABEL: Record<CampaignStatus, string> = {
   draft: "Draft",
-  pending: "Pending",
   running: "Running",
   stopped: "Stopped",
   completed: "Completed",

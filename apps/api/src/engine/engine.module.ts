@@ -17,6 +17,7 @@ import type { Kysely } from "kysely";
 
 import { CHANNEL_ADAPTER } from "../adapter/channel-adapter.module";
 import { KYSELY_DB } from "../database/database.module";
+import { AccountsModule, AccountsService } from "../modules/accounts.module";
 
 /** DI token for the shared engine dependencies (db + adapter + dispatch config). */
 export const ENGINE_DEPS = "ENGINE_DEPS";
@@ -45,20 +46,44 @@ export class InboundEventsService implements OnModuleInit {
   constructor(
     @Inject(KYSELY_DB) private readonly db: Kysely<DB>,
     @Inject(CHANNEL_ADAPTER) private readonly adapter: ChannelAdapter,
+    private readonly accounts: AccountsService,
   ) {}
 
   onModuleInit(): void {
     this.adapter.subscribeInboundEvents((event) => {
-      void processInboundEvent({ db: this.db, log: (m) => this.logger.log(m) }, event).catch((err) =>
-        this.logger.error(`inbound processing failed: ${String(err)}`),
-      );
+      void processInboundEvent({ db: this.db, log: (m) => this.logger.log(m) }, event)
+        .then((result) => this.afterProcess(event, result.status))
+        .catch((err) => this.logger.error(`inbound processing failed: ${String(err)}`));
     });
     this.logger.log("Subscribed to inbound transport events.");
+  }
+
+  /**
+   * Infinite login (CLAUDE.md §6): when a credentials account's session drops
+   * (Unipile CREDENTIALS → 'restricted', or a disconnect), silently re-authenticate
+   * it. Gated on `processed` so it runs at most once per drop (a replayed webhook is
+   * a 'duplicate' → no-op) — no reconnect loop. A non-credentials account is a
+   * no-op inside the service, so the existing restriction → auto-pause still stands.
+   */
+  private async afterProcess(
+    event: Parameters<typeof processInboundEvent>[1],
+    status: "processed" | "duplicate" | "unresolved",
+  ): Promise<void> {
+    if (
+      status === "processed" &&
+      event.type === "account_status_changed" &&
+      (event.status === "restricted" || event.status === "disconnected")
+    ) {
+      await this.accounts
+        .attemptInfiniteReconnectByRef(event.accountId)
+        .catch((err) => this.logger.warn(`infinite-login reconnect errored: ${String(err)}`));
+    }
   }
 }
 
 @Global()
 @Module({
+  imports: [AccountsModule],
   providers: [engineDepsProvider, InboundEventsService],
   exports: [ENGINE_DEPS],
 })

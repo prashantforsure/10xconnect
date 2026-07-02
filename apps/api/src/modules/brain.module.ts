@@ -119,6 +119,16 @@ type BrainConfigDto = z.infer<typeof brainConfigSchema>;
 const approveSchema = z.object({ editedBody: z.string().trim().min(1).max(8000).optional() });
 type ApproveDto = z.infer<typeof approveSchema>;
 
+/** Workspace AI-SDR master switch toggle. */
+const aiSdrSchema = z.object({ enabled: z.boolean() });
+type AiSdrDto = z.infer<typeof aiSdrSchema>;
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 @Injectable()
 export class BrainService {
   constructor(
@@ -346,6 +356,76 @@ export class BrainService {
     await discardDraft(this.deps(), { workspaceId, draftId: draft.id });
     return { discarded: true };
   }
+
+  /** Pause the AI SDR on a single thread — the human takes this conversation over. */
+  async pauseAi(workspaceId: string, conversationId: string) {
+    return this.setThreadAi(workspaceId, conversationId, true);
+  }
+
+  /** Hand a single thread back to the AI SDR. */
+  async resumeAi(workspaceId: string, conversationId: string) {
+    return this.setThreadAi(workspaceId, conversationId, false);
+  }
+
+  /**
+   * Per-thread AI on/off. Writes relationship_state.do_not_reply for the lead
+   * behind the conversation (the same flag the pre-gate + hot-lead handoff use),
+   * so the next inbound turn is skipped. Pausing also drops any pending draft so
+   * it can't be approved behind the human's back.
+   */
+  private async setThreadAi(workspaceId: string, conversationId: string, paused: boolean) {
+    const convo = await this.db
+      .selectFrom("conversations")
+      .select(["id", "lead_id as leadId"])
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", conversationId)
+      .executeTakeFirst();
+    if (!convo) throw new NotFoundException("Conversation not found");
+    if (!convo.leadId) throw new BadRequestException("This conversation has no contact to control the AI for.");
+    const nowIso = new Date().toISOString();
+    await this.db
+      .insertInto("relationship_state")
+      .values({ lead_id: convo.leadId, workspace_id: workspaceId, do_not_reply: paused })
+      .onConflict((oc) => oc.column("lead_id").doUpdateSet({ do_not_reply: paused, updated_at: nowIso }))
+      .execute();
+    if (paused) {
+      await this.db
+        .updateTable("message_drafts")
+        .set({ status: "discarded" })
+        .where("conversation_id", "=", conversationId)
+        .where("status", "=", "pending")
+        .execute();
+    }
+    return { aiPaused: paused };
+  }
+
+  /** Read the workspace AI-SDR master switch (default ON when unset). */
+  async getAiSdr(workspaceId: string) {
+    const ws = await this.db
+      .selectFrom("workspaces")
+      .select("settings")
+      .where("id", "=", workspaceId)
+      .executeTakeFirst();
+    if (!ws) throw new NotFoundException("Workspace not found");
+    return { enabled: asObject(ws.settings).ai_sdr_enabled !== false };
+  }
+
+  /** Toggle the workspace AI-SDR master switch (merges into settings jsonb). */
+  async setAiSdr(workspaceId: string, enabled: boolean) {
+    const ws = await this.db
+      .selectFrom("workspaces")
+      .select("settings")
+      .where("id", "=", workspaceId)
+      .executeTakeFirst();
+    if (!ws) throw new NotFoundException("Workspace not found");
+    const settings = { ...asObject(ws.settings), ai_sdr_enabled: enabled };
+    await this.db
+      .updateTable("workspaces")
+      .set({ settings: JSON.stringify(settings) as never })
+      .where("id", "=", workspaceId)
+      .execute();
+    return { enabled };
+  }
 }
 
 @UseGuards(WorkspaceScopeGuard)
@@ -427,6 +507,26 @@ export class BrainController {
   @Post("conversations/:id/draft/discard")
   discard(@WorkspaceId() ws: string, @Param("id") id: string) {
     return this.brain.discard(ws, id);
+  }
+
+  @Post("conversations/:id/ai/pause")
+  pauseAi(@WorkspaceId() ws: string, @Param("id") id: string) {
+    return this.brain.pauseAi(ws, id);
+  }
+
+  @Post("conversations/:id/ai/resume")
+  resumeAi(@WorkspaceId() ws: string, @Param("id") id: string) {
+    return this.brain.resumeAi(ws, id);
+  }
+
+  @Get("ai-sdr/settings")
+  getAiSdr(@WorkspaceId() ws: string) {
+    return this.brain.getAiSdr(ws);
+  }
+
+  @Put("ai-sdr/settings")
+  setAiSdr(@WorkspaceId() ws: string, @Body(new ZodValidationPipe(aiSdrSchema)) body: AiSdrDto) {
+    return this.brain.setAiSdr(ws, body.enabled);
   }
 }
 

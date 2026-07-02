@@ -1,3 +1,5 @@
+import { env } from "@10xconnect/config";
+import { isCredentialsReconnectCapable } from "@10xconnect/core";
 import type {
   AccountConnection,
   AccountRef,
@@ -10,7 +12,9 @@ import type { DB } from "@10xconnect/db";
 import { computeAccountHealth } from "@10xconnect/engine";
 import {
   BadGatewayException,
+  BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Get,
   Inject,
@@ -18,7 +22,6 @@ import {
   Logger,
   Module,
   NotFoundException,
-  NotImplementedException,
   Param,
   Patch,
   Post,
@@ -37,6 +40,11 @@ import { KYSELY_DB } from "../database/database.module";
 
 // --- DTOs ------------------------------------------------------------------
 
+// scheme://[user:pass@]host:port — http(s) or socks5(h). Validated before connect
+// so a malformed proxy (the #1 silent connect failure) is rejected with a clear
+// message instead of failing opaquely at the transport provider.
+export const PROXY_URL_RE = /^(https?|socks5h?):\/\/([^\s:@/]+(:[^\s@/]*)?@)?[^\s:@/]+:\d{2,5}$/i;
+
 const proxySchema = z.discriminatedUnion("mode", [
   z.object({
     mode: z.literal("bundled"),
@@ -49,38 +57,88 @@ const proxySchema = z.discriminatedUnion("mode", [
     // Full proxy URL (may embed credentials), e.g. http://user:pass@host:port or
     // socks5://host:port. Treated as SECRET material — encrypted, never stored
     // in a plaintext column or logged.
-    url: z.string().trim().min(1).max(2048),
+    url: z
+      .string()
+      .trim()
+      .min(1)
+      .max(2048)
+      .regex(PROXY_URL_RE, "Proxy must be scheme://[user:pass@]host:port (http, https, or socks5)"),
   }),
 ]);
 
-// Connect contract: the LinkedIn `li_at` session cookie + the matching browser
-// user-agent. Two sources of that same payload (both go through the identical,
-// verified cookie transport):
-//   - "extension" — the browser extension captures the session from the user's
-//     logged-in tab (the product method; CLAUDE.md §6).
-//   - "cookie"    — the user pastes their li_at manually (a testing affordance,
-//     gated to non-production in the UI). NOT email/password — a server-side
-//     datacenter login is a top cause of the repeated-logout loop (§6/§14) and
-//     stays removed.
-// We validate the session with the transport provider and re-check status before
-// persisting, so an expired/challenged session is rejected, never saved live.
-const connectAccountSchema = z.object({
-  method: z.enum(["extension", "cookie"]).default("extension"),
-  /** ISO country of the account — proxy + session are matched to it. */
-  country: z.string().trim().min(2).max(64),
-  /** Optional display email the extension can supply. */
-  email: z.string().trim().email().max(255).optional(),
-  /** Captured/pasted LinkedIn `li_at` session cookie. SECRET — never logged; encrypted at rest. */
-  liAt: z.string().trim().min(20).max(8192),
-  /**
-   * Browser user-agent paired with the cookie. Required: matching it (together
-   * with a region proxy) is what stops LinkedIn from logging the account out
-   * (§6/§14). It MUST be the user-agent of the browser the li_at was taken from.
-   */
-  userAgent: z.string().trim().min(1).max(512),
-  proxy: proxySchema.default({ mode: "bundled" }),
-});
+// Connect contract. Three methods, all persisted as encrypted-at-rest material:
+//   - "extension" — the browser extension captures the user's real li_at session
+//     + matching user-agent from their logged-in tab (the lowest-risk method).
+//   - "cookie"    — the user pastes that same li_at manually (a testing affordance,
+//     gated to non-production in the UI).
+//   - "credentials" — Infinite login (CLAUDE.md §6): email + password + the
+//     authenticator-app TOTP secret. The provider logs in inside a stable,
+//     region-matched residential-proxy session and silently RE-AUTHENTICATES when
+//     the session drops (solving the 2FA checkpoint from the stored TOTP secret),
+//     so the account stays connected. Requires authenticator-app 2FA (not SMS).
+// We validate the connection with the transport provider and re-check status
+// before persisting, so a rejected login/session is never saved live.
+const connectAccountSchema = z
+  .object({
+    method: z.enum(["extension", "cookie", "credentials"]).default("extension"),
+    /** ISO country of the account — proxy + session are matched to it. */
+    country: z.string().trim().min(2).max(64),
+    /** Display email (extension/cookie) OR the LinkedIn login email (credentials). */
+    email: z.string().trim().email().max(255).optional(),
+    /** Captured/pasted LinkedIn `li_at` session cookie (extension/cookie). SECRET — encrypted at rest. */
+    liAt: z.string().trim().min(20).max(8192).optional(),
+    /**
+     * Browser user-agent paired with the cookie (extension/cookie). Matching it
+     * (with a region proxy) is what stops LinkedIn from logging the account out
+     * (§6/§14) — it MUST be the user-agent of the browser the li_at came from.
+     */
+    userAgent: z.string().trim().min(1).max(512).optional(),
+    /** LinkedIn password (credentials/Infinite login). SECRET — encrypted at rest, never logged. */
+    password: z.string().min(1).max(512).optional(),
+    /**
+     * Base32 authenticator-app TOTP secret ("setup key") for Infinite login.
+     * SECRET — encrypted at rest. Its presence is what makes re-auth silent: the
+     * adapter generates the current 2FA code from it to solve LinkedIn's checkpoint.
+     */
+    totpSecret: z.string().trim().min(8).max(128).optional(),
+    proxy: proxySchema.default({ mode: "bundled" }),
+    /**
+     * When set, RECONNECT this existing account (refresh its session in place,
+     * preserving campaigns/history). Omit to connect a NEW account (consumes a
+     * billing slot). Multi-account: a workspace can hold many LinkedIn accounts.
+     */
+    reconnectAccountId: z.string().uuid().optional(),
+    /** Optional friendly label to disambiguate accounts in the list. */
+    label: z.string().trim().max(80).optional(),
+  })
+  // Per-method required fields (kept out of the shape so one schema covers all three).
+  .superRefine((v, ctx) => {
+    if (v.method === "credentials") {
+      if (!v.email) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["email"], message: "email is required for Infinite login" });
+      }
+      if (!v.password) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["password"], message: "password is required for Infinite login" });
+      }
+    } else {
+      if (!v.liAt) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["liAt"], message: "liAt is required" });
+      }
+      if (!v.userAgent) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["userAgent"], message: "userAgent is required" });
+      }
+    }
+  });
 type ConnectAccountDto = z.infer<typeof connectAccountSchema>;
+
+/** Per-account overrides editable after connect (label + proxy region). */
+const updateAccountSchema = z
+  .object({
+    label: z.string().trim().max(80).nullable().optional(),
+    proxyRegion: z.string().trim().min(1).max(64).nullable().optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: "No fields to update" });
+type UpdateAccountDto = z.infer<typeof updateAccountSchema>;
 
 // --- Views (no secrets, no provider handles) -------------------------------
 
@@ -89,6 +147,7 @@ export interface AccountView {
   type: "linkedin" | "mailbox";
   connection_method: "extension" | "credentials" | "cookie" | "hosted_auth" | null;
   name: string | null;
+  label: string | null;
   proxy_type: "bundled" | "own" | null;
   proxy_region: string | null;
   country: string | null;
@@ -96,6 +155,7 @@ export interface AccountView {
   status: AccountStatus;
   health_score: number;
   warmup_state: unknown;
+  avatar_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -136,6 +196,23 @@ const COOKIE_GUIDANCE: ConnectionGuidance = {
   ],
 };
 
+/**
+ * Guidance for the credentials (Infinite login) flow. The account stays connected
+ * because we can silently re-authenticate — but only while the stored credentials
+ * + TOTP secret remain valid, so the precautions center on NOT invalidating them.
+ */
+const CREDENTIALS_GUIDANCE: ConnectionGuidance = {
+  twoFactorRequired: true,
+  summary:
+    "Connected with Infinite login. We sign the account in inside a stable, region-matched residential-proxy session, and — because your authenticator 2FA secret is stored encrypted — silently re-authenticate whenever LinkedIn drops the session, so it stays connected without you reconnecting.",
+  steps: [
+    "Keep authenticator-app 2FA (TOTP) enabled — it's what lets us log back in for you. Don't switch 2FA to SMS or turn it off.",
+    "Don't change the account password — it invalidates the stored login (if you do, reconnect here with the new one).",
+    "Set the country to where the account normally signs in; it runs on a matching residential proxy so LinkedIn never sees impossible travel.",
+    "New accounts warm up gradually — we never exceed safe daily limits.",
+  ],
+};
+
 export interface ConnectAccountResponse {
   account: AccountView;
   guidance: ConnectionGuidance;
@@ -166,6 +243,7 @@ const ACCOUNT_VIEW_COLUMNS = [
   "type",
   "connection_method",
   "name",
+  "label",
   "proxy_type",
   "proxy_region",
   "country",
@@ -173,6 +251,7 @@ const ACCOUNT_VIEW_COLUMNS = [
   "status",
   "health_score",
   "warmup_state",
+  "avatar_url",
   "created_at",
   "updated_at",
 ] as const;
@@ -204,29 +283,56 @@ export class AccountsService {
       );
     }
 
+    if (dto.reconnectAccountId) {
+      // Reconnect targets an existing row — verify it belongs to this workspace.
+      await this.getRowOr404(workspaceId, dto.reconnectAccountId);
+    } else {
+      // A NEW account consumes a billing slot (multi-account cap).
+      await this.assertSlotAvailable(workspaceId);
+    }
+
     const proxy: ProxyConfig =
       dto.proxy.mode === "own"
         ? { mode: "own", region: dto.proxy.region ?? dto.country, url: dto.proxy.url }
         : { mode: "bundled", region: dto.proxy.region ?? dto.country };
 
-    // Build the adapter input + the encrypted-at-rest secret bundle. Both methods
-    // carry the li_at session + the matching user-agent; we feed both to the
-    // transport (which handles extension/cookie identically) and persist them
-    // encrypted so a reconnect can re-verify. The user-agent is always forwarded
-    // — it's the logout defense (§6/§14).
+    // Build the adapter input + the encrypted-at-rest secret bundle per method.
+    // extension/cookie carry the li_at session + user-agent; credentials (Infinite
+    // login) carry email/password + the TOTP secret. We persist the material
+    // encrypted so a reconnect (or the silent Infinite-login re-auth) can reuse it.
+    // The own-proxy URL is secret too, so it rides in the same encrypted bundle.
     const proxyExtra = proxy.mode === "own" && proxy.url ? { proxyUrl: proxy.url } : {};
-    const input: ConnectInput = {
-      method: dto.method,
-      country: dto.country,
-      proxy,
-      cookie: { liAt: dto.liAt, userAgent: dto.userAgent },
-    };
-    const secretBundle: Record<string, unknown> = {
-      method: dto.method,
-      liAt: dto.liAt,
-      userAgent: dto.userAgent,
-      ...proxyExtra,
-    };
+    let input: ConnectInput;
+    let secretBundle: Record<string, unknown>;
+    if (dto.method === "credentials") {
+      input = {
+        method: "credentials",
+        country: dto.country,
+        proxy,
+        // email/password validated as required for this method (superRefine).
+        credentials: { email: dto.email as string, password: dto.password as string, totpSecret: dto.totpSecret },
+      };
+      secretBundle = {
+        method: "credentials",
+        email: dto.email,
+        password: dto.password,
+        ...(dto.totpSecret ? { totpSecret: dto.totpSecret } : {}),
+        ...proxyExtra,
+      };
+    } else {
+      input = {
+        method: dto.method,
+        country: dto.country,
+        proxy,
+        cookie: { liAt: dto.liAt as string, userAgent: dto.userAgent as string },
+      };
+      secretBundle = {
+        method: dto.method,
+        liAt: dto.liAt,
+        userAgent: dto.userAgent,
+        ...proxyExtra,
+      };
+    }
     const fallbackName = dto.email ?? "LinkedIn account";
 
     let connection: AccountConnection;
@@ -270,17 +376,95 @@ export class AccountsService {
     const account = await this.finalizeLinkedInAccount(workspaceId, {
       providerAccountId: connection.providerAccountId,
       name: connection.name ?? fallbackName,
+      avatarUrl: connection.avatarUrl ?? undefined,
       country: dto.country,
       proxy,
       connectionMethod: dto.method,
       ciphertext,
+      reconnectAccountId: dto.reconnectAccountId ?? null,
+      label: dto.label ?? undefined,
     });
 
     this.logger.log(`Connected ${dto.method} account ${account.id} (workspace=${workspaceId})`);
     return {
       account,
-      guidance: dto.method === "cookie" ? COOKIE_GUIDANCE : EXTENSION_GUIDANCE,
+      guidance:
+        dto.method === "credentials"
+          ? CREDENTIALS_GUIDANCE
+          : dto.method === "cookie"
+            ? COOKIE_GUIDANCE
+            : EXTENSION_GUIDANCE,
     };
+  }
+
+  /**
+   * Infinite login (CLAUDE.md §6): silently re-authenticate a credentials account
+   * after its session drops. Triggered by the inbound account_status_changed event
+   * (Unipile CREDENTIALS → restricted / a disconnect). It's a SYSTEM-level call —
+   * a webhook carries no workspace context — so it resolves the account by our id
+   * OR the provider handle, decrypts the stored credentials, and re-logs in via the
+   * adapter (which solves the 2FA checkpoint from the stored TOTP secret). On
+   * success the account returns to 'warming'; on failure (a real restriction, a
+   * changed password, or no stored TOTP) it's left as-is for a manual reconnect.
+   * Never throws — best-effort self-healing, keyed off a de-duplicated event so it
+   * runs at most once per drop (no reconnect loop).
+   */
+  async attemptInfiniteReconnectByRef(refId: string): Promise<{ reconnected: boolean }> {
+    const adapter = this.adapter;
+    if (!isCredentialsReconnectCapable(adapter) || !this.cipher.isConfigured()) {
+      return { reconnected: false };
+    }
+    const row = await this.db
+      .selectFrom("sending_accounts")
+      .select(["id", "provider_account_id", "connection_method", "country", "proxy_type", "proxy_region"])
+      .where("type", "=", "linkedin")
+      .where((eb) => eb.or([eb("id", "=", refId), eb("provider_account_id", "=", refId)]))
+      .executeTakeFirst();
+    if (!row || row.connection_method !== "credentials") {
+      return { reconnected: false };
+    }
+    const secret = await this.db
+      .selectFrom("sending_account_secrets")
+      .select("ciphertext")
+      .where("account_id", "=", row.id)
+      .executeTakeFirst();
+    if (!secret) {
+      return { reconnected: false };
+    }
+    let bundle: { email?: string; password?: string; totpSecret?: string; proxyUrl?: string };
+    try {
+      bundle = this.cipher.decryptJson(secret.ciphertext);
+    } catch {
+      return { reconnected: false };
+    }
+    // Infinite login REQUIRES the stored TOTP secret — without it we can't solve
+    // the 2FA checkpoint, so leave it for a manual reconnect rather than loop.
+    if (!bundle.email || !bundle.password || !bundle.totpSecret) {
+      return { reconnected: false };
+    }
+    const region = row.proxy_region ?? row.country ?? undefined;
+    const proxy: ProxyConfig =
+      row.proxy_type === "own" && bundle.proxyUrl
+        ? { mode: "own", region, url: bundle.proxyUrl }
+        : { mode: "bundled", region };
+    try {
+      const conn = await adapter.reconnectWithCredentials(
+        { accountId: row.id, providerAccountId: row.provider_account_id ?? undefined },
+        { email: bundle.email, password: bundle.password, totpSecret: bundle.totpSecret },
+        proxy,
+      );
+      await this.db
+        .updateTable("sending_accounts")
+        .set({ status: "warming", provider_account_id: conn.providerAccountId })
+        .where("id", "=", row.id)
+        .execute();
+      this.logger.log(`Infinite login: auto-reconnected account ${row.id}`);
+      return { reconnected: true };
+    } catch {
+      // A real restriction / changed password — NEVER log details (may echo secrets).
+      this.logger.warn(`Infinite login: auto-reconnect failed for account ${row.id}; left for manual reconnect`);
+      return { reconnected: false };
+    }
   }
 
   /**
@@ -296,10 +480,17 @@ export class AccountsService {
     params: {
       providerAccountId: string;
       name: string | null;
+      /** Profile photo URL; only written when provided (a reconnect without one
+       * keeps the existing photo rather than clobbering it). */
+      avatarUrl?: string | null;
       country: string;
       proxy: ProxyConfig;
-      connectionMethod: "extension" | "cookie" | "hosted_auth";
+      connectionMethod: "extension" | "cookie" | "credentials" | "hosted_auth";
       ciphertext?: string | null;
+      /** When set, refresh THIS account row (reconnect); else create a new account. */
+      reconnectAccountId?: string | null;
+      /** Optional human label; only written when provided. */
+      label?: string | null;
     },
   ): Promise<AccountView> {
     const { providerAccountId, country, proxy, ciphertext } = params;
@@ -315,28 +506,34 @@ export class AccountsService {
       status: "warming" as const,
       health_score: 100,
       warmup_state: JSON.stringify(this.initialWarmupState()),
+      // Only include when supplied so a photo-less reconnect doesn't wipe an existing one.
+      ...(params.avatarUrl !== undefined ? { avatar_url: params.avatarUrl } : {}),
     };
 
     let previousProviderAccountId: string | null = null;
     const account = await this.db.transaction().execute(async (trx) => {
-      const existing = await trx
-        .selectFrom("sending_accounts")
-        .where("workspace_id", "=", workspaceId)
-        .where("type", "=", "linkedin")
-        .select(["id", "provider_account_id"])
-        .executeTakeFirst();
+      // Reconnect targets a SPECIFIC account (multi-account); create inserts new.
+      const existing = params.reconnectAccountId
+        ? await trx
+            .selectFrom("sending_accounts")
+            .where("id", "=", params.reconnectAccountId)
+            .where("workspace_id", "=", workspaceId)
+            .where("type", "=", "linkedin")
+            .select(["id", "provider_account_id"])
+            .executeTakeFirst()
+        : undefined;
 
       const row = existing
         ? await trx
             .updateTable("sending_accounts")
-            .set(accountFields)
+            .set({ ...accountFields, ...(params.label !== undefined ? { label: params.label } : {}) })
             .where("id", "=", existing.id)
             .where("workspace_id", "=", workspaceId)
             .returning(ACCOUNT_VIEW_COLUMNS)
             .executeTakeFirstOrThrow()
         : await trx
             .insertInto("sending_accounts")
-            .values({ workspace_id: workspaceId, type: "linkedin", ...accountFields })
+            .values({ workspace_id: workspaceId, type: "linkedin", label: params.label ?? null, ...accountFields })
             .returning(ACCOUNT_VIEW_COLUMNS)
             .executeTakeFirstOrThrow();
 
@@ -486,6 +683,64 @@ export class AccountsService {
   }
 
   /**
+   * Guard the per-workspace account count against the billing slot allowance
+   * before creating a NEW account (reconnects never consume a slot). A workspace
+   * with no subscription row gets one free slot. Bypassed by ALLOW_UNLIMITED_ACCOUNTS
+   * (dev/self-host). A disconnected account still holds its slot until removed.
+   */
+  async assertSlotAvailable(workspaceId: string): Promise<void> {
+    if (env.ALLOW_UNLIMITED_ACCOUNTS) {
+      return;
+    }
+    const [used, sub] = await Promise.all([
+      this.db
+        .selectFrom("sending_accounts")
+        .select((eb) => eb.fn.countAll<string>().as("count"))
+        .where("workspace_id", "=", workspaceId)
+        .where("type", "=", "linkedin")
+        .executeTakeFirstOrThrow(),
+      this.db
+        .selectFrom("subscriptions")
+        .select("slot_count")
+        .where("workspace_id", "=", workspaceId)
+        .executeTakeFirst(),
+    ]);
+    const limit = sub?.slot_count ?? 1;
+    if (Number(used.count) >= limit) {
+      throw new ConflictException(
+        `Account limit reached (${limit} slot${limit === 1 ? "" : "s"}). Add a slot in Billing to connect another LinkedIn account.`,
+      );
+    }
+  }
+
+  /**
+   * Per-account overrides (multi-account management): rename/label, proxy region,
+   * or bundled↔own proxy. Own-proxy URL changes are re-encrypted into the secret
+   * bundle. Session (li_at) is NOT changed here — that's a reconnect.
+   */
+  async update(
+    workspaceId: string,
+    id: string,
+    dto: { label?: string | null; proxyRegion?: string | null },
+  ): Promise<AccountView> {
+    await this.getRowOr404(workspaceId, id);
+    const patch: Record<string, unknown> = {};
+    if (dto.label !== undefined) patch.label = dto.label;
+    if (dto.proxyRegion !== undefined) patch.proxy_region = dto.proxyRegion;
+    if (Object.keys(patch).length === 0) {
+      throw new BadRequestException("No fields to update");
+    }
+    const updated = await this.db
+      .updateTable("sending_accounts")
+      .set(patch)
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", id)
+      .returning(ACCOUNT_VIEW_COLUMNS)
+      .executeTakeFirstOrThrow();
+    return this.toView(updated);
+  }
+
+  /**
    * Minimal warm-up state initialized at connect. The full ramp (reduced → full
    * caps over 4–6 weeks) is the Step 17 state machine; here we only seed it.
    */
@@ -498,6 +753,7 @@ export class AccountsService {
     type: AccountView["type"];
     connection_method: AccountView["connection_method"];
     name: string | null;
+    label: string | null;
     proxy_type: AccountView["proxy_type"];
     proxy_region: string | null;
     country: string | null;
@@ -505,6 +761,7 @@ export class AccountsService {
     status: AccountStatus;
     health_score: number;
     warmup_state: unknown;
+    avatar_url: string | null;
     created_at: string;
     updated_at: string;
   }): AccountView {
@@ -513,6 +770,7 @@ export class AccountsService {
       type: row.type,
       connection_method: row.connection_method,
       name: row.name,
+      label: row.label,
       proxy_type: row.proxy_type,
       proxy_region: row.proxy_region,
       country: row.country,
@@ -520,6 +778,7 @@ export class AccountsService {
       status: row.status,
       health_score: row.health_score,
       warmup_state: row.warmup_state,
+      avatar_url: row.avatar_url,
       created_at: row.created_at,
       updated_at: row.updated_at,
     };
@@ -569,10 +828,14 @@ export class AccountsController {
     return this.accounts.resume(workspaceId, id);
   }
 
-  // PATCH update (proxy/schedule overrides) lands with per-account overrides (later).
+  /** Per-account overrides: label + proxy region. */
   @Patch(":id")
-  update(@Param("id") _id: string): never {
-    throw new NotImplementedException();
+  update(
+    @WorkspaceId() workspaceId: string,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(updateAccountSchema)) body: UpdateAccountDto,
+  ): Promise<AccountView> {
+    return this.accounts.update(workspaceId, id, body);
   }
 }
 

@@ -1,3 +1,5 @@
+"use client";
+
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
@@ -51,25 +53,39 @@ function tintFor(name?: string): string {
 }
 
 const Avatar = React.forwardRef<HTMLSpanElement, AvatarProps>(
-  ({ className, name, src, size = "md", ...props }, ref) => (
-    <span
-      ref={ref}
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold ring-2 ring-card",
-        SIZES[size],
-        !src && tintFor(name),
-        className,
-      )}
-      {...props}
-    >
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={name ?? "avatar"} className="size-full object-cover" />
-      ) : (
-        initials(name)
-      )}
-    </span>
-  ),
+  ({ className, name, src, size = "md", ...props }, ref) => {
+    // Fall back to initials if the photo fails to load (broken/expired LinkedIn
+    // CDN URL, offline, etc.). Reset the error when the src changes.
+    const [errored, setErrored] = React.useState(false);
+    React.useEffect(() => setErrored(false), [src]);
+    const showImage = Boolean(src) && !errored;
+
+    return (
+      <span
+        ref={ref}
+        className={cn(
+          "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold ring-2 ring-card",
+          SIZES[size],
+          !showImage && tintFor(name),
+          className,
+        )}
+        {...props}
+      >
+        {showImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={src as string}
+            alt={name ?? "avatar"}
+            className="size-full object-cover"
+            loading="lazy"
+            onError={() => setErrored(true)}
+          />
+        ) : (
+          initials(name)
+        )}
+      </span>
+    );
+  },
 );
 Avatar.displayName = "Avatar";
 

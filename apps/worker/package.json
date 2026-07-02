@@ -15,7 +15,8 @@
     "@10xconnect/config": "workspace:*",
     "@10xconnect/core": "workspace:*",
     "@10xconnect/db": "workspace:*",
-    "@10xconnect/engine": "workspace:*"
+    "@10xconnect/engine": "workspace:*",
+    "kysely": "^0.27.6"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

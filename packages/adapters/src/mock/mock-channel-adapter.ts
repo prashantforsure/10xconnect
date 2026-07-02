@@ -13,6 +13,9 @@ import type {
   ConversationPage,
   ConversationSyncCapable,
   ConversationThread,
+  CredentialsAuth,
+  CredentialsReconnectCapable,
+  ProxyConfig,
   EnrichedProfile,
   HostedAuthCallback,
   HostedAuthCapable,
@@ -70,7 +73,12 @@ const RETRIABLE_CODES: ReadonlySet<ChannelErrorCode> = new Set([
  * and tested against until a step explicitly needs Unipile.
  */
 export class MockChannelAdapter
-  implements ChannelAdapter, HostedAuthCapable, ConversationSyncCapable, VoiceNoteCapable
+  implements
+    ChannelAdapter,
+    HostedAuthCapable,
+    ConversationSyncCapable,
+    VoiceNoteCapable,
+    CredentialsReconnectCapable
 {
   private readonly config: MockAdapterConfig;
   private readonly clock: () => string;
@@ -96,10 +104,17 @@ export class MockChannelAdapter
     const accountId = this.nextId("account");
     const providerAccountId = this.nextId("provider-account");
     // Simulate provider-side validation so the connect flow's verification step
-    // can be exercised in dev: an obviously-bad/empty li_at connects "disconnected"
-    // (rejected on verify); everything else begins warming (CLAUDE.md §6).
-    const liAt = input.cookie?.liAt?.toLowerCase() ?? "";
-    const invalid = liAt === "" || liAt.includes("invalid");
+    // can be exercised in dev. Credentials (Infinite login): an empty/"invalid"
+    // password connects "disconnected"; else warming. Extension/cookie: same via
+    // the li_at. Everything else begins warming (CLAUDE.md §6).
+    let invalid: boolean;
+    if (input.method === "credentials") {
+      const pw = input.credentials?.password?.toLowerCase() ?? "";
+      invalid = pw === "" || pw.includes("invalid");
+    } else {
+      const liAt = input.cookie?.liAt?.toLowerCase() ?? "";
+      invalid = liAt === "" || liAt.includes("invalid");
+    }
     const status: AccountStatus = invalid ? "disconnected" : "warming";
     this.accountStatus.set(accountId, status);
     return {
@@ -107,6 +122,35 @@ export class MockChannelAdapter
       providerAccountId,
       status,
       name: `Mock ${input.method} account`,
+      avatarUrl: mockAvatarUrl(providerAccountId),
+    };
+  }
+
+  /**
+   * Infinite-login re-auth (CredentialsReconnectCapable). In the mock this is the
+   * silent "the session dropped → log back in with the stored password + solve the
+   * TOTP checkpoint" path: a valid password restores the account to 'warming' (the
+   * ramp cannot be bypassed); a bad/missing password fails so callers can exercise
+   * the give-up branch. Keeps the same provider handle so no orphan is created.
+   */
+  async reconnectWithCredentials(
+    account: AccountRef,
+    creds: CredentialsAuth,
+    _proxy?: ProxyConfig,
+  ): Promise<AccountConnection> {
+    await this.delay();
+    const pw = creds.password?.toLowerCase() ?? "";
+    if (pw === "" || pw.includes("invalid")) {
+      throw new Error("mock adapter: credentials re-auth rejected");
+    }
+    const providerAccountId = account.providerAccountId ?? this.nextId("provider-account");
+    this.accountStatus.set(account.accountId, "warming");
+    return {
+      accountId: account.accountId,
+      providerAccountId,
+      status: "warming",
+      name: "Mock credentials account",
+      avatarUrl: mockAvatarUrl(providerAccountId),
     };
   }
 
@@ -271,6 +315,7 @@ export class MockChannelAdapter
       linkedinUrl,
       firstName,
       lastName,
+      avatarUrl: mockAvatarUrl(slug),
       headline: `${role} at ${company}`,
       about: `${firstName} leads growth at ${company}. (mock enrichment)`,
       company,
@@ -423,6 +468,23 @@ export class MockChannelAdapter
     });
   }
 
+  /**
+   * Simulate the session drop that drives Infinite-login re-auth: emit a
+   * `disconnected` status change (the mock's stand-in for Unipile's CREDENTIALS
+   * webhook). Orchestration then silently reconnects credentials accounts.
+   */
+  async simulateCredentialsDisconnect(accountId: string): Promise<void> {
+    this.accountStatus.set(accountId, "disconnected");
+    await this.emit({
+      id: this.nextId("evt"),
+      type: "account_status_changed",
+      accountId,
+      channel: "linkedin",
+      occurredAt: this.clock(),
+      status: "disconnected",
+    });
+  }
+
   // --- test/dev controls ----------------------------------------------------
 
   /** Mutate behavior at runtime (e.g. flip on a failure rate mid-test). */
@@ -550,4 +612,14 @@ export class MockChannelAdapter
 
 function capitalize(value: string): string {
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+}
+
+/**
+ * A deterministic placeholder portrait URL for a seed (mock enrichment only —
+ * real LinkedIn photos come from the provider). Stable per seed, so a given
+ * lead always shows the same face. The browser loads it lazily; if it fails,
+ * the UI falls back to initials.
+ */
+export function mockAvatarUrl(seed: string): string {
+  return `https://i.pravatar.cc/128?u=${encodeURIComponent(seed || "lead")}`;
 }

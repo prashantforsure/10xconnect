@@ -87,6 +87,8 @@ export interface SourcedLead {
   providerId?: string;
   firstName?: string;
   lastName?: string;
+  /** Profile photo URL (LinkedIn avatar), if the source exposes one. */
+  avatarUrl?: string;
   headline?: string;
   company?: string;
   role?: string;

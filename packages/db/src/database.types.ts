@@ -115,6 +115,7 @@ export type Database = {
           status: Database["public"]["Enums"]["sending_account_status"];
           health_score: number;
           warmup_state: Json;
+          avatar_url: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -132,6 +133,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["sending_account_status"];
           health_score?: number;
           warmup_state?: Json;
+          avatar_url?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -149,6 +151,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["sending_account_status"];
           health_score?: number;
           warmup_state?: Json;
+          avatar_url?: string | null;
           created_at?: string;
           updated_at?: string;
         };

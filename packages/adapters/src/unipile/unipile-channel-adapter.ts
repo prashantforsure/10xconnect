@@ -10,6 +10,8 @@ import type {
   ConversationPage,
   ConversationSyncCapable,
   ConversationThread,
+  CredentialsAuth,
+  CredentialsReconnectCapable,
   EnrichedProfile,
   HostedAuthCallback,
   HostedAuthCapable,
@@ -23,6 +25,7 @@ import type {
   Message,
   MessageAttachment,
   MessageContent,
+  ProxyConfig,
   RecentPost,
   SendOptions,
   Unsubscribe,
@@ -39,6 +42,7 @@ import {
   mapHttpError,
   mapRecentPosts,
 } from "./mappers";
+import { generateTotp } from "./totp";
 import { UnipileClient, UnipileHttpError } from "./unipile-client";
 import type {
   UnipileAccountListItem,
@@ -53,6 +57,17 @@ import { normalizeWebhook } from "./webhook-normalizer";
 
 const VOICE_NOTE_UNSUPPORTED_REASON =
   "unipile: native voice notes are not supported by the current Unipile API";
+
+/**
+ * Response of POST /api/v1/accounts for the credentials (custom-auth) flow. It's
+ * either the created account (`account_id`) or a checkpoint that must be solved
+ * (2FA/OTP). Loose by design — shapes to confirm in a live test.
+ */
+interface UnipileCredentialsResponse {
+  object?: string; // "Account" | "Checkpoint"
+  account_id?: string;
+  checkpoint?: { type?: string };
+}
 
 interface ChatListItem {
   id?: string;
@@ -97,7 +112,13 @@ interface ChatMessageList {
  *               fetchConversation chat lookup.
  */
 export class UnipileChannelAdapter
-  implements ChannelAdapter, InboundWebhookReceiver, HostedAuthCapable, ConversationSyncCapable, VoiceNoteCapable
+  implements
+    ChannelAdapter,
+    InboundWebhookReceiver,
+    HostedAuthCapable,
+    ConversationSyncCapable,
+    VoiceNoteCapable,
+    CredentialsReconnectCapable
 {
   private readonly client: UnipileClient;
   private readonly handlers = new Set<InboundEventHandler>();
@@ -120,8 +141,26 @@ export class UnipileChannelAdapter
     // Unipile's country pool) — mismatched geography is the top cause of LinkedIn
     // logouts (§6/§14), and passing the source browser's user-agent prevents
     // disconnects (Unipile's strong recommendation).
+    if (input.method === "credentials") {
+      // Infinite login (CLAUDE.md §6): username/password login in a stable
+      // residential-proxy context, auto-solving the 2FA checkpoint from the TOTP
+      // secret. The provider then MAINTAINS the session and silently re-auths when
+      // it drops (reconnectWithCredentials), so the account stays connected.
+      const creds = input.credentials;
+      if (!creds?.email || !creds.password) {
+        throw new Error("credentials connect requires email + password");
+      }
+      const providerId = await this.loginWithCredentials(
+        creds,
+        buildConnectProxy(input),
+        input.cookie?.userAgent,
+      );
+      return { accountId: providerId, providerAccountId: providerId, status: "warming" };
+    }
     if (input.method !== "extension" && input.method !== "cookie") {
-      throw new Error("UnipileChannelAdapter.connectAccount supports the extension method only");
+      throw new Error(
+        "UnipileChannelAdapter.connectAccount supports the extension, cookie and credentials methods only",
+      );
     }
     if (!input.cookie?.liAt) {
       throw new Error("extension connect requires the captured li_at session");
@@ -134,6 +173,67 @@ export class UnipileChannelAdapter
       ...proxyFields,
     });
     return { accountId: res.account_id, providerAccountId: res.account_id, status: "warming" };
+  }
+
+  /**
+   * Silent Infinite-login re-auth (CredentialsReconnectCapable). Called by
+   * orchestration when a credentials account's session drops (Unipile CREDENTIALS
+   * event → our restricted/disconnected). Re-logs in with the STORED credentials
+   * and solves the 2FA checkpoint from the stored TOTP secret — no user action.
+   */
+  async reconnectWithCredentials(
+    account: AccountRef,
+    creds: CredentialsAuth,
+    proxy?: ProxyConfig,
+  ): Promise<AccountConnection> {
+    const providerId = await this.loginWithCredentials(
+      creds,
+      buildConnectProxy({ proxy, country: proxy?.region }),
+      undefined,
+      account.providerAccountId,
+    );
+    return { accountId: account.accountId, providerAccountId: providerId, status: "warming" };
+  }
+
+  /**
+   * Custom-auth login shared by the credentials connect + reconnect paths. Posts
+   * username/password to /accounts; on a 2FA/OTP checkpoint, generates the current
+   * TOTP from the shared secret and solves it. Endpoint + checkpoint payload shapes
+   * follow Unipile's custom-auth + "solve checkpoint" docs (to confirm in a live
+   * test — see the class-level endpoint-confidence note). Neither the password nor
+   * the generated code is ever logged.
+   */
+  private async loginWithCredentials(
+    creds: CredentialsAuth,
+    proxyFields: Record<string, unknown>,
+    userAgent?: string,
+    reconnectProviderId?: string,
+  ): Promise<string> {
+    const res = await this.client.postJson<UnipileCredentialsResponse>("/api/v1/accounts", {
+      provider: "LINKEDIN",
+      username: creds.email,
+      password: creds.password,
+      ...(reconnectProviderId ? { reconnect_account: reconnectProviderId } : {}),
+      ...(userAgent ? { user_agent: userAgent } : {}),
+      ...proxyFields,
+    });
+    const accountId = res.account_id;
+    if (!accountId) {
+      throw new Error("Unipile credentials login did not return an account id");
+    }
+    const checkpointType =
+      res.checkpoint?.type ?? (res.object?.toUpperCase() === "CHECKPOINT" ? "2FA" : undefined);
+    if (checkpointType) {
+      if (!creds.totpSecret) {
+        throw new Error("LinkedIn requested a 2FA checkpoint but no TOTP secret is stored");
+      }
+      await this.client.postJson<UnipileCredentialsResponse>("/api/v1/accounts/checkpoint", {
+        provider: "LINKEDIN",
+        account_id: accountId,
+        code: generateTotp(creds.totpSecret),
+      });
+    }
+    return accountId;
   }
 
   async disconnectAccount(account: AccountRef): Promise<void> {
