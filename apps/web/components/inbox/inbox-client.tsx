@@ -1,6 +1,19 @@
 "use client";
 
-import { Check, FlaskConical, Inbox, Linkedin, MessageSquare, Pencil, RefreshCw, Send, Sparkles, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  FlaskConical,
+  Inbox,
+  Linkedin,
+  MessageSquare,
+  Pencil,
+  RefreshCw,
+  Send,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Avatar } from "@/components/ui/avatar";
@@ -58,6 +71,8 @@ interface ListItem {
   assignedToMe: boolean;
   updatedAt: string;
   lastMessage: { body: string | null; direction: string; at: string } | null;
+  /** The connected LinkedIn profile this conversation belongs to (unibox attribution). */
+  account: { id: string; name: string | null; avatarUrl: string | null } | null;
 }
 interface Message {
   id: string;
@@ -181,6 +196,48 @@ function escalationReason(reason: string | null): string {
   }
 }
 
+/** Centered day header between message groups (e.g. "June 18, 2026"). */
+function formatDayDivider(at: string): string {
+  return new Date(at).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+}
+/** Compact message time (e.g. "1:59 PM"). */
+function formatMsgTime(at: string): string {
+  return new Date(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+/**
+ * A boolean that remembers itself in localStorage, so a user's choice to collapse
+ * a space-heavy panel (the AI SDR activity strip, the per-thread relationship card)
+ * sticks across reloads instead of resetting every visit. Falls back to the in-memory
+ * default when storage is unavailable (SSR / privacy mode). We read storage in an
+ * effect (not during render) to avoid a hydration mismatch.
+ */
+function usePersistentBool(key: string, initial: boolean): [boolean, (value: boolean) => void] {
+  const [value, setValue] = useState(initial);
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(key);
+      if (stored !== null) {
+        setValue(stored === "1");
+      }
+    } catch {
+      /* storage unavailable — keep the default */
+    }
+  }, [key]);
+  const set = useCallback(
+    (next: boolean) => {
+      setValue(next);
+      try {
+        window.localStorage.setItem(key, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+    },
+    [key],
+  );
+  return [value, set];
+}
+
 export function InboxClient() {
   const api = useApi();
   const { activeWorkspaceId } = useWorkspace();
@@ -201,6 +258,13 @@ export function InboxClient() {
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [aiSdr, setAiSdr] = useState<{ enabled: boolean } | null>(null);
   const [aiStats, setAiStats] = useState<AiSdrStats | null>(null);
+  // Collapse/dismiss for the space-heavy info panels. Collapse state persists
+  // (a preference); dismissals are per-conversation for this session (a reminder
+  // that should come back next time the thread is opened fresh).
+  const [cockpitOpen, setCockpitOpen] = usePersistentBool("inbox.cockpitOpen", false);
+  const [relOpen, setRelOpen] = usePersistentBool("inbox.relOpen", false);
+  const [dismissedRel, setDismissedRel] = useState<Set<string>>(() => new Set());
+  const [dismissedHot, setDismissedHot] = useState<Set<string>>(() => new Set());
   // Dev-only: simulate an inbound lead reply (mock adapter) to exercise the AI SDR.
   const [simOpen, setSimOpen] = useState(false);
   const [simLeads, setSimLeads] = useState<SimLead[]>([]);
@@ -511,18 +575,38 @@ export function InboxClient() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col overflow-hidden">
       {/* AI SDR cockpit: the master switch (safety valve) + live activity — the
-          answer to "is this real AI, and what did it do for me?" */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-card px-4 py-2.5">
+          answer to "is this real AI, and what did it do for me?". The activity
+          stats collapse away (they eat a lot of room); the master switch always
+          stays visible — hiding a safety control would be wrong. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-card px-4 py-2.5">
         <div className="flex items-center gap-2">
           <Sparkles className="size-4 text-primary" />
           <span className="text-sm font-semibold text-foreground">AI SDR</span>
           <Badge variant={aiSdr?.enabled === false ? "muted" : "default"}>
             {aiSdr?.enabled === false ? "Paused" : "On"}
           </Badge>
+          {aiStats ? (
+            <button
+              type="button"
+              onClick={() => setCockpitOpen(!cockpitOpen)}
+              aria-expanded={cockpitOpen}
+              className="ml-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              title={cockpitOpen ? "Hide AI SDR activity" : "Show AI SDR activity"}
+            >
+              {cockpitOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+              {cockpitOpen ? "Hide activity" : "Activity"}
+            </button>
+          ) : null}
+          {/* Collapsed still surfaces the one number that needs action. */}
+          {aiStats && !cockpitOpen && aiStats.pendingDrafts > 0 ? (
+            <span className="text-xs text-muted-foreground">
+              <b className="text-foreground">{aiStats.pendingDrafts}</b> awaiting you
+            </span>
+          ) : null}
         </div>
-        {aiStats ? (
+        {aiStats && cockpitOpen ? (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>
               <b className="text-foreground">{aiStats.aiReplies}</b> AI replies
@@ -553,10 +637,10 @@ export function InboxClient() {
         </Button>
       </div>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* List */}
-        <div className="flex w-[330px] shrink-0 flex-col border-r border-border bg-card">
-        <div className="px-[18px] pb-3 pt-[18px]">
+        <div className="flex w-[330px] min-h-0 shrink-0 flex-col border-r border-border bg-card">
+        <div className="shrink-0 px-[18px] pb-3 pt-[18px]">
           <div className="mb-3 flex items-center justify-between gap-2">
             <h1 className="font-display text-[19px] font-semibold tracking-tight text-foreground">Inbox</h1>
             <div className="flex items-center gap-1.5">
@@ -634,6 +718,12 @@ export function InboxClient() {
                     {c.lastMessage?.direction === "outbound" ? "You: " : ""}
                     {c.lastMessage?.body ?? "—"}
                   </p>
+                  {c.account?.name ? (
+                    <p className="mt-1 flex items-center gap-1 truncate text-[11px] text-muted-foreground/70">
+                      <Linkedin className="size-3 shrink-0" />
+                      via {c.account.name}
+                    </p>
+                  ) : null}
                   {c.needsAttention || c.isImportant || c.assignedToMe ? (
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {c.needsAttention ? (
@@ -661,7 +751,7 @@ export function InboxClient() {
       </div>
 
       {/* Thread */}
-      <div className="flex flex-1 flex-col bg-background">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
         {!detail ? (
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
             <div className="text-center">
@@ -671,7 +761,7 @@ export function InboxClient() {
           </div>
         ) : (
           <>
-            <div className="flex items-center justify-between gap-3 border-b border-border bg-card/60 px-5 py-3.5">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card/60 px-5 py-3.5">
               <div className="flex min-w-0 items-center gap-3">
                 <Avatar name={detail.lead.name} size="md" />
                 <div className="min-w-0">
@@ -683,6 +773,24 @@ export function InboxClient() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {/* Per-thread AI kill-switch — lives in the always-visible header (never
+                    behind the collapsible/dismissible relationship card) so a safety
+                    control is always one click away. */}
+                {detail.relationship && (detail.relationship.hasBrain || detail.relationship.aiPaused) ? (
+                  <Button
+                    variant={detail.relationship.aiPaused ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => void toggleThreadAi()}
+                    title={
+                      detail.relationship.aiPaused
+                        ? "Let the AI handle this thread again"
+                        : "Pause the AI and take this thread over"
+                    }
+                  >
+                    <Sparkles className="size-4" />
+                    {detail.relationship.aiPaused ? "Resume AI" : "Pause AI"}
+                  </Button>
+                ) : null}
                 {detail.lead.linkedinUrl ? (
                   <a
                     href={detail.lead.linkedinUrl}
@@ -721,91 +829,122 @@ export function InboxClient() {
               </div>
             </div>
 
-            {/* Relationship / intent summary (account-safety first: AI-pause + hot-lead) */}
-            {detail.relationship ? (
-              <div className="border-b border-border/70 px-5 py-2.5">
-                <div className="flex items-center gap-2.5 rounded-[10px] border border-border bg-background px-3 py-2.5">
-                  <span className="flex size-[34px] shrink-0 items-center justify-center rounded-[9px] bg-primary/15 font-display text-xs font-bold text-primary">
+            {/* Relationship / intent summary (account-safety first: AI-pause + hot-lead).
+                Collapsed by default to a single line so it doesn't eat the thread;
+                expand for the next action + AI controls, or dismiss it for this thread. */}
+            {detail.relationship && !dismissedRel.has(detail.id) ? (
+              <div className="shrink-0 border-b border-border/70 px-5 py-2">
+                <div className="flex items-center gap-2.5 rounded-[10px] border border-border bg-background px-3 py-2">
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/15 font-display text-[11px] font-bold text-primary">
                     {detail.relationship.intentScore}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[11.5px] font-semibold leading-tight text-foreground">
-                      {detail.relationship.summary ?? STAGE_LABEL[detail.pipelineStage]}
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="min-w-0 truncate text-[11.5px] font-semibold leading-tight text-foreground">
+                        {detail.relationship.summary ?? STAGE_LABEL[detail.pipelineStage]}
+                      </span>
+                      {detail.relationship.isHot ? (
+                        <Badge variant="default" className="shrink-0">
+                          🔥 Hot
+                        </Badge>
+                      ) : null}
+                      {/* Keep the paused signal visible even when collapsed. */}
+                      {!relOpen && detail.relationship.aiPaused ? (
+                        <Badge variant="warning" className="shrink-0">
+                          AI paused
+                        </Badge>
+                      ) : null}
                     </div>
-                    {detail.relationship.nextAction ? (
-                      <div className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground">
+                    {relOpen && detail.relationship.nextAction ? (
+                      <div className="mt-1 text-[11px] leading-snug text-muted-foreground">
                         {detail.relationship.nextAction}
                       </div>
                     ) : null}
+                    {/* AI SDR status (informational). The Pause/Resume control lives in
+                        the thread header so it's always reachable, even when this card is
+                        collapsed or dismissed. */}
+                    {relOpen && (detail.relationship.hasBrain || detail.relationship.aiPaused) ? (
+                      <div className="mt-2 flex items-center gap-2">
+                        {detail.relationship.aiPaused ? (
+                          <Badge variant="warning">AI paused</Badge>
+                        ) : aiModeLabel(detail.relationship.aiMode) ? (
+                          <span className="flex items-center gap-1 text-[10.5px] font-medium text-primary/80">
+                            <Sparkles className="size-3" /> {aiModeLabel(detail.relationship.aiMode)}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
-                  {detail.relationship.isHot ? (
-                    <Badge variant="default" className="shrink-0">
-                      🔥 Hot
-                    </Badge>
-                  ) : null}
-                  {/* AI SDR control: show the active mode, and a Pause/Resume so the
-                      human can take over a thread (or hand it back). */}
-                  {detail.relationship.hasBrain || detail.relationship.aiPaused ? (
-                    <div className="flex shrink-0 items-center gap-2">
-                      {detail.relationship.aiPaused ? (
-                        <Badge variant="warning">AI paused</Badge>
-                      ) : aiModeLabel(detail.relationship.aiMode) ? (
-                        <span className="hidden items-center gap-1 text-[10.5px] font-medium text-primary/80 sm:flex">
-                          <Sparkles className="size-3" /> {aiModeLabel(detail.relationship.aiMode)}
-                        </span>
-                      ) : null}
-                      <Button
-                        variant={detail.relationship.aiPaused ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => void toggleThreadAi()}
-                        title={
-                          detail.relationship.aiPaused
-                            ? "Let the AI handle this thread again"
-                            : "Pause the AI and take this thread over"
-                        }
-                      >
-                        {detail.relationship.aiPaused ? "Resume AI" : "Pause AI"}
-                      </Button>
-                    </div>
-                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setRelOpen(!relOpen)}
+                    aria-expanded={relOpen}
+                    className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    title={relOpen ? "Collapse" : "Expand"}
+                  >
+                    {relOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDismissedRel((s) => new Set(s).add(detail.id))}
+                    className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    title="Dismiss for this conversation"
+                  >
+                    <X className="size-4" />
+                  </button>
                 </div>
               </div>
             ) : null}
 
-            <div className="flex-1 space-y-3 overflow-auto p-5">
-              {detail.messages.length > 0 ? (
-                <div className="text-center text-xs text-muted-foreground/70">
-                  Conversation started {new Date(detail.messages[0].at).toLocaleDateString()}
-                </div>
-              ) : null}
-              {detail.messages.map((m) => {
-                const aiSent = m.direction === "outbound" && m.authoredBy === "ai";
-                return (
-                  <div
-                    key={m.id}
-                    className={cn("flex flex-col", m.direction === "outbound" ? "items-end" : "items-start")}
-                  >
-                    <div
-                      className={cn(
-                        "max-w-[70%] rounded-2xl px-3.5 py-2 text-sm",
-                        m.direction === "outbound"
-                          ? "rounded-br-md bg-primary text-primary-foreground"
-                          : "rounded-bl-md border border-border bg-card text-foreground",
-                      )}
-                    >
-                      {m.voiceRef ? <span className="italic">🎤 Voice note</span> : m.body}
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 py-5">
+              <div className="flex w-full flex-col">
+                {detail.messages.map((m, i) => {
+                  const prev = detail.messages[i - 1];
+                  const showDay =
+                    !prev || new Date(prev.at).toDateString() !== new Date(m.at).toDateString();
+                  const outbound = m.direction === "outbound";
+                  const aiSent = outbound && m.authoredBy === "ai";
+                  return (
+                    <div key={m.id} className="flex flex-col">
+                      {showDay ? (
+                        <div className="my-3 flex justify-center">
+                          <span className="rounded-full bg-muted/60 px-3 py-1 text-[11px] font-medium text-muted-foreground">
+                            {formatDayDivider(m.at)}
+                          </span>
+                        </div>
+                      ) : null}
+                      <div className={cn("mb-1.5 flex flex-col", outbound ? "items-end" : "items-start")}>
+                        <div
+                          className={cn(
+                            "max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm",
+                            outbound
+                              ? "rounded-br-md bg-primary text-primary-foreground"
+                              : "rounded-bl-md border border-border bg-card text-foreground",
+                          )}
+                        >
+                          {m.voiceRef ? <span className="italic">🎤 Voice note</span> : m.body}
+                        </div>
+                        <span
+                          className={cn(
+                            "mt-1 flex items-center gap-1 px-1 text-[10px] text-muted-foreground/70",
+                            outbound && "flex-row-reverse",
+                          )}
+                        >
+                          {formatMsgTime(m.at)}
+                          {aiSent ? (
+                            <span className="flex items-center gap-0.5 text-primary/80">
+                              <Sparkles className="size-2.5" /> AI
+                            </span>
+                          ) : null}
+                        </span>
+                      </div>
                     </div>
-                    {aiSent ? (
-                      <span className="mt-0.5 flex items-center gap-1 pr-1 text-[10px] font-medium text-primary/80">
-                        <Sparkles className="size-2.5" /> Sent by AI
-                      </span>
-                    ) : null}
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="border-t border-border bg-card p-4">
+            <div className="shrink-0 border-t border-border bg-card p-4">
               {error ? <p className="mb-2 text-xs text-destructive">{error}</p> : null}
               {queuedNote ? <p className="mb-2 text-xs text-primary">{queuedNote}</p> : null}
 
@@ -839,8 +978,11 @@ export function InboxClient() {
                 </div>
               ) : null}
 
-              {/* Hot lead — handoff briefing (Phase 4) */}
-              {detail.draft?.status === "escalated" && detail.draft.reason === "hot_lead" ? (
+              {/* Hot lead — handoff briefing (Phase 4). Dismissible: it's a reminder,
+                  not a blocker, and it takes real estate above the reply box. */}
+              {detail.draft?.status === "escalated" &&
+              detail.draft.reason === "hot_lead" &&
+              !dismissedHot.has(detail.draft.id) ? (
                 <div className="mb-3 rounded-xl border border-destructive/30 bg-destructive/[0.08] p-3 text-xs">
                   <div className="mb-1 flex items-center gap-1.5 font-semibold text-destructive">
                     🔥 Hot lead — over to you
@@ -849,9 +991,25 @@ export function InboxClient() {
                         intent {detail.relationship.intentScore}
                       </span>
                     ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = detail.draft?.id;
+                        if (id) {
+                          setDismissedHot((s) => new Set(s).add(id));
+                        }
+                      }}
+                      className={cn(
+                        "rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                        detail.relationship ? "ml-1.5" : "ml-auto",
+                      )}
+                      title="Dismiss this reminder"
+                    >
+                      <X className="size-3.5" />
+                    </button>
                   </div>
                   {detail.draft.summary ? (
-                    <p className="whitespace-pre-wrap text-muted-foreground">{detail.draft.summary}</p>
+                    <p className="whitespace-pre-wrap break-words text-muted-foreground">{detail.draft.summary}</p>
                   ) : (
                     <p className="text-muted-foreground">{escalationReason(detail.draft.reason)}</p>
                   )}
@@ -862,7 +1020,7 @@ export function InboxClient() {
                   ) : null}
                   <p className="mt-2 text-muted-foreground">The AI is paused on this thread — your reply goes out as you.</p>
                 </div>
-              ) : detail.draft?.status === "escalated" ? (
+              ) : detail.draft?.status === "escalated" && detail.draft.reason !== "hot_lead" ? (
                 <div className="mb-3 rounded-xl border border-warning/30 bg-warning/[0.08] p-3 text-xs">
                   <div className="mb-0.5 flex items-center gap-1.5 font-semibold text-warning">
                     <Sparkles className="size-3.5" /> AI escalated to you

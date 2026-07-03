@@ -5,7 +5,7 @@ import {
   resolveAdapterKind,
 } from "@10xconnect/adapters";
 import { assertProductionEnv, env } from "@10xconnect/config";
-import { createDb } from "@10xconnect/db";
+import { createAttachmentUrlResolver, createDb } from "@10xconnect/db";
 import {
   createCachedAiResolver,
   type DispatchStats,
@@ -47,12 +47,15 @@ function main(): void {
   const embeddingAdapter = createEmbeddingAdapter();
   console.log(`AI personalization: ${textAdapter ? `on (${env.LLM_PROVIDER}/${env.LLM_MODEL})` : "off (no LLM_API_KEY)"}`);
   console.log(`conversation brain: ${textAdapter && embeddingAdapter ? `on (embeds=${env.EMBEDDING_PROVIDER})` : "off (needs LLM + embeddings)"}`);
+  // Fresh signed URLs for message attachments at dispatch (stored ones expire).
+  const resolveAttachmentUrl = createAttachmentUrlResolver();
   const deps: EngineDeps = {
     db,
     adapter,
     config: dispatchConfigFromEnv(),
     textAdapter,
     embeddingAdapter,
+    ...(resolveAttachmentUrl ? { resolveAttachmentUrl } : {}),
     // Model id for Phase 3 cost metering (mock is priced so the governor works offline).
     modelLabel: env.LLM_PROVIDER === "mock" ? "mock" : env.LLM_MODEL,
     log: (msg) => console.log(`[dispatch] ${msg}`),

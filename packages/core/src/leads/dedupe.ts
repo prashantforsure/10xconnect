@@ -38,6 +38,29 @@ export function normalizeLinkedinUrl(url: string | null | undefined): string | u
   return `linkedin.com/in/${slug}`;
 }
 
+/**
+ * True when `url` is a safe, http(s) LinkedIn URL. Used to gate every stored /
+ * rendered `linkedin_url` so a `javascript:` / `data:` / `file:` URL — all of
+ * which pass a permissive `z.string().url()` — can never be persisted and later
+ * rendered as a clickable `href` (XSS). Requires an https/http scheme and a host
+ * that is `linkedin.com` or a subdomain of it. Pure — no node/SDK imports.
+ */
+export function isLinkedinHttpUrl(url: string | null | undefined): boolean {
+  if (!url) {
+    return false;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return false;
+  }
+  return /(^|\.)linkedin\.com$/.test(parsed.hostname.toLowerCase());
+}
+
 /** Trim + lowercase an email, returning undefined when it isn't email-shaped. */
 export function normalizeEmail(email: string | null | undefined): string | undefined {
   if (!email) {

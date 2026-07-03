@@ -16,6 +16,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   Get,
   Inject,
   Injectable,
@@ -34,6 +35,7 @@ import { z } from "zod";
 import { CHANNEL_ADAPTER } from "../adapter/channel-adapter.module";
 import { SecretCipher } from "../common/crypto/secret-cipher";
 import { WorkspaceId } from "../common/decorators/workspace-id.decorator";
+import { isDeveloperWorkspace } from "../common/developer-access";
 import { WorkspaceScopeGuard } from "../common/guards/workspace-scope.guard";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { KYSELY_DB } from "../database/database.module";
@@ -539,6 +541,25 @@ export class AccountsService {
 
       if (existing) {
         previousProviderAccountId = existing.provider_account_id ?? null;
+        // Identity switch: the reconnected profile is a DIFFERENT LinkedIn person
+        // than the one this row previously held. Their synced inbox + sourced
+        // contacts belong to the old profile — clear them so the workspace shows
+        // only the new profile's data (Aimfox: switching a profile clears the old
+        // one's leads/conversations). A same-identity reconnect (session refresh)
+        // keeps everything. Conversations delete cascades their messages; leads
+        // delete cascades list membership + campaign state.
+        if (previousProviderAccountId && previousProviderAccountId !== providerAccountId) {
+          await trx
+            .deleteFrom("conversations")
+            .where("workspace_id", "=", workspaceId)
+            .where("account_id", "=", row.id)
+            .execute();
+          await trx
+            .deleteFrom("leads")
+            .where("workspace_id", "=", workspaceId)
+            .where("account_id", "=", row.id)
+            .execute();
+        }
       }
 
       // Session secret (extension/cookie only). Hosted Auth passes none.
@@ -631,6 +652,32 @@ export class AccountsService {
     return this.toView(updated);
   }
 
+  /**
+   * Permanently REMOVE an account (Aimfox "remove" vs. the non-destructive
+   * "disconnect"). Deleting the row cascades its conversations + leads (and their
+   * list membership / campaign state); its campaigns are detached (account_id set
+   * null by FK) so they stop dispatching. Frees the billing slot.
+   */
+  async remove(workspaceId: string, id: string): Promise<{ deleted: true; id: string }> {
+    const row = await this.getRowOr404(workspaceId, id);
+    // Best-effort provider-side cleanup first.
+    try {
+      await this.adapter.disconnectAccount({
+        accountId: row.id,
+        providerAccountId: row.provider_account_id ?? undefined,
+      });
+    } catch {
+      this.logger.warn(`Provider disconnect failed while removing account ${id}`);
+    }
+    await this.db
+      .deleteFrom("sending_accounts")
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", id)
+      .execute();
+    this.logger.log(`Removed account ${id} (workspace=${workspaceId}) — data cascaded`);
+    return { deleted: true, id };
+  }
+
   /** Manually pause an account: it stops dispatching within one tick. */
   async pause(workspaceId: string, id: string): Promise<AccountView> {
     await this.getRowOr404(workspaceId, id);
@@ -690,6 +737,12 @@ export class AccountsService {
    */
   async assertSlotAvailable(workspaceId: string): Promise<void> {
     if (env.ALLOW_UNLIMITED_ACCOUNTS) {
+      return;
+    }
+    // Developer bypass: a workspace owned by a developer-allowlisted email gets
+    // unlimited sending accounts (dev / self-host + production testing). Scoped to
+    // the owner, so real customers still hit their slot cap.
+    if (await isDeveloperWorkspace(this.db, workspaceId)) {
       return;
     }
     const [used, sub] = await Promise.all([
@@ -816,6 +869,15 @@ export class AccountsController {
   @Post(":id/disconnect")
   disconnect(@WorkspaceId() workspaceId: string, @Param("id") id: string): Promise<AccountView> {
     return this.accounts.disconnect(workspaceId, id);
+  }
+
+  /** Permanently remove the account + its data (cascade). Frees the billing slot. */
+  @Delete(":id")
+  remove(
+    @WorkspaceId() workspaceId: string,
+    @Param("id") id: string,
+  ): Promise<{ deleted: true; id: string }> {
+    return this.accounts.remove(workspaceId, id);
   }
 
   @Post(":id/pause")

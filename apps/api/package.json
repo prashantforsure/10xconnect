@@ -9,7 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "tsx --test src/common/crypto/secret-cipher.test.ts",
-    "test:integration": "tsx --test src/modules/brain.config.integration.test.ts src/modules/blueprint.config.integration.test.ts src/modules/workflow-templates.integration.test.ts src/modules/workflows.integration.test.ts src/modules/unit-economics-ab.integration.test.ts"
+    "test:integration": "tsx --test src/modules/brain.config.integration.test.ts src/modules/blueprint.config.integration.test.ts src/modules/workflow-templates.integration.test.ts src/modules/workflows.integration.test.ts src/modules/unit-economics-ab.integration.test.ts src/modules/live-sequence-edit.integration.test.ts"
   },
   "dependencies": {
     "@10xconnect/adapters": "workspace:*",

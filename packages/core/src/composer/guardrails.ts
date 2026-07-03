@@ -60,6 +60,30 @@ const LINK_RE = /\b(https?:\/\/|www\.)\S+|\b[a-z0-9-]+\.(com|io|co|ai|net|org|ap
 const MAX_WORDS = 50;
 
 /**
+ * LinkedIn's hard character limits per surface. Overflow is rejected by the
+ * provider AT DISPATCH, so the composer surfaces these as advisory counters +
+ * warnings before the send ever fails (§6 hygiene; E3 = advisory, never blocks).
+ */
+export const LINKEDIN_LIMITS = {
+  connectionNote: 300,
+  inmailSubject: 200,
+  inmailBody: 1900,
+  message: 8000,
+} as const;
+
+/** Placeholder used when estimating length of a body that contains AI chips. */
+const AI_LENGTH_STUB = "[AI line]";
+
+/**
+ * Estimated rendered length of a structured body: variables resolve to their
+ * fallback (or drop), AI chips count as a short stub line — so the count is an
+ * estimate ("~N") whenever the body has AI or variable chips.
+ */
+export function estimateMessageBodyLength(body: MessageBody): number {
+  return renderMessageBody(body, {}, { renderAi: () => AI_LENGTH_STUB }).length;
+}
+
+/**
  * Lint a message body's plain text for "salesy" smells. Non-blocking warnings:
  * salesy phrases, links in a first-touch message, hard CTAs, and over-length.
  */
@@ -118,13 +142,21 @@ export function lintMessage(text: string, opts: { firstTouch?: boolean } = {}): 
  */
 export function lintMessageBody(
   body: MessageBody,
-  opts: { firstTouch?: boolean } = {},
+  opts: { firstTouch?: boolean; charLimit?: number } = {},
 ): LintFinding[] {
-  const text = renderMessageBody(body, {}, { renderAi: () => "[AI line]" });
+  const text = renderMessageBody(body, {}, { renderAi: () => AI_LENGTH_STUB });
   if (!text.trim()) {
     return [];
   }
-  return lintMessage(text, { firstTouch: opts.firstTouch ?? true });
+  const findings = lintMessage(text, { firstTouch: opts.firstTouch ?? true });
+  if (opts.charLimit && text.length > opts.charLimit) {
+    findings.push({
+      id: "char_limit",
+      severity: "warn",
+      message: `~${text.length.toLocaleString()} characters — LinkedIn caps this at ${opts.charLimit.toLocaleString()}; the send will fail. Trim it down.`,
+    });
+  }
+  return findings;
 }
 
 /** The portion of a message visible before the reader has to scroll/expand. */

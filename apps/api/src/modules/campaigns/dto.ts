@@ -28,6 +28,8 @@ export const updateCampaignSchema = z
         skip_already_contacted: z.boolean().optional(),
         exclude_conn_req_from_reply_rate: z.boolean().optional(),
         follow_up_cap: z.number().int().min(0).max(20).optional(),
+        /** Full-silence pause: also defer AI conversation replies while paused. */
+        pause_ai_replies: z.boolean().optional(),
       })
       .optional(),
   })

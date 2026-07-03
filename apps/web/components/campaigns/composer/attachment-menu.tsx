@@ -30,8 +30,10 @@ const KIND_ICON = {
 
 /**
  * "Add" menu — uploads Images/Videos/Files to the private campaign-media Storage
- * bucket (workspace-scoped path) and records the storage ref in node config. Media
- * delivery through the channel adapter is not wired yet, but the upload is real.
+ * bucket (workspace-scoped path) and records the storage ref in node config. The
+ * ref is the source of truth: at dispatch the engine mints a FRESH signed URL
+ * from it (the one stored here is a short-lived preview) and the adapter
+ * delivers the bytes through the transport.
  */
 export function AttachmentMenu({
   attachments,

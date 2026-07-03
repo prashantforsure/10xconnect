@@ -1,6 +1,17 @@
 "use client";
 
-import { Building2, Linkedin, Mail, MapPin, Trash2, Upload, UserPlus } from "lucide-react";
+import {
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  Linkedin,
+  Mail,
+  MapPin,
+  Trash2,
+  Upload,
+  UserPlus,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ImportModal } from "@/components/contacts/import-modal";
@@ -34,6 +45,8 @@ interface ListOption {
   name: string;
   leadCount?: number;
 }
+
+const PAGE_SIZE = 50;
 interface EnrollResult {
   enrolled: number;
   skippedSuppressed: number;
@@ -65,22 +78,46 @@ export function LeadsTab({
 }) {
   const api = useApi();
   const [leads, setLeads] = useState<LeadRow[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [lists, setLists] = useState<ListView[]>([]);
+  // Removing a lead deletes their campaign progress — confirm before doing it.
+  const [confirmRemove, setConfirmRemove] = useState<LeadRow | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setLeads(await api.request<LeadRow[]>(`/campaigns/${campaignId}/leads`));
+      const res = await api.request<{ leads: LeadRow[]; total: number }>(
+        `/campaigns/${campaignId}/leads?limit=${PAGE_SIZE}&offset=0`,
+      );
+      setLeads(res.leads);
+      setTotal(res.total);
     } catch (err) {
       setError(errorMessage(err, "Could not load leads"));
     } finally {
       setLoading(false);
     }
   }, [api, campaignId]);
+
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    try {
+      const res = await api.request<{ leads: LeadRow[]; total: number }>(
+        `/campaigns/${campaignId}/leads?limit=${PAGE_SIZE}&offset=${leads.length}`,
+      );
+      setLeads((prev) => [...prev, ...res.leads]);
+      setTotal(res.total);
+    } catch (err) {
+      setError(errorMessage(err, "Could not load more leads"));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [api, campaignId, leads.length]);
 
   // Reload our list AND notify the parent (campaign leadCount drives the gate).
   const loadAndNotify = useCallback(async () => {
@@ -107,11 +144,15 @@ export function LeadsTab({
   }, [load]);
 
   const remove = async (leadId: string): Promise<void> => {
+    setRemoving(true);
     try {
       await api.request(`/campaigns/${campaignId}/leads/${leadId}`, { method: "DELETE" });
       await loadAndNotify();
     } catch (err) {
       setError(errorMessage(err, "Could not remove lead"));
+    } finally {
+      setRemoving(false);
+      setConfirmRemove(null);
     }
   };
 
@@ -123,7 +164,7 @@ export function LeadsTab({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {leads.length} lead{leads.length === 1 ? "" : "s"} enrolled
+          {total} lead{total === 1 ? "" : "s"} enrolled
         </p>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => void openImport()}>
@@ -146,79 +187,18 @@ export function LeadsTab({
       ) : (
         <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
           {leads.map((l) => (
-            <div key={l.leadId} className="flex items-start gap-3 px-4 py-3">
-              <Avatar name={l.name} src={l.avatarUrl} size="md" />
-              <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-sm font-medium">{l.name}</span>
-                  {l.connectionDegree ? (
-                    <span className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                      {l.connectionDegree}
-                    </span>
-                  ) : null}
-                </div>
-
-                {l.title || l.company ? (
-                  <div className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
-                    {l.title ? <span className="truncate">{l.title}</span> : null}
-                    {l.title && l.company ? <span className="text-muted-foreground/50">·</span> : null}
-                    {l.company ? (
-                      <span className="inline-flex min-w-0 items-center gap-1">
-                        <Building2 className="size-3 shrink-0" />
-                        <span className="truncate">{l.company}</span>
-                      </span>
-                    ) : null}
-                  </div>
-                ) : l.headline ? (
-                  <div className="truncate text-xs text-muted-foreground">{l.headline}</div>
-                ) : null}
-
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                  {l.location ? (
-                    <span className="inline-flex items-center gap-1">
-                      <MapPin className="size-3" />
-                      {l.location}
-                    </span>
-                  ) : null}
-                  {l.linkedinUrl ? (
-                    <a
-                      href={l.linkedinUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-chart-2 hover:underline"
-                    >
-                      <Linkedin className="size-3" />
-                      Profile
-                    </a>
-                  ) : null}
-                  {l.email ? (
-                    <a
-                      href={`mailto:${l.email}`}
-                      className="inline-flex max-w-[16rem] items-center gap-1 hover:text-foreground hover:underline"
-                    >
-                      <Mail className="size-3 shrink-0" />
-                      <span className="truncate">{l.email}</span>
-                    </a>
-                  ) : null}
-                  <span>{l.currentNodeType ? `At: ${nodeLabel(l.currentNodeType)}` : "Not started"}</span>
-                </div>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-2">
-                <Badge variant={STATUS_VARIANT[l.status] ?? "muted"}>{l.status}</Badge>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-destructive"
-                  onClick={() => void remove(l.leadId)}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </div>
-            </div>
+            <LeadListRow key={l.leadId} lead={l} campaignId={campaignId} onRemove={() => setConfirmRemove(l)} />
           ))}
         </div>
       )}
+
+      {leads.length < total ? (
+        <div className="flex justify-center">
+          <Button variant="outline" onClick={() => void loadMore()} disabled={loadingMore}>
+            {loadingMore ? "Loading…" : `Load more (${total - leads.length} remaining)`}
+          </Button>
+        </div>
+      ) : null}
 
       <EnrollModal
         open={enrollOpen}
@@ -241,6 +221,206 @@ export function LeadsTab({
         lockedCampaign={lockedCampaign}
         onImported={loadAndNotify}
       />
+
+      <Modal
+        open={confirmRemove !== null}
+        onClose={() => (removing ? undefined : setConfirmRemove(null))}
+        title={confirmRemove ? `Remove ${confirmRemove.name} from this campaign?` : "Remove lead?"}
+        description="Their queued actions are cancelled and their progress in this campaign is deleted. The contact itself stays in your workspace."
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setConfirmRemove(null)} disabled={removing}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => confirmRemove && void remove(confirmRemove.leadId)}
+            disabled={removing}
+          >
+            {removing ? "Removing…" : "Remove lead"}
+          </Button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+interface StageHistoryEntry {
+  nodeId?: string;
+  type: string;
+  at: string;
+  outcome?: string;
+}
+interface StageResponse {
+  status: string;
+  currentNodeId: string | null;
+  currentNodeType: string | null;
+  history: StageHistoryEntry[];
+}
+
+/** A lead row with an expandable per-lead timeline (served by /leads/:id/stage). */
+function LeadListRow({
+  lead: l,
+  campaignId,
+  onRemove,
+}: {
+  lead: LeadRow;
+  campaignId: string;
+  onRemove: (leadId: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div>
+      <div className="flex items-start gap-3 px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={expanded ? "Hide history" : "Show history"}
+          aria-expanded={expanded}
+          className="mt-1 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+        </button>
+        <Avatar name={l.name} src={l.avatarUrl} size="md" />
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium">{l.name}</span>
+            {l.connectionDegree ? (
+              <span className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {l.connectionDegree}
+              </span>
+            ) : null}
+          </div>
+
+          {l.title || l.company ? (
+            <div className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+              {l.title ? <span className="truncate">{l.title}</span> : null}
+              {l.title && l.company ? <span className="text-muted-foreground/50">·</span> : null}
+              {l.company ? (
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <Building2 className="size-3 shrink-0" />
+                  <span className="truncate">{l.company}</span>
+                </span>
+              ) : null}
+            </div>
+          ) : l.headline ? (
+            <div className="truncate text-xs text-muted-foreground">{l.headline}</div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+            {l.location ? (
+              <span className="inline-flex items-center gap-1">
+                <MapPin className="size-3" />
+                {l.location}
+              </span>
+            ) : null}
+            {l.linkedinUrl ? (
+              <a
+                href={l.linkedinUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-chart-2 hover:underline"
+              >
+                <Linkedin className="size-3" />
+                Profile
+              </a>
+            ) : null}
+            {l.email ? (
+              <a
+                href={`mailto:${l.email}`}
+                className="inline-flex max-w-[16rem] items-center gap-1 hover:text-foreground hover:underline"
+              >
+                <Mail className="size-3 shrink-0" />
+                <span className="truncate">{l.email}</span>
+              </a>
+            ) : null}
+            <span>{l.currentNodeType ? `At: ${nodeLabel(l.currentNodeType)}` : "Not started"}</span>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge variant={STATUS_VARIANT[l.status] ?? "muted"}>{l.status}</Badge>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-destructive"
+            onClick={() => void onRemove(l.leadId)}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      </div>
+      {expanded ? <LeadTimeline campaignId={campaignId} leadId={l.leadId} /> : null}
+    </div>
+  );
+}
+
+/** Lazily-loaded per-lead progress timeline (step history + current position). */
+function LeadTimeline({ campaignId, leadId }: { campaignId: string; leadId: string }) {
+  const api = useApi();
+  const [stage, setStage] = useState<StageResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api
+      .request<StageResponse>(`/campaigns/${campaignId}/leads/${leadId}/stage`)
+      .then((s) => {
+        if (!cancelled) setStage(s);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(errorMessage(err, "Could not load history"));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, campaignId, leadId]);
+
+  return (
+    <div className="border-t bg-secondary/20 py-3 pl-11 pr-4">
+      {loading ? (
+        <p className="text-xs text-muted-foreground">Loading history…</p>
+      ) : error ? (
+        <p className="text-xs text-destructive">{error}</p>
+      ) : !stage || stage.history.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {stage?.currentNodeType
+            ? `Waiting at: ${nodeLabel(stage.currentNodeType)}. No steps completed yet.`
+            : "No steps completed yet."}
+        </p>
+      ) : (
+        <ol className="space-y-2">
+          {stage.history.map((h, i) => (
+            <li key={i} className="flex items-start gap-2 text-xs">
+              <Clock className="mt-0.5 size-3 shrink-0 text-muted-foreground" />
+              <div className="min-w-0">
+                <span className="font-medium text-foreground">{nodeLabel(h.type)}</span>
+                {h.outcome && h.outcome !== "next" ? (
+                  <span className="ml-1.5 rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    {h.outcome}
+                  </span>
+                ) : null}
+                <span className="ml-2 text-muted-foreground">
+                  {h.at ? new Date(h.at).toLocaleString() : "—"}
+                </span>
+              </div>
+            </li>
+          ))}
+          {stage.currentNodeType ? (
+            <li className="flex items-start gap-2 text-xs">
+              <span className="mt-0.5 size-3 shrink-0 rounded-full border border-primary/60" />
+              <span className="text-muted-foreground">
+                Currently at{" "}
+                <span className="font-medium text-foreground">{nodeLabel(stage.currentNodeType)}</span>
+              </span>
+            </li>
+          ) : null}
+        </ol>
+      )}
     </div>
   );
 }

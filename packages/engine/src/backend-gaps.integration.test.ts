@@ -435,6 +435,69 @@ test("attachment delivery: media on a send_message node is passed THROUGH the ad
   assert.equal(sink[0].attachments?.[0].url, attachment.url, "fetchable url forwarded to the transport");
 });
 
+test("attachment delivery: a FRESH signed URL is minted from the storage ref at dispatch", async () => {
+  // The compose-time signed URL (1h TTL) is stale by the time a late sequence
+  // step fires — with resolveAttachmentUrl wired, the engine must replace it.
+  const sink: SentMessage[] = [];
+  const lead = {
+    id: "lead-1",
+    workspace_id: "ws-1",
+    linkedin_url: "https://linkedin.com/in/x",
+    email: null,
+    enrichment: { firstName: "Jo" },
+    tags: [],
+    custom_columns: {},
+    connection_degree: 1,
+  } as unknown as LeadRow;
+  const base = {
+    adapter: captureAdapter(sink),
+    accountRef: { accountId: "acc-1" },
+    leadRef: { leadId: "lead-1" },
+    workspaceId: "ws-1",
+    nodeType: "send_message",
+    lead,
+  };
+  const ref = `ws/camp/${randomUUID()}-pic.png`;
+  const stale = { kind: "image", ref, name: "pic.png", mime: "image/png", url: "https://stale.example/expired" };
+
+  // Resolver succeeds → fresh URL wins over the stale stored one.
+  const resolved: string[] = [];
+  await executeTransportAction({
+    ...base,
+    config: { messageBody: BODY, attachments: [stale] },
+    idempotencyKey: "att-fresh",
+    resolveAttachmentUrl: async (r) => {
+      resolved.push(r);
+      return `https://fresh.example/${r}?sig=new`;
+    },
+  });
+  assert.deepEqual(resolved, [ref], "resolver called with the storage ref");
+  assert.equal(sink[0].attachments?.[0].url, `https://fresh.example/${ref}?sig=new`, "fresh URL delivered");
+
+  // Resolver returns null (storage miss) → falls back to the stored URL.
+  await executeTransportAction({
+    ...base,
+    config: { messageBody: BODY, attachments: [stale] },
+    idempotencyKey: "att-fallback",
+    resolveAttachmentUrl: async () => null,
+  });
+  assert.equal(sink[1].attachments?.[0].url, stale.url, "stored URL is the fallback");
+
+  // Absolute (external) refs pass through — the resolver is never called.
+  const external = { kind: "file", ref: "https://cdn.example/doc.pdf", name: "doc.pdf" };
+  let calls = 0;
+  await executeTransportAction({
+    ...base,
+    config: { messageBody: BODY, attachments: [external] },
+    idempotencyKey: "att-external",
+    resolveAttachmentUrl: async () => {
+      calls += 1;
+      return "https://should-not-happen.example";
+    },
+  });
+  assert.equal(calls, 0, "external refs skip the resolver");
+});
+
 // =====================================================================
 // 4. RESTRICTION → FE NOTIFICATION SURFACING
 // =====================================================================

@@ -30,6 +30,14 @@ export type ContentResolver = (input: {
   campaignId?: string;
 }) => Promise<string> | string;
 
+/**
+ * Mint a fresh fetchable URL for a storage ref at dispatch time. Compose-time
+ * signed URLs expire (1h TTL) long before a late sequence step fires; the host
+ * (api/worker) implements this against Supabase Storage. Return null (never
+ * throw) to fall back to the stored URL.
+ */
+export type AttachmentUrlResolver = (ref: string) => Promise<string | null>;
+
 export interface EngineDeps {
   db: Kysely<DB>;
   adapter: ChannelAdapter;
@@ -37,6 +45,8 @@ export interface EngineDeps {
   /** Injectable clock for deterministic tests. */
   now?: () => Date;
   resolveContent?: ContentResolver;
+  /** Fresh signed URLs for message attachments at dispatch (see the type doc). */
+  resolveAttachmentUrl?: AttachmentUrlResolver;
   /** Conversation-brain (Phase 2): reasoning-model drafts. Absent → no AI drafts. */
   textAdapter?: TextGenerationAdapter | null;
   /** Conversation-brain (Phase 2): KB/fact embeddings. Absent → no grounding. */

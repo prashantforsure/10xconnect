@@ -53,6 +53,12 @@ function iconFor(node: GraphNode): ComponentType<{ className?: string }> {
   return ICONS[node.type] ?? MessageSquare;
 }
 
+/** Parse a numeric field value, coercing blank/invalid to 0 (never NaN). */
+function parseIntOr0(v: string): number {
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
 /** Is a composer node missing its body/audio? (drives the "Action required" badge) */
 function isMisconfigured(node: GraphNode): boolean {
   if (!isComposerType(node.type)) {
@@ -79,11 +85,13 @@ export function NodeCard({ node }: { node: GraphNode }) {
   return (
     <div
       className={cn(
+        // Content stays editable while the campaign runs (composer + inline
+        // fields); only STRUCTURE controls (move/delete) lock below.
         "seqnode group relative w-[340px] rounded-[14px] border bg-card px-3.5 py-3 text-left transition-colors",
-        composer && !running ? "cursor-pointer" : "",
+        composer ? "cursor-pointer" : "",
         isSelected ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-[hsl(45_16%_25%)]",
       )}
-      onClick={composer && !running ? () => selectComposer(node.id) : undefined}
+      onClick={composer ? () => selectComposer(node.id) : undefined}
     >
       <div className="flex items-center gap-3">
         <span
@@ -140,13 +148,25 @@ export function NodeCard({ node }: { node: GraphNode }) {
         <div className="mt-2.5 space-y-2" onClick={(e) => e.stopPropagation()}>
           {inlineFields.map((f) => (
             <div key={f.key} className="space-y-1">
-              <label className="text-[11px] font-medium text-muted-foreground">{f.label}</label>
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-medium text-muted-foreground">{f.label}</label>
+                {f.maxChars ? (
+                  <span
+                    className={
+                      String(node.config[f.key] ?? "").length > f.maxChars
+                        ? "text-[10px] font-medium tabular-nums text-destructive"
+                        : "text-[10px] tabular-nums text-muted-foreground"
+                    }
+                  >
+                    {String(node.config[f.key] ?? "").length}/{f.maxChars}
+                  </span>
+                ) : null}
+              </div>
               {f.type === "textarea" ? (
                 <Textarea
                   value={String(node.config[f.key] ?? "")}
                   onChange={(e) => updateConfig(node.id, f.key, e.target.value)}
                   placeholder={f.placeholder}
-                  disabled={running}
                   className="min-h-[60px] text-xs"
                 />
               ) : (
@@ -154,10 +174,15 @@ export function NodeCard({ node }: { node: GraphNode }) {
                   type={f.type === "number" ? "number" : "text"}
                   value={String(node.config[f.key] ?? "")}
                   onChange={(e) =>
-                    updateConfig(node.id, f.key, f.type === "number" ? Number(e.target.value) : e.target.value)
+                    updateConfig(
+                      node.id,
+                      f.key,
+                      // Guard NaN: an empty number input yields "" → Number("") is
+                      // NaN, which would serialize to null and break config reads.
+                      f.type === "number" ? parseIntOr0(e.target.value) : e.target.value,
+                    )
                   }
                   placeholder={f.placeholder}
-                  disabled={running}
                   className="h-8 text-xs"
                 />
               )}

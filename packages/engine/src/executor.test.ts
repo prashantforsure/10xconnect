@@ -121,3 +121,17 @@ test("executor sends a voice note only when the transport reports it can deliver
   assert.equal(result.status, "success");
   assert.equal(calls.sent, 1, "send happens only behind an explicit capability");
 });
+
+test("executor SIMULATES: simulate=true never touches the transport — safe production testing", async () => {
+  const calls = { sent: 0 };
+  const spy = {
+    sendMessage: async () => {
+      calls.sent += 1;
+      return { status: "success", idempotencyKey: "k", at: new Date().toISOString() } as ActionResult;
+    },
+  } as unknown as ChannelAdapter;
+  const result = await executeTransportAction(input({ adapter: spy, config: { body: "Hi" }, simulate: true }));
+  assert.equal(result.status, "success", "pipeline still advances on a synthetic success");
+  assert.equal(result.status === "success" && result.providerRef, "SIMULATED");
+  assert.equal(calls.sent, 0, "transport.sendMessage NEVER called in simulation mode");
+});

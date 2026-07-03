@@ -25,7 +25,6 @@ import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
-import { cn } from "@/lib/utils";
 import {
   type CampaignSummary,
   IMPORT_SOURCES,
@@ -33,6 +32,7 @@ import {
   type ImportSourceKind,
   type ListView,
 } from "@/lib/contacts/types";
+import { cn } from "@/lib/utils";
 
 /** Icon + one-line description per import source, for the card picker (step 1). */
 const SOURCE_META: Record<ImportSourceKind, { icon: LucideIcon; description: string }> = {

@@ -53,6 +53,36 @@ export function parseCsvToObjects(
   });
 }
 
+/**
+ * Serialize rows to RFC-4180 CSV text, with formula-injection defense: a cell
+ * whose value starts with `= + - @` or a tab/CR is prefixed with a single quote
+ * so a spreadsheet opens it as text, never as a live formula (CSV export is a
+ * classic injection sink). Values containing a comma/quote/newline are quoted.
+ */
+export function serializeCsv(headers: string[], rows: (string | number | null | undefined)[][]): string {
+  const lines = [headers.map(escapeCsvCell).join(",")];
+  for (const row of rows) {
+    lines.push(row.map(escapeCsvCell).join(","));
+  }
+  // Trailing newline so the file ends cleanly.
+  return `${lines.join("\r\n")}\r\n`;
+}
+
+/** Neutralize + quote a single CSV cell (see serializeCsv). */
+export function escapeCsvCell(value: string | number | null | undefined): string {
+  let str = value === null || value === undefined ? "" : String(value);
+  // Formula-injection guard: leading formula/command trigger characters.
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  // RFC-4180 quoting: wrap + double any embedded quote when the cell contains a
+  // delimiter, quote, or newline.
+  if (/[",\r\n]/.test(str)) {
+    str = `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
 function normalizeWidth(record: string[], width: number): string[] {
   if (record.length === width) {
     return record;

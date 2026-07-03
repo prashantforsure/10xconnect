@@ -18,9 +18,56 @@ export interface LeadView {
   connectionDegree: number | null;
   tags: string[];
   customColumns: Record<string, unknown>;
+  note: string | null;
   enrichStatus: EnrichStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A lead's membership in one campaign (GET /leads/:id). */
+export interface LeadCampaignMembership {
+  id: string;
+  name: string;
+  status: string;
+  leadStatus: string;
+  currentNodeId: string | null;
+}
+
+/** Full lead detail incl. list + campaign membership (GET /leads/:id). */
+export interface LeadDetail extends LeadView {
+  lists: { id: string; name: string; color: string | null }[];
+  campaigns: LeadCampaignMembership[];
+  enrichment?: {
+    about?: string;
+    recentPosts?: { postId: string; url?: string; text?: string; postedAt?: string }[];
+  };
+}
+
+/** One entry in a lead's activity timeline (GET /leads/:id/activity). */
+export interface LeadActivityItem {
+  kind: "action" | "message";
+  label: string;
+  status: string | null;
+  body: string | null;
+  channel: string | null;
+  campaignId: string | null;
+  at: string;
+}
+
+/** A do-not-contact entry (GET /suppression). */
+export interface SuppressionEntry {
+  id: string;
+  email: string | null;
+  linkedinUrl: string | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface SuppressionListResult {
+  entries: SuppressionEntry[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface LeadListResult {

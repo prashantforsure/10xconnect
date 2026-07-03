@@ -3,13 +3,16 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from "@nestjs/common";
+import type { Response } from "express";
 
 import type { AuthUser } from "../../auth/auth-user.interface";
 import { CurrentUser } from "../../auth/current-user.decorator";
@@ -23,6 +26,8 @@ import {
   bulkActionSchema,
   type ConnectionsQueryDto,
   connectionsQuerySchema,
+  type ExportLeadsDto,
+  exportLeadsSchema,
   type FindRequestDto,
   findRequestSchema,
   type ImportRequestDto,
@@ -34,7 +39,12 @@ import {
 } from "./dto";
 import { EnrichmentService } from "./enrichment.service";
 import { type ImportJobView, type ImportSourceView, ImportService } from "./import.service";
-import { type LeadDetail, type LeadListResult, LeadsService } from "./leads.service";
+import {
+  type LeadActivityItem,
+  type LeadDetail,
+  type LeadListResult,
+  LeadsService,
+} from "./leads.service";
 
 @UseGuards(WorkspaceScopeGuard)
 @Controller("leads")
@@ -112,6 +122,22 @@ export class LeadsController {
     return this.connections.list(workspaceId, query);
   }
 
+  // --- export ---------------------------------------------------------------
+  // Declared before the `:id` routes so the literal path isn't parsed as a UUID.
+
+  @Post("export")
+  @Header("Content-Type", "text/csv; charset=utf-8")
+  @Header("Content-Disposition", 'attachment; filename="contacts.csv"')
+  async export(
+    @WorkspaceId() workspaceId: string,
+    @Body(new ZodValidationPipe(exportLeadsSchema)) body: ExportLeadsDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<string> {
+    const csv = await this.leads.exportCsv(workspaceId, body);
+    res.status(200);
+    return csv;
+  }
+
   // --- bulk multi-select actions --------------------------------------------
 
   @Post("bulk")
@@ -138,6 +164,14 @@ export class LeadsController {
     @Param("id", ParseUUIDPipe) id: string,
   ): Promise<LeadDetail> {
     return this.leads.get(workspaceId, id);
+  }
+
+  @Get(":id/activity")
+  activity(
+    @WorkspaceId() workspaceId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<LeadActivityItem[]> {
+    return this.leads.activity(workspaceId, id);
   }
 
   @Patch(":id")

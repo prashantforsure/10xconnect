@@ -3,13 +3,14 @@
 // next node and schedules that node's action (respecting wait_x_days, working
 // hours, and ~6-min jitter). The worker tick executes the scheduled actions.
 
+import { randomUUID } from "node:crypto";
+
 import { autonomyFrom, computeFirstDispatchAt, computeNextDispatchAt } from "@10xconnect/core";
 import type { DB } from "@10xconnect/db";
 import type { Kysely } from "kysely";
 
 import { isConditionType, nodeToActionType } from "./nodes";
 import { loadGraph } from "./repository";
-import { isLeadSuppressed } from "./suppression";
 import type { EngineDeps, HistoryEntry, LeadStateRow, SequenceNodeRow } from "./types";
 
 const DAY_MS = 86_400_000;
@@ -86,6 +87,7 @@ async function scheduleNodeAction(
   node: SequenceNodeRow,
   scheduledAt: Date,
   stepSeq: number,
+  idempotencyKey?: string,
 ): Promise<void> {
   await deps.db
     .insertInto("actions")
@@ -101,7 +103,10 @@ async function scheduleNodeAction(
       type: nodeToActionType(node.type) ?? node.type,
       status: "pending",
       config: JSON.stringify(asObject(node.config)),
-      idempotency_key: `${campaign.id}:${state.lead_id}:${node.id}:${stepSeq}`,
+      // Default key ties retries of the same step together (no double-send). A
+      // resume passes an explicit unique key so its fresh action doesn't collide
+      // with the paused (skipped) one at the same step (see resumeCampaign).
+      idempotency_key: idempotencyKey ?? `${campaign.id}:${state.lead_id}:${node.id}:${stepSeq}`,
       scheduled_at: scheduledAt.toISOString(),
     })
     .onConflict((oc) => oc.column("idempotency_key").doNothing())
@@ -292,7 +297,25 @@ export interface EnrollResult {
   skippedDuplicate: number;
 }
 
-/** Enroll leads, honoring suppression + skip-already-contacted (CLAUDE.md §7/§11). */
+/** Split into chunks so batched IN(...) / bulk inserts stay under Postgres' bind
+ * limit (~65535 params) on very large enrollments (e.g. "all contacts"). */
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+const ENROLL_CHUNK = 1000;
+
+/**
+ * Enroll leads, honoring suppression + skip-already-contacted (CLAUDE.md §7/§11).
+ * Batched: instead of ~4 queries PER lead (which made a 10k enroll ~40k
+ * round-trips), the suppression list and cross-campaign membership are loaded in
+ * bulk and inserts are chunked. Only per-lead scheduling remains a loop — and
+ * only for an already-running campaign — because each first action must be
+ * staggered off the account's queue (never burst, §5).
+ */
 export async function enrollLeads(
   deps: EngineDeps,
   workspaceId: string,
@@ -313,63 +336,110 @@ export async function enrollLeads(
   };
   const { rootId, byId } = await loadGraph(deps.db, campaignId);
 
-  for (const leadId of leadIds) {
-    const lead = await deps.db
+  const uniqueLeadIds = [...new Set(leadIds)];
+  if (uniqueLeadIds.length === 0) {
+    return result;
+  }
+  const chunks = chunk(uniqueLeadIds, ENROLL_CHUNK);
+
+  // 1) Load every target lead's identifiers in bulk (drops ids not in workspace).
+  const leadById = new Map<string, { id: string; linkedin_url: string | null; email: string | null }>();
+  for (const ids of chunks) {
+    const rows = await deps.db
       .selectFrom("leads")
       .select(["id", "linkedin_url", "email"])
       .where("workspace_id", "=", workspaceId)
-      .where("id", "=", leadId)
-      .executeTakeFirst();
-    if (!lead) {
-      continue;
-    }
-
-    if (await isLeadSuppressed(deps.db, workspaceId, lead)) {
-      result.skippedSuppressed += 1;
-      continue;
-    }
-    if (skipAlready) {
-      const elsewhere = await deps.db
-        .selectFrom("lead_campaign_state")
-        .select("id")
-        .where("workspace_id", "=", workspaceId)
-        .where("lead_id", "=", leadId)
-        .where("campaign_id", "!=", campaignId)
-        .executeTakeFirst();
-      if (elsewhere) {
-        result.skippedAlreadyContacted += 1;
-        continue;
-      }
-    }
-
-    const inserted = await deps.db
-      .insertInto("lead_campaign_state")
-      .values({
-        workspace_id: workspaceId,
-        lead_id: leadId,
-        campaign_id: campaignId,
-        status: "active",
-        history: JSON.stringify([]),
-      })
-      .onConflict((oc) => oc.columns(["campaign_id", "lead_id"]).doNothing())
-      .returning(["id", "workspace_id", "lead_id", "campaign_id", "current_node_id", "status", "history"])
-      .executeTakeFirst();
-    if (!inserted) {
-      result.skippedDuplicate += 1;
-      continue;
-    }
-    result.enrolled += 1;
-
-    // If the campaign is already running (or auto-completed — new leads reopen
-    // it, so continuous imports keep flowing), schedule the new lead immediately.
-    if ((campaign.status === "running" || campaign.status === "completed") && rootId && byId.get(rootId)) {
-      await scheduleLead(deps, campaign, byId.get(rootId) as SequenceNodeRow, inserted as LeadStateRow);
+      .where("id", "in", ids)
+      .execute();
+    for (const r of rows) {
+      leadById.set(r.id, r);
     }
   }
 
-  // Reopen an auto-completed campaign that just received fresh leads. Runs on
-  // the status guard (not the possibly-stale read above) so a completion racing
-  // this enroll converges to "running" either way.
+  // 2) The workspace do-not-contact list, once. Matched exactly on email and
+  //    linkedin_url — identical predicate to isLeadSuppressed, just set-based.
+  const dnc = await deps.db
+    .selectFrom("do_not_contact")
+    .select(["email", "linkedin_url"])
+    .where("workspace_id", "=", workspaceId)
+    .execute();
+  const dncEmails = new Set(dnc.map((d) => d.email).filter((v): v is string => Boolean(v)));
+  const dncUrls = new Set(dnc.map((d) => d.linkedin_url).filter((v): v is string => Boolean(v)));
+
+  // 3) Leads already enrolled in ANOTHER campaign (skip-already-contacted), once.
+  const elsewhere = new Set<string>();
+  if (skipAlready) {
+    for (const ids of chunks) {
+      const rows = await deps.db
+        .selectFrom("lead_campaign_state")
+        .select("lead_id")
+        .where("workspace_id", "=", workspaceId)
+        .where("campaign_id", "!=", campaignId)
+        .where("lead_id", "in", ids)
+        .execute();
+      for (const r of rows) {
+        elsewhere.add(r.lead_id);
+      }
+    }
+  }
+
+  // 4) Partition in memory (requested order preserved), counting skip reasons.
+  const toInsert: string[] = [];
+  for (const leadId of uniqueLeadIds) {
+    const lead = leadById.get(leadId);
+    if (!lead) {
+      continue; // unknown / cross-workspace id — silently ignored, as before
+    }
+    const suppressed =
+      (lead.email !== null && dncEmails.has(lead.email)) ||
+      (lead.linkedin_url !== null && dncUrls.has(lead.linkedin_url));
+    if (suppressed) {
+      result.skippedSuppressed += 1;
+      continue;
+    }
+    if (skipAlready && elsewhere.has(leadId)) {
+      result.skippedAlreadyContacted += 1;
+      continue;
+    }
+    toInsert.push(leadId);
+  }
+
+  // 5) Bulk insert; ON CONFLICT skips leads already in THIS campaign (RETURNING
+  //    tells us which actually inserted → the rest are duplicates).
+  const inserted: LeadStateRow[] = [];
+  for (const ids of chunk(toInsert, ENROLL_CHUNK)) {
+    const rows = (await deps.db
+      .insertInto("lead_campaign_state")
+      .values(
+        ids.map((leadId) => ({
+          workspace_id: workspaceId,
+          lead_id: leadId,
+          campaign_id: campaignId,
+          status: "active",
+          history: JSON.stringify([]),
+        })),
+      )
+      .onConflict((oc) => oc.columns(["campaign_id", "lead_id"]).doNothing())
+      .returning(["id", "workspace_id", "lead_id", "campaign_id", "current_node_id", "status", "history"])
+      .execute()) as LeadStateRow[];
+    inserted.push(...rows);
+  }
+  result.enrolled = inserted.length;
+  result.skippedDuplicate = toInsert.length - inserted.length;
+
+  // 6) If the campaign is already running (or auto-completed — new leads reopen
+  //    it, so continuous imports keep flowing), schedule each new lead. Kept a
+  //    loop on purpose: each first action is staggered off the account queue.
+  if ((campaign.status === "running" || campaign.status === "completed") && rootId && byId.get(rootId)) {
+    const root = byId.get(rootId) as SequenceNodeRow;
+    for (const state of inserted) {
+      await scheduleLead(deps, campaign, root, state);
+    }
+  }
+
+  // 7) Reopen an auto-completed campaign that just received fresh leads. Runs on
+  //    the status guard (not the possibly-stale read above) so a completion
+  //    racing this enroll converges to "running" either way.
   if (result.enrolled > 0) {
     await deps.db
       .updateTable("campaigns")
@@ -493,6 +563,147 @@ export async function stopCampaign(
     .where("campaign_id", "=", campaignId)
     .where("status", "=", "pending")
     .execute();
+}
+
+/**
+ * Pause a running campaign — freeze in place, resumable (distinct from stop,
+ * which is terminal). Each lead's position (current_node_id) is left untouched;
+ * only the queued sequence actions are cancelled. They're re-created on resume
+ * with fresh, jittered slots so a resume NEVER bursts (the #1 safety rule, §5).
+ * Node-less conversation actions (inbox replies / AI turns) are deliberately
+ * left alone — pausing outreach shouldn't drop an in-flight reply to someone
+ * who already responded. Guarded on `running` so a double-click is idempotent.
+ */
+export async function pauseCampaign(
+  deps: EngineDeps,
+  workspaceId: string,
+  campaignId: string,
+): Promise<void> {
+  await deps.db.transaction().execute(async (trx) => {
+    const row = await trx
+      .selectFrom("campaigns")
+      .select(["id", "status"])
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", campaignId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!row) {
+      throw new Error("Campaign not found");
+    }
+    if (row.status !== "running") {
+      throw new Error("Only a running campaign can be paused.");
+    }
+    await trx
+      .updateTable("campaigns")
+      .set({ status: "paused" })
+      .where("id", "=", campaignId)
+      .execute();
+    await trx
+      .updateTable("actions")
+      .set({ status: "skipped" })
+      .where("campaign_id", "=", campaignId)
+      .where("status", "=", "pending")
+      .where("node_id", "is not", null)
+      .execute();
+  });
+}
+
+/**
+ * Resume a paused campaign: flip back to running and re-schedule every active
+ * lead from where it stopped (its current node), or from the root if it never
+ * started. Guarded on `paused` (with a row lock) so concurrent/double resumes
+ * run the scheduling loop exactly once. Leads that somehow still hold a live
+ * action are skipped, so no lead is ever double-queued.
+ */
+export async function resumeCampaign(
+  deps: EngineDeps,
+  workspaceId: string,
+  campaignId: string,
+): Promise<StartResult> {
+  return await deps.db.transaction().execute(async (trx) => {
+    const tdeps: EngineDeps = { ...deps, db: trx };
+    const campaign = (await trx
+      .selectFrom("campaigns")
+      .select(["id", "workspace_id", "status", "account_id", "schedule", "settings"])
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", campaignId)
+      .forUpdate()
+      .executeTakeFirst()) as CampaignRow | undefined;
+    if (!campaign) {
+      throw new Error("Campaign not found");
+    }
+    if (campaign.status !== "paused") {
+      throw new Error("Only a paused campaign can be resumed.");
+    }
+    if (!campaign.account_id) {
+      throw new Error("Bind a sending account before resuming the campaign.");
+    }
+    const { rootId, byId } = await loadGraph(trx, campaignId);
+    if (!rootId) {
+      throw new Error("Add at least one step to the sequence before resuming.");
+    }
+
+    await trx
+      .updateTable("campaigns")
+      .set({ status: "running" })
+      .where("id", "=", campaignId)
+      .execute();
+
+    const states = (await trx
+      .selectFrom("lead_campaign_state")
+      .select(["id", "workspace_id", "lead_id", "campaign_id", "current_node_id", "status", "history"])
+      .where("campaign_id", "=", campaignId)
+      .where("status", "=", "active")
+      .execute()) as LeadStateRow[];
+
+    let scheduled = 0;
+    for (const state of states) {
+      const live = await trx
+        .selectFrom("actions")
+        .select("id")
+        .where("campaign_id", "=", campaignId)
+        .where("lead_id", "=", state.lead_id)
+        .where("status", "in", ["pending", "executing"])
+        .executeTakeFirst();
+      if (live) {
+        continue;
+      }
+      const fromNode = byId.get(state.current_node_id ?? rootId);
+      if (!fromNode) {
+        continue;
+      }
+      await scheduleLeadResume(tdeps, campaign, fromNode, state);
+      scheduled += 1;
+    }
+    return { scheduled };
+  });
+}
+
+/**
+ * Schedule a resumed lead at `fromNode` (its current position), staggered off the
+ * account's queue. Uses a unique idempotency key so the fresh action doesn't
+ * collide (ON CONFLICT) with the paused/skipped action still sitting at the same
+ * step; resume itself is campaign-guarded, so a random key can't cause a
+ * double-send (only leads with no live action reach here).
+ */
+async function scheduleLeadResume(
+  deps: EngineDeps,
+  campaign: CampaignRow,
+  fromNode: SequenceNodeRow,
+  state: LeadStateRow,
+): Promise<void> {
+  const { node: target, extraMs } = resolveWaitChain(fromNode.id, await graphById(deps, campaign.id));
+  const start = target ?? fromNode;
+  const schedule = parseSchedule(campaign.schedule);
+  const base = new Date(now(deps).getTime() + extraMs);
+  const scheduledAt = await nextAccountSlot(deps, campaign, schedule, base);
+  await deps.db
+    .updateTable("lead_campaign_state")
+    .set({ current_node_id: start.id })
+    .where("id", "=", state.id)
+    .execute();
+  const key = `${campaign.id}:${state.lead_id}:${start.id}:resume:${randomUUID()}`;
+  await scheduleNodeAction(deps, campaign, state, start, scheduledAt, historyOf(state).length, key);
 }
 
 export { getCampaign, isConditionType };

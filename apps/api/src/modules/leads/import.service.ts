@@ -325,13 +325,24 @@ export class ImportService {
     try {
       const listId = await this.resolveTargetList(workspaceId, request);
       const defaultTags = request.tags ?? [];
+      // The account newly-created leads are attributed to (Aimfox account-scoping).
+      const owningAccountId = await this.resolveOwningAccountId(
+        workspaceId,
+        "accountId" in request ? request.accountId : undefined,
+      );
 
       let result: PersistResult & { total: number };
       if (request.source === "list") {
         result = await this.importFromList(workspaceId, request.sourceListId, listId);
       } else {
         const candidates = await this.gatherCandidates(workspaceId, request);
-        const persisted = await this.persistCandidates(workspaceId, candidates, defaultTags, listId);
+        const persisted = await this.persistCandidates(
+          workspaceId,
+          candidates,
+          defaultTags,
+          listId,
+          owningAccountId,
+        );
         result = { ...persisted, total: candidates.length };
       }
 
@@ -432,6 +443,7 @@ export class ImportService {
     candidates: Candidate[],
     defaultTags: string[],
     listId: string | null,
+    accountId: string | null,
   ): Promise<PersistResult> {
     const keyed = new Map<string, Candidate>();
     const unkeyed: Candidate[] = [];
@@ -479,7 +491,7 @@ export class ImportService {
         continue;
       }
       try {
-        const id = await this.insertLead(workspaceId, candidate, defaultTags, key);
+        const id = await this.insertLead(workspaceId, candidate, defaultTags, key, accountId);
         createdLeadIds.push(id);
         allLeadIds.add(id);
       } catch (err) {
@@ -498,7 +510,7 @@ export class ImportService {
     // Leads with no usable identifier can't be deduped — each is created.
     for (const candidate of unkeyed) {
       try {
-        const id = await this.insertLead(workspaceId, candidate, defaultTags, undefined);
+        const id = await this.insertLead(workspaceId, candidate, defaultTags, undefined, accountId);
         createdLeadIds.push(id);
         allLeadIds.add(id);
       } catch (err) {
@@ -516,13 +528,35 @@ export class ImportService {
     candidate: Candidate,
     defaultTags: string[],
     dedupeKey: string | undefined,
+    accountId: string | null,
   ): Promise<string> {
     const row = await this.db
       .insertInto("leads")
-      .values(buildLeadInsert(workspaceId, candidate, defaultTags, dedupeKey))
+      .values(buildLeadInsert(workspaceId, candidate, defaultTags, dedupeKey, accountId))
       .returning("id")
       .executeTakeFirstOrThrow();
     return row.id;
+  }
+
+  /**
+   * The real sending-account id that newly-imported leads are attributed to.
+   * Mirrors resolveSourceAccount's preference (explicit → connected → any) but
+   * returns null instead of a synthetic ref, since account_id is a real FK.
+   */
+  private async resolveOwningAccountId(
+    workspaceId: string,
+    accountId: string | undefined,
+  ): Promise<string | null> {
+    const ref = await this.resolveSourceAccount(workspaceId, accountId);
+    // resolveSourceAccount falls back to a synthetic `ws-…-source` id when the
+    // workspace has no LinkedIn account — that isn't a real row, so don't store it.
+    const real = await this.db
+      .selectFrom("sending_accounts")
+      .select("id")
+      .where("id", "=", ref.accountId)
+      .where("workspace_id", "=", workspaceId)
+      .executeTakeFirst();
+    return real?.id ?? null;
   }
 
   private async findByDedupeKey(workspaceId: string, key: string): Promise<string | undefined> {

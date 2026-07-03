@@ -37,7 +37,8 @@ export type ActivityVisitReason =
   | "cap_reached"
   | "already_charged"
   | "read_failed"
-  | "charged";
+  | "charged"
+  | "simulated";
 
 export interface ActivityVisitResult {
   charged: boolean;
@@ -53,6 +54,8 @@ export interface ActivityVisitInput {
   accountAgeDays: number;
   throttleFactor?: number;
   now: Date;
+  /** Per-workspace simulation/test mode: skip the real profile-visit read entirely. */
+  simulate?: boolean;
 }
 
 function asObject(value: unknown): Record<string, unknown> {
@@ -88,6 +91,10 @@ export async function maybeChargeActivityProfileVisit(
   input: ActivityVisitInput,
 ): Promise<ActivityVisitResult> {
   const { lead, campaign, node, now } = input;
+
+  // Simulation/test mode: no real transport call, so skip the profile-visit read
+  // (the activity variable renders empty via its on_missing policy; message sends).
+  if (input.simulate) return { charged: false, reason: "simulated" };
 
   const activityKeys = activityVarsInNode(asObject(node.config));
   if (activityKeys.length === 0) return { charged: false, reason: "no_activity_var" };

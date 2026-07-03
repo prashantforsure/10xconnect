@@ -9,6 +9,7 @@ import { DatabaseModule } from "./database/database.module";
 import { EngineModule } from "./engine/engine.module";
 import { HealthController } from "./health/health.controller";
 import { MeController } from "./me/me.controller";
+import { MediaController } from "./media/media.controller";
 import { AccountsModule } from "./modules/accounts.module";
 import { AiModule } from "./modules/ai.module";
 import { AnalyticsModule } from "./modules/analytics.module";
@@ -24,6 +25,7 @@ import { LeadsModule } from "./modules/leads/leads.module";
 import { ListsModule } from "./modules/lists.module";
 import { NotificationsModule } from "./modules/notifications.module";
 import { PersonalizationModule } from "./modules/personalization.module";
+import { SuppressionModule } from "./modules/suppression.module";
 import { WebhooksModule } from "./modules/webhooks.module";
 import { WorkflowTemplatesModule } from "./modules/workflow-templates.module";
 import { WorkflowsModule } from "./modules/workflows.module";
@@ -43,6 +45,7 @@ import { WorkspacesModule } from "./modules/workspaces.module";
     AiModule,
     LeadsModule,
     ListsModule,
+    SuppressionModule,
     CampaignsModule,
     ConversationsModule,
     NotificationsModule,
@@ -57,7 +60,7 @@ import { WorkspacesModule } from "./modules/workspaces.module";
     IntegrationsModule,
     DevModule,
   ],
-  controllers: [HealthController, MeController],
+  controllers: [HealthController, MeController, MediaController],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: SupabaseAuthGuard },

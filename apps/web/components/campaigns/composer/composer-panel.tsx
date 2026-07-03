@@ -2,6 +2,7 @@
 
 import {
   isBodyConfigured,
+  LINKEDIN_LIMITS,
   type MessageBody,
   type PromptCard,
   renderMessageBody,
@@ -59,6 +60,13 @@ function localAiStub(leadIndex: number, seed: number): string {
   return AI_SAMPLES[(leadIndex + seed) % AI_SAMPLES.length];
 }
 
+// LinkedIn hard caps per body surface — surfaced as advisory counters (E3).
+const BODY_CHAR_LIMITS: Record<string, number> = {
+  inmail: LINKEDIN_LIMITS.inmailBody,
+  send_message: LINKEDIN_LIMITS.message,
+  send_message_to_open_profile: LINKEDIN_LIMITS.message,
+};
+
 export function ComposerPanel({
   type,
   config,
@@ -101,8 +109,14 @@ export function ComposerPanel({
   // animates in, and close it by calling onCollapse (which unmounts us). When no
   // onCollapse is provided, fall back to local state so the panel still closes.
   const [open, setOpen] = useState(false);
+  // Guards setState in async preview handlers against a panel that unmounted
+  // mid-fetch (the builder unmounts us the instant a step is deselected).
+  const mountedRef = useRef(true);
   useEffect(() => {
     setOpen(true);
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
   const close = (): void => {
     // Don't let a backdrop click or Escape on a nested modal (preview, prompt
@@ -135,6 +149,7 @@ export function ComposerPanel({
         body: { segments: body.segments },
       });
       if (res.results.length > 0) {
+        if (!mountedRef.current) return;
         setPreviewItems(res.results.map((r) => ({ name: r.name, text: r.text })));
         setPreviewWarning(res.varietyWarning);
         return;
@@ -145,6 +160,7 @@ export function ComposerPanel({
     // Local fallback (empty workspace / API unavailable): demo leads + stub AI.
     const seed = seedRef.current;
     const samples = await loadSamples().catch(() => [] as PreviewSample[]);
+    if (!mountedRef.current) return;
     const aiOut: string[] = [];
     const items = samples.map((s, i) => ({
       name: s.name,
@@ -186,14 +202,18 @@ export function ComposerPanel({
             <div className="truncate font-display text-base font-semibold tracking-tight">
               {nodeLabel(type)}
             </div>
-            <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">Editing step</p>
+            <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
+              {running ? "Editing live step — changes apply to future sends" : "Editing step"}
+            </p>
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="sm"
+                // Changing the action TYPE is structural — locked while live.
                 disabled={running}
+                title={running ? "Stop the campaign to change this step's action type" : undefined}
                 className="shrink-0 border border-primary/30 bg-primary/15 text-primary hover:bg-primary/25 hover:text-primary"
               >
                 <RefreshCw className="size-4" />
@@ -225,18 +245,27 @@ export function ComposerPanel({
           accounts={accounts}
           value={state.senders}
           onChange={(senders) => update({ senders })}
-          disabled={running}
         />
 
         {/* InMail subject */}
         {type === "inmail" ? (
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Subject</label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-muted-foreground">Subject</label>
+              <span
+                className={
+                  state.subject.length > LINKEDIN_LIMITS.inmailSubject
+                    ? "text-[11px] font-medium tabular-nums text-destructive"
+                    : "text-[11px] tabular-nums text-muted-foreground"
+                }
+              >
+                {state.subject.length}/{LINKEDIN_LIMITS.inmailSubject}
+              </span>
+            </div>
             <Input
               value={state.subject}
               onChange={(e) => update({ subject: e.target.value })}
               placeholder="Quick question"
-              disabled={running}
             />
           </div>
         ) : null}
@@ -246,16 +275,13 @@ export function ComposerPanel({
             {/* Toolbar */}
             <div className="flex flex-wrap items-center gap-2">
               <AiPromptButton
-                disabled={running}
                 onInsert={(prompt, promptId) => editorRef.current?.insertAi(prompt, promptId)}
                 onOpenPromptLibrary={() => setLibraryOpen(true)}
               />
               <VariablePicker
-                disabled={running}
                 onInsert={(key, fallback) => editorRef.current?.insertVariable(key, fallback)}
               />
               <FrameworkMenu
-                disabled={running}
                 onSetBody={onBody}
                 onInsertText={(t) => editorRef.current?.insertText(t)}
               />
@@ -264,7 +290,6 @@ export function ComposerPanel({
                 onChange={(attachments) => update({ attachments })}
                 workspaceId={workspaceId}
                 campaignId={campaignId}
-                disabled={running}
               />
               <Button type="button" variant="outline" size="sm" onClick={() => void openPreview()}>
                 <Eye className="size-4" />
@@ -277,20 +302,15 @@ export function ComposerPanel({
               ref={editorRef}
               value={state.body}
               onChange={onBody}
-              disabled={running}
               placeholder="Write your message… insert variables and an AI prompt above."
-              onEditAi={
-                running
-                  ? undefined
-                  : (current) => {
-                      setEditAiPrompt(current.prompt ?? "");
-                      setEditAiOpen(true);
-                    }
-              }
+              onEditAi={(current) => {
+                setEditAiPrompt(current.prompt ?? "");
+                setEditAiOpen(true);
+              }}
             />
 
-            {/* Sales-guard linter + above-the-fold (advisory) */}
-            <GuardrailsPanel body={state.body} />
+            {/* Sales-guard linter + above-the-fold + char counter (advisory) */}
+            <GuardrailsPanel body={state.body} charLimit={BODY_CHAR_LIMITS[type]} />
           </div>
         ) : (
           // Voice note — recorded/clone mode, ≤30s meter, tips, audio ref (§6 voice).
@@ -298,7 +318,6 @@ export function ComposerPanel({
             <VoiceNoteFields
               config={config}
               onChange={update}
-              disabled={running}
               workspaceId={workspaceId}
               campaignId={campaignId}
             />
@@ -307,7 +326,6 @@ export function ComposerPanel({
               onChange={(attachments) => update({ attachments })}
               workspaceId={workspaceId}
               campaignId={campaignId}
-              disabled={running}
             />
           </div>
         )}
@@ -316,7 +334,6 @@ export function ComposerPanel({
         <SendConditionSelect
           value={state.sendCondition}
           onChange={(sendCondition) => update({ sendCondition })}
-          disabled={running}
         />
 
         {/* Footer: status + lead counter */}

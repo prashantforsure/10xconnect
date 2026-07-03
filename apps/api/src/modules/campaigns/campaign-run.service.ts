@@ -26,6 +26,8 @@ import {
   type EnrollResult,
   enrollLeads,
   leadVariables,
+  pauseCampaign,
+  resumeCampaign,
   startCampaign,
   stopCampaign,
 } from "@10xconnect/engine";
@@ -124,7 +126,11 @@ export class CampaignRunService {
     };
   }
 
-  /** Replace the campaign's graph. Only allowed while not running. */
+  /**
+   * Replace the campaign's graph. While the campaign is live (running/paused),
+   * only in-place CONTENT updates are accepted (same nodes/edges, new config or
+   * wait durations); structural changes require stopping the campaign first.
+   */
   async saveSequence(
     workspaceId: string,
     campaignId: string,
@@ -175,8 +181,50 @@ export class CampaignRunService {
       if (!row) {
         throw new NotFoundException("Campaign not found");
       }
-      if (row.status === "running") {
-        throw new BadRequestException("Stop the campaign before editing its sequence.");
+      // Both running AND paused have leads parked on nodes; a destructive
+      // delete+reinsert (fresh ids) would strand them. While live, CONTENT edits
+      // (message bodies, notes, wait durations) are still allowed via an in-place
+      // config update — but only when the structure (node set, types, edges) is
+      // byte-identical to what's stored. Anything structural requires a stop.
+      if (row.status === "running" || row.status === "paused") {
+        const existing = await trx
+          .selectFrom("sequence_nodes")
+          .select(["id", "kind", "type", "next_node_id", "true_node_id", "false_node_id"])
+          .where("workspace_id", "=", workspaceId)
+          .where("campaign_id", "=", campaignId)
+          .execute();
+        const current = new Map(existing.map((n) => [n.id, n]));
+        const structureUnchanged =
+          dto.nodes.length === existing.length &&
+          dto.nodes.every((n) => {
+            const cur = current.get(n.id);
+            return (
+              cur !== undefined &&
+              cur.kind === n.kind &&
+              cur.type === n.type &&
+              (cur.next_node_id ?? null) === (n.next ?? null) &&
+              (cur.true_node_id ?? null) === (n.true ?? null) &&
+              (cur.false_node_id ?? null) === (n.false ?? null)
+            );
+          });
+        if (!structureUnchanged) {
+          throw new BadRequestException(
+            "The campaign is live — message content and wait times save automatically, but stop the campaign to add, remove, reorder, or change steps.",
+          );
+        }
+        for (const node of dto.nodes) {
+          await trx
+            .updateTable("sequence_nodes")
+            .set({
+              config: JSON.stringify(node.config ?? {}),
+              delay_days: node.delayDays ?? null,
+            })
+            .where("workspace_id", "=", workspaceId)
+            .where("campaign_id", "=", campaignId)
+            .where("id", "=", node.id)
+            .execute();
+        }
+        return;
       }
       await trx
         .deleteFrom("sequence_nodes")
@@ -432,10 +480,68 @@ export class CampaignRunService {
 
   // --- Run / stop ----------------------------------------------------------
 
-  async start(workspaceId: string, campaignId: string): Promise<{ status: string; scheduled: number }> {
+  /** When the campaign's earliest pending action fires ("your first action ~2:06 PM"). */
+  private async nextPendingAt(workspaceId: string, campaignId: string): Promise<string | null> {
+    const row = await this.db
+      .selectFrom("actions")
+      .select("scheduled_at")
+      .where("workspace_id", "=", workspaceId)
+      .where("campaign_id", "=", campaignId)
+      .where("status", "=", "pending")
+      .orderBy("scheduled_at", "asc")
+      .limit(1)
+      .executeTakeFirst();
+    return row?.scheduled_at ? new Date(row.scheduled_at).toISOString() : null;
+  }
+
+  /**
+   * The campaign's dispatch queue, soonest first — the forward-looking answer to
+   * "is it working?" that the past-actions log can't give.
+   */
+  async upcoming(
+    workspaceId: string,
+    campaignId: string,
+    limit = 10,
+  ): Promise<{ total: number; actions: { type: string; at: string | null; lead: string }[] }> {
+    await this.campaigns.getRowOr404(workspaceId, campaignId);
+    const totalRow = await this.db
+      .selectFrom("actions")
+      .select((eb) => eb.fn.countAll<string>().as("count"))
+      .where("workspace_id", "=", workspaceId)
+      .where("campaign_id", "=", campaignId)
+      .where("status", "=", "pending")
+      .executeTakeFirst();
+    const rows = await this.db
+      .selectFrom("actions as a")
+      .leftJoin("leads as l", "l.id", "a.lead_id")
+      .select(["a.type as type", "a.scheduled_at as at", "l.enrichment as enrichment", "l.email as email"])
+      .where("a.workspace_id", "=", workspaceId)
+      .where("a.campaign_id", "=", campaignId)
+      .where("a.status", "=", "pending")
+      .orderBy("a.scheduled_at", "asc")
+      .limit(Math.min(Math.max(1, Math.floor(limit)), 50))
+      .execute();
+    return {
+      total: Number(totalRow?.count ?? 0),
+      actions: rows.map((r) => {
+        const e = (r.enrichment ?? {}) as Record<string, unknown>;
+        const lead =
+          [e.firstName, e.lastName].filter(Boolean).join(" ").trim() ||
+          (typeof r.email === "string" ? r.email : "") ||
+          "Lead";
+        return { type: r.type, at: r.at ? new Date(r.at).toISOString() : null, lead };
+      }),
+    };
+  }
+
+  async start(
+    workspaceId: string,
+    campaignId: string,
+  ): Promise<{ status: string; scheduled: number; nextActionAt: string | null }> {
     try {
       const { scheduled } = await startCampaign(this.engine, workspaceId, campaignId);
-      return { status: "running", scheduled };
+      const nextActionAt = await this.nextPendingAt(workspaceId, campaignId);
+      return { status: "running", scheduled, nextActionAt };
     } catch (err) {
       throw new BadRequestException(err instanceof Error ? err.message : "Could not start campaign");
     }
@@ -445,6 +551,32 @@ export class CampaignRunService {
     await this.campaigns.getRowOr404(workspaceId, campaignId);
     await stopCampaign(this.engine, workspaceId, campaignId);
     return { status: "stopped" };
+  }
+
+  /** Freeze a running campaign in place (resumable). */
+  async pause(workspaceId: string, campaignId: string): Promise<{ status: string }> {
+    await this.campaigns.getRowOr404(workspaceId, campaignId);
+    try {
+      await pauseCampaign(this.engine, workspaceId, campaignId);
+      return { status: "paused" };
+    } catch (err) {
+      throw new BadRequestException(err instanceof Error ? err.message : "Could not pause campaign");
+    }
+  }
+
+  /** Resume a paused campaign, re-scheduling each lead from where it stopped. */
+  async resume(
+    workspaceId: string,
+    campaignId: string,
+  ): Promise<{ status: string; scheduled: number; nextActionAt: string | null }> {
+    await this.campaigns.getRowOr404(workspaceId, campaignId);
+    try {
+      const { scheduled } = await resumeCampaign(this.engine, workspaceId, campaignId);
+      const nextActionAt = await this.nextPendingAt(workspaceId, campaignId);
+      return { status: "running", scheduled, nextActionAt };
+    } catch (err) {
+      throw new BadRequestException(err instanceof Error ? err.message : "Could not resume campaign");
+    }
   }
 
   // --- Leads ---------------------------------------------------------------
@@ -479,8 +611,24 @@ export class CampaignRunService {
     return enrollLeads(this.engine, workspaceId, campaignId, leadIds);
   }
 
-  async listLeads(workspaceId: string, campaignId: string): Promise<CampaignLeadView[]> {
+  async listLeads(
+    workspaceId: string,
+    campaignId: string,
+    opts: { limit?: number; offset?: number } = {},
+  ): Promise<{ leads: CampaignLeadView[]; total: number }> {
     await this.campaigns.getRowOr404(workspaceId, campaignId);
+    // Paginated so a 10k-lead campaign doesn't ship every row on tab open.
+    const limit = Math.min(Math.max(1, Math.floor(opts.limit ?? 50)), 200);
+    const offset = Math.max(0, Math.floor(opts.offset ?? 0));
+
+    const totalRow = await this.db
+      .selectFrom("lead_campaign_state")
+      .select((eb) => eb.fn.countAll<string>().as("count"))
+      .where("workspace_id", "=", workspaceId)
+      .where("campaign_id", "=", campaignId)
+      .executeTakeFirst();
+    const total = Number(totalRow?.count ?? 0);
+
     const rows = await this.db
       .selectFrom("lead_campaign_state as lcs")
       .innerJoin("leads as l", "l.id", "lcs.lead_id")
@@ -498,6 +646,8 @@ export class CampaignRunService {
       .where("lcs.workspace_id", "=", workspaceId)
       .where("lcs.campaign_id", "=", campaignId)
       .orderBy("lcs.created_at", "asc")
+      .limit(limit)
+      .offset(offset)
       .execute();
 
     const str = (v: unknown): string | null =>
@@ -511,7 +661,7 @@ export class CampaignRunService {
       return `${v}${suffix}`;
     };
 
-    return rows.map((r) => {
+    const leads = rows.map((r) => {
       const e = (r.enrichment ?? {}) as Record<string, unknown>;
       const name =
         [e.firstName, e.lastName].filter(Boolean).join(" ").trim() ||
@@ -534,6 +684,7 @@ export class CampaignRunService {
         updatedAt: r.updatedAt,
       };
     });
+    return { leads, total };
   }
 
   async removeLead(

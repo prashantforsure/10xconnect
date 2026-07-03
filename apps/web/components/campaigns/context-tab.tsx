@@ -584,7 +584,12 @@ function KnowledgeCard({
       <div className="space-y-4">
         <Field label="Linked knowledge base" hint="The AI grounds its replies in this knowledge base.">
           <div className="flex gap-2">
-            <Select value={kbId ?? ""} onChange={(e) => void bind(e.target.value)} className="flex-1">
+            <Select
+              value={kbId ?? ""}
+              onChange={(e) => void bind(e.target.value)}
+              className="flex-1"
+              disabled={busy}
+            >
               <option value="">— None —</option>
               {kbs.map((kb) => (
                 <option key={kb.id} value={kb.id}>
@@ -834,7 +839,16 @@ function VoiceCard({ campaignId }: { campaignId: string }) {
 
 // --- autonomy + conversation limits ----------------------------------------
 
-function AutonomyCard({ campaignId }: { campaignId: string }) {
+function AutonomyCard({
+  campaignId,
+  refreshKey,
+  onChanged,
+}: {
+  campaignId: string;
+  /** Bumped when another card saves; re-syncs the cross-card KB flag below. */
+  refreshKey: number;
+  onChanged?: () => void;
+}) {
   const api = useApi();
   const [mode, setMode] = useState<Autonomy["mode"]>("approve_all");
   const [threshold, setThreshold] = useState("");
@@ -856,6 +870,23 @@ function AutonomyCard({ campaignId }: { campaignId: string }) {
     void load();
   }, [load]);
 
+  // When the Knowledge card links/unlinks a KB (refreshKey bumps), re-sync ONLY
+  // the hasKb flag so the "needs a knowledge base" warning reflects reality —
+  // without clobbering in-progress edits to the mode/threshold fields.
+  useEffect(() => {
+    if (refreshKey === 0) return;
+    let cancelled = false;
+    api
+      .request<BrainView>(`/campaigns/${campaignId}/brain`)
+      .then((b) => {
+        if (!cancelled) setHasKb(Boolean(b.knowledgeBaseId));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey, api, campaignId]);
+
   const save = async (): Promise<void> => {
     setSaving(true);
     setMsg(null);
@@ -874,6 +905,8 @@ function AutonomyCard({ campaignId }: { campaignId: string }) {
         },
       });
       setMsg("Saved");
+      // Reply mode gates launch (grounding) — refresh the parent's readiness banner.
+      onChanged?.();
     } catch (err) {
       setMsg(errorMessage(err, "Could not save"));
     } finally {
@@ -1055,10 +1088,21 @@ function BudgetCard({ campaignId }: { campaignId: string }) {
 
 // --- tab -------------------------------------------------------------------
 
-export function ContextTab({ campaignId }: { campaignId: string }) {
-  // Bumped after the Aim / Knowledge cards save so the "AI is off" banner re-checks.
+export function ContextTab({
+  campaignId,
+  onChanged,
+}: {
+  campaignId: string;
+  /** Fired when brain config changes so the parent's live launch/AI-off gate re-checks. */
+  onChanged?: () => void;
+}) {
+  // Bumped after the Aim / Knowledge / Autonomy cards save so the "AI is off"
+  // banner and the cross-card KB warning re-check; also refreshes the parent gate.
   const [version, setVersion] = useState(0);
-  const bump = (): void => setVersion((v) => v + 1);
+  const bump = (): void => {
+    setVersion((v) => v + 1);
+    onChanged?.();
+  };
   return (
     <div className="max-w-3xl space-y-6">
       <AiStatusBanner key={version} campaignId={campaignId} />
@@ -1066,7 +1110,7 @@ export function ContextTab({ campaignId }: { campaignId: string }) {
       <KnowledgeCard campaignId={campaignId} onChanged={bump} />
       <GuardrailsCard campaignId={campaignId} />
       <VoiceCard campaignId={campaignId} />
-      <AutonomyCard campaignId={campaignId} />
+      <AutonomyCard campaignId={campaignId} refreshKey={version} onChanged={bump} />
       <BudgetCard campaignId={campaignId} />
     </div>
   );

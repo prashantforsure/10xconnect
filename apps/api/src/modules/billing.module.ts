@@ -13,6 +13,7 @@ import type { Kysely } from "kysely";
 import { z } from "zod";
 
 import { WorkspaceId } from "../common/decorators/workspace-id.decorator";
+import { isDeveloperWorkspace } from "../common/developer-access";
 import { WorkspaceScopeGuard } from "../common/guards/workspace-scope.guard";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { KYSELY_DB } from "../database/database.module";
@@ -64,6 +65,26 @@ export class BillingService {
 
     const cycle = (row.billing_cycle ?? "annual") as Cycle;
     const slots = row.slot_count;
+
+    // Developer workspaces get full access with no payment: an always-active, $0
+    // plan with unlimited sending accounts (the slot cap itself is bypassed in
+    // AccountsService.assertSlotAvailable). Purely a display override — the DB row
+    // is left untouched.
+    if (await isDeveloperWorkspace(this.db, workspaceId)) {
+      return {
+        status: "active" as const,
+        plan: "developer",
+        slotCount: slots,
+        billingCycle: cycle,
+        pricePerSlot: 0,
+        monthlyCost: 0,
+        activeSlots: slots,
+        freeSlots: slots,
+        developer: true,
+        unlimited: true,
+      };
+    }
+
     return {
       status: row.status,
       plan: row.plan ?? "per_slot",
@@ -73,6 +94,8 @@ export class BillingService {
       monthlyCost: slots * PRICE_PER_SLOT[cycle],
       activeSlots: slots,
       freeSlots: 0,
+      developer: false,
+      unlimited: false,
     };
   }
 

@@ -28,13 +28,17 @@ import type {
 } from "./dto";
 
 // "pending" was removed — no flow ever set it (a scheduled-launch feature may reintroduce it).
-export type CampaignStatus = "draft" | "running" | "stopped" | "completed";
+// "paused" = frozen-but-resumable (distinct from "stopped", which is terminal).
+export type CampaignStatus = "draft" | "running" | "paused" | "stopped" | "completed";
 
 export interface CampaignSettings {
   skip_already_contacted: boolean;
   exclude_conn_req_from_reply_rate: boolean;
   /** Advisory follow-up discipline cap (max follow-ups per lead). */
   follow_up_cap: number;
+  /** Full-silence pause: while paused, ALSO defer AI conversation replies
+   * (default false — pause freezes the sequence but the AI keeps answering). */
+  pause_ai_replies?: boolean;
 }
 
 const DEFAULT_SETTINGS: CampaignSettings = {

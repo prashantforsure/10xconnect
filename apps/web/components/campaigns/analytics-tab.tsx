@@ -1,9 +1,10 @@
 "use client";
 
-import { Clock, DollarSign } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { CalendarClock, Clock, DollarSign, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useApi } from "@/lib/api/client";
 import { nodeLabel } from "@/lib/campaigns/nodes";
@@ -23,29 +24,66 @@ interface CampaignAnalytics {
   pastActions: { type: string; status: string; at: string | null; lead: string }[];
 }
 
+interface UpcomingActions {
+  total: number;
+  actions: { type: string; at: string | null; lead: string }[];
+}
+
+// Silent auto-refresh cadence (metrics update as the dispatcher works through the
+// queue). 30s keeps the tab feeling live without hammering the API.
+const REFRESH_MS = 30_000;
+
 export function AnalyticsTab({ campaignId }: { campaignId: string }) {
   const api = useApi();
   const [data, setData] = useState<CampaignAnalytics | null>(null);
+  const [upcoming, setUpcoming] = useState<UpcomingActions | null>(null);
   const [econ, setEcon] = useState<UnitEconomics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setData(await api.request<CampaignAnalytics>(`/analytics/campaign/${campaignId}`));
-    } catch {
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-    // Unit economics is non-blocking — the page renders even if it fails.
-    api
-      .request<UnitEconomics>(`/analytics/campaign/${campaignId}/unit-economics`)
-      .then(setEcon)
-      .catch(() => setEcon(null));
-  }, [api, campaignId]);
+  // `silent` refreshes (polling / manual) don't flash the "Loading…" state.
+  const load = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (opts?.silent) setRefreshing(true);
+      else setLoading(true);
+      try {
+        const next = await api.request<CampaignAnalytics>(`/analytics/campaign/${campaignId}`);
+        if (mountedRef.current) setData(next);
+      } catch {
+        if (mountedRef.current && !opts?.silent) setData(null);
+      } finally {
+        if (mountedRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+      // Unit economics + the dispatch queue are non-blocking — the page renders
+      // even if either fails.
+      api
+        .request<UnitEconomics>(`/analytics/campaign/${campaignId}/unit-economics`)
+        .then((e) => mountedRef.current && setEcon(e))
+        .catch(() => mountedRef.current && setEcon(null));
+      api
+        .request<UpcomingActions>(`/campaigns/${campaignId}/upcoming`)
+        .then((u) => mountedRef.current && setUpcoming(u))
+        .catch(() => mountedRef.current && setUpcoming(null));
+    },
+    [api, campaignId],
+  );
   useEffect(() => {
     void load();
+  }, [load]);
+  // Poll silently while the tab is mounted so metrics stay fresh during a run.
+  useEffect(() => {
+    const id = setInterval(() => void load({ silent: true }), REFRESH_MS);
+    return () => clearInterval(id);
   }, [load]);
 
   if (loading) {
@@ -57,6 +95,20 @@ export function AnalyticsTab({ campaignId }: { campaignId: string }) {
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          Live metrics — auto-refreshing. Campaigns dispatch every 4–8 minutes (randomized) to stay human.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void load({ silent: true })}
+          disabled={refreshing}
+        >
+          <RefreshCw className={refreshing ? "animate-spin" : undefined} />
+          Refresh
+        </Button>
+      </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="LinkedIn requests" value={data.requests} />
         <Stat
@@ -75,11 +127,44 @@ export function AnalyticsTab({ campaignId }: { campaignId: string }) {
 
       {econ ? <UnitEconomicsCard econ={econ} /> : null}
 
+      {/* Forward-looking queue — answers "is it working?" before anything has sent. */}
+      <Card>
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle className="text-base">Upcoming actions</CardTitle>
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <CalendarClock className="size-3.5" />
+            {upcoming ? `${upcoming.total} queued` : "—"}
+          </span>
+        </CardHeader>
+        <CardContent>
+          {!upcoming || upcoming.actions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nothing queued — the campaign is stopped, completed, or waiting on its schedule.
+            </p>
+          ) : (
+            <div className="divide-y rounded-xl border text-sm">
+              {upcoming.actions.map((a, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                  <span className="min-w-0 truncate">
+                    <span className="font-medium">{nodeLabel(a.type)}</span> →{" "}
+                    <span className="text-muted-foreground">{a.lead}</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {a.at ? new Date(a.at).toLocaleString() : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader className="flex-row items-center justify-between">
           <CardTitle className="text-base">Past actions</CardTitle>
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Clock className="size-3.5" />~15s intervals (testing)
+            <Clock className="size-3.5" />
+            Most recent first
           </span>
         </CardHeader>
         <CardContent>

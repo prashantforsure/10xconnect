@@ -161,6 +161,14 @@ const envSchema = z.object({
   // slot count; set true to bypass the slot cap (dev / self-host).
   ALLOW_UNLIMITED_ACCOUNTS: booleanWithDefault(false),
 
+  // Developer-access allowlist. Emails here (comma / space / semicolon separated)
+  // get FULL access — unlimited sending-account slots + an always-active ($0)
+  // subscription — in any workspace they OWN, in every environment INCLUDING
+  // production. Scoped to the workspace owner's email, so real customers are never
+  // affected. A built-in default (DEFAULT_DEVELOPER_EMAILS) is always included so
+  // the primary developer keeps access even with no env set; add more here.
+  DEVELOPER_EMAILS: optionalString,
+
   // Shared secret for inbound provider webhooks (Unipile notify_url, payments).
   // When set, webhook routes REQUIRE it (x-webhook-secret header or ?secret=…)
   // and reject anything else — fail closed. Unset → allowed (dev / mock adapter).
@@ -208,6 +216,34 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
 
 /** Eagerly-validated environment object. */
 export const env: Env = loadEnv();
+
+/**
+ * Built-in developer allowlist — always granted full access, even with no
+ * DEVELOPER_EMAILS env var set, so the primary developer can never lock
+ * themselves out of their own deployment. Extend at runtime via DEVELOPER_EMAILS.
+ */
+export const DEFAULT_DEVELOPER_EMAILS = ["pp9926521681@gmail.com"] as const;
+
+/**
+ * The parsed developer-email allowlist: the built-in defaults plus anything in the
+ * DEVELOPER_EMAILS env var (split on commas / whitespace / semicolons), all
+ * lower-cased for case-insensitive matching.
+ */
+export function developerEmails(e: Env = env): Set<string> {
+  const extra = (e.DEVELOPER_EMAILS ?? "")
+    .split(/[\s,;]+/)
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set<string>([...DEFAULT_DEVELOPER_EMAILS, ...extra]);
+}
+
+/** True if `email` is on the developer allowlist (case-insensitive; null-safe). */
+export function isDeveloperEmail(email: string | null | undefined): boolean {
+  if (!email) {
+    return false;
+  }
+  return developerEmails().has(email.trim().toLowerCase());
+}
 
 /**
  * Fail fast at SERVER STARTUP if production is missing critical secrets. Call

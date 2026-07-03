@@ -207,6 +207,7 @@ export function AccountsClient() {
   const [reconnectTarget, setReconnectTarget] = useState<AccountView | null>(null);
   const [guidance, setGuidance] = useState<ConnectionGuidance | null>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<AccountView | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<AccountView | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -320,6 +321,23 @@ export function AccountsClient() {
     }
   };
 
+  const confirmRemove = async (): Promise<void> => {
+    if (!removeTarget) {
+      return;
+    }
+    setBusy(true);
+    setActionError(null);
+    try {
+      await api.request(`/accounts/${removeTarget.id}`, { method: "DELETE" });
+      setRemoveTarget(null);
+      await load();
+    } catch (err) {
+      setActionError(errorMessage(err, "Could not remove account"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!activeWorkspaceId) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -383,6 +401,7 @@ export function AccountsClient() {
               onReconnect={() => openConnect(acct)}
               onStatus={(action) => void setStatus(acct, action)}
               onDisconnect={() => setDisconnectTarget(acct)}
+              onRemove={() => setRemoveTarget(acct)}
             />
           ))}
         </div>
@@ -479,6 +498,22 @@ export function AccountsClient() {
           </Button>
         </div>
       </Modal>
+
+      <Modal
+        open={removeTarget !== null}
+        onClose={() => (busy ? undefined : setRemoveTarget(null))}
+        title="Remove account"
+        description={`Permanently remove ${removeTarget?.name ?? "this account"}? This deletes its conversations and the contacts it sourced, and detaches its campaigns. This can't be undone. To just pause it, use Disconnect instead.`}
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setRemoveTarget(null)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={() => void confirmRemove()} disabled={busy}>
+            {busy ? "Removing…" : "Remove account"}
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -531,11 +566,13 @@ function AccountCard({
   onReconnect,
   onStatus,
   onDisconnect,
+  onRemove,
 }: {
   account: AccountView;
   onReconnect: () => void;
   onStatus: (action: "pause" | "resume") => void;
   onDisconnect: () => void;
+  onRemove: () => void;
 }) {
   const needsReconnect = account.status === "restricted" || account.status === "disconnected";
   const title = account.label || account.name || "LinkedIn account";
@@ -585,6 +622,12 @@ function AccountCard({
               onSelect={onDisconnect}
             >
               Disconnect
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onSelect={onRemove}
+            >
+              Remove account…
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

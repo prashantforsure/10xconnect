@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from "@nestjs/common";
 
 import { WorkspaceId } from "../../common/decorators/workspace-id.decorator";
 import { WorkspaceScopeGuard } from "../../common/guards/workspace-scope.guard";
@@ -73,6 +73,15 @@ export class CampaignsController {
   @Get(":id/status")
   status(@WorkspaceId() workspaceId: string, @Param("id") id: string) {
     return this.campaigns.getStatus(workspaceId, id);
+  }
+
+  @Get(":id/upcoming")
+  upcoming(
+    @WorkspaceId() workspaceId: string,
+    @Param("id") id: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.run.upcoming(workspaceId, id, limit !== undefined ? Number(limit) : undefined);
   }
 
   // --- Frequency + Schedule settings ---------------------------------------
@@ -157,11 +166,29 @@ export class CampaignsController {
     return this.run.stop(workspaceId, id);
   }
 
+  @Post(":id/pause")
+  pause(@WorkspaceId() workspaceId: string, @Param("id") id: string) {
+    return this.run.pause(workspaceId, id);
+  }
+
+  @Post(":id/resume")
+  resume(@WorkspaceId() workspaceId: string, @Param("id") id: string) {
+    return this.run.resume(workspaceId, id);
+  }
+
   // --- Leads ---------------------------------------------------------------
 
   @Get(":id/leads")
-  leads(@WorkspaceId() workspaceId: string, @Param("id") id: string) {
-    return this.run.listLeads(workspaceId, id);
+  leads(
+    @WorkspaceId() workspaceId: string,
+    @Param("id") id: string,
+    @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
+  ) {
+    return this.run.listLeads(workspaceId, id, {
+      limit: limit !== undefined ? Number(limit) : undefined,
+      offset: offset !== undefined ? Number(offset) : undefined,
+    });
   }
 
   @Post(":id/leads")

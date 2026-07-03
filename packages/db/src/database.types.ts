@@ -220,6 +220,8 @@ export type Database = {
           dedupe_key: string | null;
           enrich_status: Database["public"]["Enums"]["enrich_status"];
           connection_degree: number | null;
+          note: string | null;
+          account_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -234,6 +236,8 @@ export type Database = {
           dedupe_key?: string | null;
           enrich_status?: Database["public"]["Enums"]["enrich_status"];
           connection_degree?: number | null;
+          note?: string | null;
+          account_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -248,6 +252,8 @@ export type Database = {
           dedupe_key?: string | null;
           enrich_status?: Database["public"]["Enums"]["enrich_status"];
           connection_degree?: number | null;
+          note?: string | null;
+          account_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -689,7 +695,7 @@ export type Database = {
       proxy_type: "bundled" | "own";
       sending_account_status: "active" | "warming" | "paused" | "restricted" | "disconnected";
       enrich_status: "pending" | "enriching" | "enriched" | "failed";
-      campaign_status: "draft" | "pending" | "running" | "stopped" | "completed";
+      campaign_status: "draft" | "pending" | "running" | "stopped" | "completed" | "paused";
       sequence_node_kind: "action" | "condition";
       conversation_pipeline_stage: "new" | "in_conversation" | "qualified" | "booked" | "lost";
       channel_type: "linkedin" | "email";

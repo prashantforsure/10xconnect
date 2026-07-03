@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { cn } from "@/lib/utils";
+import { cn, proxiedAvatarSrc } from "@/lib/utils";
 
 const SIZES = {
   sm: "size-7 text-[11px]",
@@ -58,7 +58,9 @@ const Avatar = React.forwardRef<HTMLSpanElement, AvatarProps>(
     // CDN URL, offline, etc.). Reset the error when the src changes.
     const [errored, setErrored] = React.useState(false);
     React.useEffect(() => setErrored(false), [src]);
-    const showImage = Boolean(src) && !errored;
+    // Route the (external) photo through our proxy so LinkedIn CDN images load.
+    const proxied = proxiedAvatarSrc(src);
+    const showImage = Boolean(proxied) && !errored;
 
     return (
       <span
@@ -74,7 +76,7 @@ const Avatar = React.forwardRef<HTMLSpanElement, AvatarProps>(
         {showImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={src as string}
+            src={proxied as string}
             alt={name ?? "avatar"}
             className="size-full object-cover"
             loading="lazy"

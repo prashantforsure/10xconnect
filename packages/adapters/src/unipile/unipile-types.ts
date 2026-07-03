@@ -54,6 +54,21 @@ export interface UnipileUserProfile {
   occupation?: string;
   // some payloads nest the public profile url
   public_profile_url?: string;
+  // Profile photo — Unipile returns these on the full-profile response (naming
+  // varies by surface; read defensively). Previously unmapped, so enriched leads
+  // never got an avatar.
+  profile_picture_url?: string;
+  profile_picture_url_large?: string;
+  picture_url?: string;
+  // The current employer is not a flat field on the LinkedIn full profile — it
+  // lives in the work-experience list. The first / current entry's company is the
+  // current company.
+  work_experience?: {
+    company?: string;
+    position?: string;
+    current?: boolean;
+    end?: string | null;
+  }[];
 }
 
 export interface UnipileSendResponse {

@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { aboveTheFold, auditAccountProfile, lintMessage, lintMessageBody } from "./guardrails";
+import {
+  aboveTheFold,
+  auditAccountProfile,
+  estimateMessageBodyLength,
+  LINKEDIN_LIMITS,
+  lintMessage,
+  lintMessageBody,
+} from "./guardrails";
 import { COMMUNITY_PROMPTS, resolvePromptTemplate, varietyWarning } from "./prompts";
 import {
   extractAiPrompt,
@@ -233,6 +240,26 @@ test("lintMessageBody (the composer's live pipeline) fires on a bad structured m
 
   // An empty body is silent (no false warnings before the user types).
   assert.equal(lintMessageBody({ v: 1, segments: [] }).length, 0);
+});
+
+test("estimateMessageBodyLength + char_limit finding (LinkedIn caps, advisory)", () => {
+  // Variables count via fallback, AI chips via a short stub — an estimate, not exact.
+  const body: MessageBody = {
+    v: 1,
+    segments: [
+      { type: "text", text: "Hi " },
+      { type: "variable", key: "first_name", fallback: "there" },
+      { type: "text", text: ", quick note" },
+    ],
+  };
+  assert.equal(estimateMessageBodyLength(body), "Hi there, quick note".length);
+
+  // Over the limit → char_limit warning; under it → absent.
+  const over: MessageBody = { v: 1, segments: [{ type: "text", text: "x".repeat(350) }] };
+  const overIds = lintMessageBody(over, { charLimit: LINKEDIN_LIMITS.connectionNote }).map((f) => f.id);
+  assert.ok(overIds.includes("char_limit"), "over-limit body flagged");
+  const underIds = lintMessageBody(body, { charLimit: LINKEDIN_LIMITS.message }).map((f) => f.id);
+  assert.ok(!underIds.includes("char_limit"), "under-limit body clean");
 });
 
 test("aboveTheFold returns the visible portion and a truncation flag", () => {

@@ -10,6 +10,8 @@ export interface ConfigField {
   type: "text" | "textarea" | "number";
   placeholder?: string;
   help?: string;
+  /** LinkedIn hard cap for this field — renders an advisory counter, never blocks. */
+  maxChars?: number;
 }
 
 export interface NodeDef {
@@ -43,6 +45,7 @@ export const ACTION_NODES: NodeDef[] = [
         type: "textarea",
         placeholder: "Leave empty for the best acceptance rate",
         help: "Default is no note. Supports {first_name}, {company}.",
+        maxChars: 300,
       },
     ],
   },

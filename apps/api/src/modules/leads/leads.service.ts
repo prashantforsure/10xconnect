@@ -1,5 +1,6 @@
-import { deriveDedupeKey } from "@10xconnect/core";
+import { deriveDedupeKey, serializeCsv } from "@10xconnect/core";
 import type { DB } from "@10xconnect/db";
+import { addToDoNotContact } from "@10xconnect/engine";
 import {
   ConflictException,
   Inject,
@@ -10,8 +11,11 @@ import { type Expression, type ExpressionBuilder, type Kysely, type SqlBool, sql
 
 import { KYSELY_DB } from "../../database/database.module";
 
-import type { BulkActionDto, ListLeadsQueryDto, UpdateLeadDto } from "./dto";
+import type { BulkActionDto, ExportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from "./dto";
 import { asEnrichment, type LeadView, toLeadView } from "./lead-mapper";
+
+/** The filter fields shared by list() and exportCsv() (drives buildConditions). */
+type LeadFilter = Pick<ListLeadsQueryDto, "search" | "listId" | "tag" | "enrichStatus">;
 
 const LEAD_COLUMNS = [
   "id",
@@ -24,6 +28,8 @@ const LEAD_COLUMNS = [
   "dedupe_key",
   "enrich_status",
   "connection_degree",
+  "note",
+  "account_id",
   "created_at",
   "updated_at",
 ] as const;
@@ -35,9 +41,35 @@ export interface LeadListResult {
   offset: number;
 }
 
+export interface LeadCampaignMembership {
+  id: string;
+  name: string;
+  status: string;
+  /** The lead's own state within this campaign (active|completed|replied|…). */
+  leadStatus: string;
+  currentNodeId: string | null;
+}
+
 export interface LeadDetail extends LeadView {
   lists: { id: string; name: string; color: string | null }[];
-  campaigns: { id: string; name: string; status: string }[];
+  campaigns: LeadCampaignMembership[];
+  /** Long-form enrichment surfaced only in the detail drawer (not the list view). */
+  enrichment: {
+    about?: string;
+    recentPosts?: { postId: string; url?: string; text?: string; postedAt?: string }[];
+  };
+}
+
+/** One entry in a lead's cross-campaign activity timeline. */
+export interface LeadActivityItem {
+  kind: "action" | "message";
+  /** action type (e.g. send_message) or message direction (inbound|outbound). */
+  label: string;
+  status: string | null;
+  body: string | null;
+  channel: string | null;
+  campaignId: string | null;
+  at: string;
 }
 
 @Injectable()
@@ -70,6 +102,59 @@ export class LeadsService {
     };
   }
 
+  /**
+   * Export leads matching the same filters as list() to CSV text. Formula-
+   * injection-safe (serializeCsv). Capped so an export can't exhaust memory;
+   * `selectedIds` narrows to an explicit selection (the "export selected" path).
+   */
+  async exportCsv(workspaceId: string, filter: ExportLeadsDto): Promise<string> {
+    const EXPORT_CAP = 10_000;
+    const conditions = this.buildConditions(workspaceId, filter);
+
+    let q = this.db
+      .selectFrom("leads")
+      .select(LEAD_COLUMNS)
+      .where((eb) => eb.and(conditions(eb)));
+    if (filter.selectedIds && filter.selectedIds.length > 0) {
+      q = q.where("id", "in", filter.selectedIds);
+    }
+    const rows = await q.orderBy("created_at", "desc").limit(EXPORT_CAP).execute();
+
+    const headers = [
+      "Name",
+      "First name",
+      "Last name",
+      "Email",
+      "LinkedIn URL",
+      "Headline",
+      "Company",
+      "Role",
+      "Location",
+      "Connection degree",
+      "Tags",
+      "Enrich status",
+      "Note",
+      "Created at",
+    ];
+    const body = rows.map(toLeadView).map((l) => [
+      l.name,
+      l.firstName,
+      l.lastName,
+      l.email,
+      l.linkedinUrl,
+      l.headline,
+      l.company,
+      l.role,
+      l.location,
+      l.connectionDegree,
+      l.tags.join(", "),
+      l.enrichStatus,
+      l.note,
+      l.createdAt,
+    ]);
+    return serializeCsv(headers, body);
+  }
+
   async get(workspaceId: string, id: string): Promise<LeadDetail> {
     const row = await this.db
       .selectFrom("leads")
@@ -80,11 +165,13 @@ export class LeadsService {
     if (!row) {
       throw new NotFoundException("Lead not found");
     }
+    const enrichment = asEnrichment(row.enrichment);
 
     const lists = await this.db
       .selectFrom("list_leads")
       .innerJoin("contact_lists", "contact_lists.id", "list_leads.list_id")
       .where("list_leads.workspace_id", "=", workspaceId)
+      .where("contact_lists.workspace_id", "=", workspaceId)
       .where("list_leads.lead_id", "=", id)
       .select(["contact_lists.id as id", "contact_lists.name as name", "contact_lists.color as color"])
       .execute();
@@ -93,11 +180,91 @@ export class LeadsService {
       .selectFrom("lead_campaign_state")
       .innerJoin("campaigns", "campaigns.id", "lead_campaign_state.campaign_id")
       .where("lead_campaign_state.workspace_id", "=", workspaceId)
+      .where("campaigns.workspace_id", "=", workspaceId)
       .where("lead_campaign_state.lead_id", "=", id)
-      .select(["campaigns.id as id", "campaigns.name as name", "campaigns.status as status"])
+      .select([
+        "campaigns.id as id",
+        "campaigns.name as name",
+        "campaigns.status as status",
+        "lead_campaign_state.status as leadStatus",
+        "lead_campaign_state.current_node_id as currentNodeId",
+      ])
       .execute();
 
-    return { ...toLeadView(row), lists, campaigns };
+    return {
+      ...toLeadView(row),
+      lists,
+      campaigns,
+      enrichment: {
+        ...(enrichment.about ? { about: enrichment.about } : {}),
+        ...(enrichment.recentPosts ? { recentPosts: enrichment.recentPosts } : {}),
+      },
+    };
+  }
+
+  /**
+   * A lead's cross-campaign activity timeline: executed/queued outreach actions
+   * plus inbound/outbound conversation messages, newest first. All workspace-
+   * scoped. Read-only; drives the Contacts detail-drawer timeline (CLAUDE.md §9).
+   */
+  async activity(workspaceId: string, id: string, limit = 50): Promise<LeadActivityItem[]> {
+    // Confirm the lead exists in this workspace (also a 404 guard for IDOR).
+    const lead = await this.db
+      .selectFrom("leads")
+      .select("id")
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", id)
+      .executeTakeFirst();
+    if (!lead) {
+      throw new NotFoundException("Lead not found");
+    }
+
+    const actions = await this.db
+      .selectFrom("actions")
+      .select(["type", "status", "campaign_id", "executed_at", "scheduled_at", "created_at"])
+      .where("workspace_id", "=", workspaceId)
+      .where("lead_id", "=", id)
+      .orderBy("created_at", "desc")
+      .limit(limit)
+      .execute();
+
+    const messages = await this.db
+      .selectFrom("messages")
+      .innerJoin("conversations", "conversations.id", "messages.conversation_id")
+      .select([
+        "messages.direction as direction",
+        "messages.body as body",
+        "messages.channel as channel",
+        "messages.created_at as created_at",
+      ])
+      .where("messages.workspace_id", "=", workspaceId)
+      .where("conversations.lead_id", "=", id)
+      .orderBy("messages.created_at", "desc")
+      .limit(limit)
+      .execute();
+
+    const items: LeadActivityItem[] = [
+      ...actions.map((a) => ({
+        kind: "action" as const,
+        label: a.type,
+        status: a.status,
+        body: null,
+        channel: null,
+        campaignId: a.campaign_id,
+        at: a.executed_at ?? a.scheduled_at ?? a.created_at,
+      })),
+      ...messages.map((m) => ({
+        kind: "message" as const,
+        label: m.direction,
+        status: null,
+        body: m.body,
+        channel: m.channel,
+        campaignId: null,
+        at: m.created_at,
+      })),
+    ];
+    items.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    return items.slice(0, limit);
   }
 
   async update(workspaceId: string, id: string, dto: UpdateLeadDto): Promise<LeadView> {
@@ -131,6 +298,10 @@ export class LeadsService {
     }
     if (dto.customColumns !== undefined) {
       set.custom_columns = JSON.stringify(dto.customColumns);
+    }
+    if (dto.note !== undefined) {
+      const trimmed = dto.note?.trim();
+      set.note = trimmed ? trimmed : null;
     }
     if (dto.fields !== undefined) {
       const merged = { ...asEnrichment(current.enrichment), ...stripUndefined(dto.fields) };
@@ -229,6 +400,30 @@ export class LeadsService {
           .execute();
         return { affected: inserted.length };
       }
+      case "mark_do_not_contact": {
+        // Suppress every selected lead's identifiers so NO campaign contacts them
+        // again (enforced at enrollment + send by the engine). Idempotent.
+        const rows = await this.db
+          .selectFrom("leads")
+          .select(["linkedin_url", "email"])
+          .where("workspace_id", "=", workspaceId)
+          .where("id", "in", ids)
+          .execute();
+        let affected = 0;
+        for (const row of rows) {
+          if (!row.linkedin_url && !row.email) {
+            continue;
+          }
+          await addToDoNotContact(
+            this.db,
+            workspaceId,
+            { linkedin_url: row.linkedin_url, email: row.email },
+            dto.reason ?? "manual",
+          );
+          affected += 1;
+        }
+        return { affected };
+      }
       case "delete": {
         const result = await this.db
           .deleteFrom("leads")
@@ -242,7 +437,7 @@ export class LeadsService {
 
   // --- helpers --------------------------------------------------------------
 
-  private buildConditions(workspaceId: string, query: ListLeadsQueryDto) {
+  private buildConditions(workspaceId: string, query: LeadFilter) {
     return (eb: ExpressionBuilder<DB, "leads">): Expression<SqlBool>[] => {
       const conds: Expression<SqlBool>[] = [eb("workspace_id", "=", workspaceId)];
 
@@ -269,9 +464,11 @@ export class LeadsService {
             "in",
             eb
               .selectFrom("list_leads")
-              .select("lead_id")
-              .where("workspace_id", "=", workspaceId)
-              .where("list_id", "=", query.listId),
+              .innerJoin("contact_lists", "contact_lists.id", "list_leads.list_id")
+              .select("list_leads.lead_id")
+              .where("list_leads.workspace_id", "=", workspaceId)
+              .where("contact_lists.workspace_id", "=", workspaceId)
+              .where("list_leads.list_id", "=", query.listId),
           ),
         );
       }

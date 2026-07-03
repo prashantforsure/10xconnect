@@ -34,6 +34,11 @@ const PIPELINE_STAGES = ["new", "in_conversation", "qualified", "booked", "lost"
 const CONVERSATION_FILTERS = ["all", "reply_required", "important", "mine"] as const;
 type ConversationFilter = (typeof CONVERSATION_FILTERS)[number];
 
+// "All conversations" sync only imports threads active within this window, so an
+// account's ancient/personal chat history never floods the outreach inbox
+// (matches HeyReach's 30-day import). Campaign-only mode ignores this.
+const SYNC_WINDOW_DAYS = 30;
+
 const updateConversationSchema = z
   .object({
     pipelineStage: z.enum(PIPELINE_STAGES).optional(),
@@ -86,9 +91,18 @@ export class ConversationsService {
     @Inject(CHANNEL_ADAPTER) private readonly adapter: ChannelAdapter,
   ) {}
 
-  async list(workspaceId: string, currentUserId: string, filter: ConversationFilter = "all") {
+  async list(
+    workspaceId: string,
+    currentUserId: string,
+    filter: ConversationFilter = "all",
+    accountId?: string,
+  ) {
+    // Scope to CONNECTED accounts only (Aimfox/HeyReach unibox): the inner join +
+    // status filter hides conversations whose owning LinkedIn profile is
+    // disconnected/restricted or was switched out (previous-identity data).
     let q = this.db
       .selectFrom("conversations as c")
+      .innerJoin("sending_accounts as sa", "sa.id", "c.account_id")
       .leftJoin("leads as l", "l.id", "c.lead_id")
       .select([
         "c.id as id",
@@ -104,8 +118,13 @@ export class ConversationsService {
         "l.enrichment as enrichment",
         "l.email as email",
         "l.linkedin_url as linkedinUrl",
+        "sa.id as accountId",
+        "sa.name as accountName",
+        "sa.label as accountLabel",
+        "sa.avatar_url as accountAvatarUrl",
       ])
       .where("c.workspace_id", "=", workspaceId)
+      .where("sa.status", "in", ["active", "warming"])
       .orderBy("c.updated_at", "desc");
     // Inbox label filters (the human cockpit). "all" applies no extra predicate.
     if (filter === "reply_required") {
@@ -114,6 +133,9 @@ export class ConversationsService {
       q = q.where("c.is_important", "=", true);
     } else if (filter === "mine") {
       q = q.where("c.assigned_to", "=", currentUserId);
+    }
+    if (accountId) {
+      q = q.where("sa.id", "=", accountId);
     }
     const rows = await q.execute();
 
@@ -133,6 +155,11 @@ export class ConversationsService {
       assignedToMe: r.assignedTo === currentUserId,
       updatedAt: r.updatedAt,
       lastMessage: lastByConvo.get(r.id) ?? null,
+      account: {
+        id: r.accountId,
+        name: r.accountLabel ?? r.accountName,
+        avatarUrl: r.accountAvatarUrl,
+      },
     }));
   }
 
@@ -199,9 +226,14 @@ export class ConversationsService {
       { limit: 30 },
     );
 
+    // HeyReach model: in "all conversations" mode only import threads active in the
+    // last 30 days (never the whole history — that pulls old/personal chats). In
+    // campaign-only mode, thread age doesn't matter (enrolled leads only).
+    const recentSinceIso = new Date(Date.now() - SYNC_WINDOW_DAYS * 86_400_000).toISOString();
+
     const result: SyncResult = { ...empty, accountConnected: true };
     for (const thread of page.threads) {
-      const r = await this.syncThread(workspaceId, account.id, thread, campaignOnly);
+      const r = await this.syncThread(workspaceId, account.id, thread, campaignOnly, recentSinceIso);
       if (r.conversationCreated) result.conversationsAdded += 1;
       if (r.leadCreated) result.newContacts += 1;
       result.messagesAdded += r.messagesAdded;
@@ -214,12 +246,15 @@ export class ConversationsService {
     accountId: string,
     thread: ConversationThread,
     campaignOnly: boolean,
+    recentSinceIso: string,
   ): Promise<{ conversationCreated: boolean; messagesAdded: number; leadCreated: boolean }> {
     const noop = { conversationCreated: false, messagesAdded: 0, leadCreated: false };
     const { attendee, messages } = thread;
     if (messages.length === 0) {
       return noop;
     }
+
+    const lastAt = messages.reduce((max, m) => (m.sentAt > max ? m.sentAt : max), messages[0].sentAt);
 
     // Resolve the lead this thread belongs to (by dedupe key, then by URL).
     const dedupeKey = deriveDedupeKey({ linkedinUrl: attendee.linkedinUrl });
@@ -230,13 +265,17 @@ export class ConversationsService {
       if (!leadId || !(await this.isEnrolled(workspaceId, leadId))) {
         return noop; // campaign-only inbox: skip non-campaign threads
       }
+    } else if (lastAt < recentSinceIso) {
+      // "All conversations" mode: skip threads with no recent activity so old /
+      // personal chats never flood the outreach inbox (HeyReach 30-day window).
+      return noop;
     }
 
     if (!leadId) {
       if (!attendee.linkedinUrl && !attendee.providerId) {
         return noop; // nothing to anchor a contact to
       }
-      leadId = await this.createLeadFromAttendee(workspaceId, attendee, dedupeKey);
+      leadId = await this.createLeadFromAttendee(workspaceId, accountId, attendee, dedupeKey);
       leadCreated = true;
     }
 
@@ -253,7 +292,6 @@ export class ConversationsService {
     }
 
     const hasInbound = messages.some((m) => m.direction === "inbound");
-    const lastAt = messages.reduce((max, m) => (m.sentAt > max ? m.sentAt : max), messages[0].sentAt);
     const convo = await this.db
       .insertInto("conversations")
       .values({
@@ -323,6 +361,7 @@ export class ConversationsService {
 
   private async createLeadFromAttendee(
     workspaceId: string,
+    accountId: string,
     attendee: ConversationThread["attendee"],
     dedupeKey: string | undefined,
   ): Promise<string> {
@@ -338,6 +377,7 @@ export class ConversationsService {
       .insertInto("leads")
       .values({
         workspace_id: workspaceId,
+        account_id: accountId,
         linkedin_url: attendee.linkedinUrl ?? null,
         email: null,
         enrichment: JSON.stringify(enrichment),
@@ -474,16 +514,30 @@ export class ConversationsService {
    */
   async reply(workspaceId: string, id: string, dto: ReplyDto) {
     const c = await this.db
-      .selectFrom("conversations")
-      .select(["id", "channel", "lead_id as leadId", "account_id as accountId"])
-      .where("workspace_id", "=", workspaceId)
-      .where("id", "=", id)
+      .selectFrom("conversations as c")
+      .leftJoin("sending_accounts as sa", "sa.id", "c.account_id")
+      .select([
+        "c.id as id",
+        "c.channel as channel",
+        "c.lead_id as leadId",
+        "c.account_id as accountId",
+        "sa.status as accountStatus",
+      ])
+      .where("c.workspace_id", "=", workspaceId)
+      .where("c.id", "=", id)
       .executeTakeFirst();
     if (!c) {
       throw new NotFoundException("Conversation not found");
     }
     if (!c.accountId) {
       throw new BadGatewayException("This conversation has no sending account.");
+    }
+    // Don't queue a send on a profile that isn't connected (disconnected/restricted/
+    // paused, or switched out). The reply would just fail at the provider.
+    if (c.accountStatus !== "active" && c.accountStatus !== "warming") {
+      throw new BadGatewayException(
+        "The LinkedIn account for this conversation isn't connected. Reconnect it to reply.",
+      );
     }
 
     const idempotencyKey = `reply:${id}:${randomUUID()}`;
@@ -575,11 +629,12 @@ export class ConversationsController {
     @WorkspaceId() workspaceId: string,
     @CurrentUser() user: AuthUser,
     @Query("filter") filter?: string,
+    @Query("accountId") accountId?: string,
   ) {
     const f = (CONVERSATION_FILTERS as readonly string[]).includes(filter ?? "")
       ? (filter as ConversationFilter)
       : "all";
-    return this.conversations.list(workspaceId, user.id, f);
+    return this.conversations.list(workspaceId, user.id, f, accountId || undefined);
   }
 
   @Post("conversations/sync")

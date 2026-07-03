@@ -21,6 +21,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { SimulationBanner } from "@/components/simulation-banner";
 import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/ui/command-palette";
 import { UserMenu } from "@/components/user-menu";
@@ -113,7 +114,7 @@ export function AppShell({ userEmail, children }: { userEmail: string; children:
   };
 
   return (
-    <div className="app-surface flex min-h-screen bg-background">
+    <div className="app-surface flex h-screen overflow-hidden bg-background">
       {/* Desktop sidebar — 248px, sits just off the canvas. */}
       <aside className="sticky top-0 hidden h-screen w-[248px] shrink-0 flex-col border-r border-border bg-[hsl(45_22%_5.5%)] lg:flex">
         <SidebarContent isActive={isActive} userEmail={userEmail} />
@@ -141,9 +142,12 @@ export function AppShell({ userEmail, children }: { userEmail: string; children:
         </div>
       ) : null}
 
-      {/* Main column */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-border bg-background/80 px-4 backdrop-blur lg:px-7">
+      {/* Main column — a bounded flex column (the root is a fixed-height, non-scrolling
+          viewport). The header + optional simulation banner are fixed chrome; only
+          <main> scrolls. This lets full-height pages (inbox, campaign builder) use
+          `h-full` and fill exactly the space left after the banner — no window scroll. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="z-30 flex h-16 shrink-0 items-center gap-4 border-b border-border bg-background/80 px-4 backdrop-blur lg:px-7">
           <button
             type="button"
             aria-label="Open menu"
@@ -175,7 +179,8 @@ export function AppShell({ userEmail, children }: { userEmail: string; children:
             </Link>
           </Button>
         </header>
-        <main className="flex-1">{children}</main>
+        <SimulationBanner />
+        <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
       </div>
 
       {/* Global ⌘K command palette — mounted once, available app-wide. */}

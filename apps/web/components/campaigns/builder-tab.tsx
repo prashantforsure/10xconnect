@@ -1,7 +1,7 @@
 "use client";
 
-import { type GenNode } from "@10xconnect/core";
-import { Wand2, Workflow } from "lucide-react";
+import { type GenNode, lintSequenceTiming } from "@10xconnect/core";
+import { AlertTriangle, Check, Loader2, Redo2, Undo2, Wand2, Workflow, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BuildWithAiModal } from "./build-with-ai";
@@ -13,8 +13,8 @@ import type { SenderAccount } from "./composer/sender-select";
 import { WorkflowsPicker } from "./workflows-picker";
 
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { SlideOver } from "@/components/ui/slide-over";
-import { nodeLabel } from "@/lib/campaigns/nodes";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import { configForTypeChange, defaultConfigFor, isComposerType } from "@/lib/campaigns/composer";
@@ -33,6 +33,7 @@ import {
   changeNodeType,
   toSavePayload,
 } from "@/lib/campaigns/graph";
+import { nodeLabel } from "@/lib/campaigns/nodes";
 import { buildTemplate, type TemplateKind } from "@/lib/campaigns/templates";
 import { createDebouncer, type Debouncer } from "@/lib/util/debounce";
 import { useWorkspace } from "@/lib/workspace/context";
@@ -76,6 +77,52 @@ const DEMO_SAMPLES: PreviewSample[] = [
   },
 ];
 
+/** Subtle autosave status chip: "Saving…" while dirty, "Saved" once flushed. */
+function SaveStatus({ dirty, lastSavedAt }: { dirty: boolean; lastSavedAt: number | null }) {
+  if (dirty) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card/80 px-2 py-1 text-[11px] text-muted-foreground shadow-raised backdrop-blur">
+        <Loader2 className="size-3 animate-spin" />
+        Saving…
+      </span>
+    );
+  }
+  if (lastSavedAt) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card/80 px-2 py-1 text-[11px] text-muted-foreground shadow-raised backdrop-blur">
+        <Check className="size-3 text-success" />
+        Saved
+      </span>
+    );
+  }
+  return null;
+}
+
+/** One figure in the floating SENT / ACCEPTED / REPLIED campaign summary card. */
+function SummaryStat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number;
+  accent?: "success" | "primary";
+}) {
+  return (
+    <span className="flex items-baseline gap-1.5">
+      <span
+        className={
+          "text-sm font-bold tabular-nums " +
+          (accent === "success" ? "text-success" : accent === "primary" ? "text-primary" : "text-foreground")
+        }
+      >
+        {value.toLocaleString()}
+      </span>
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+    </span>
+  );
+}
+
 export function BuilderTab({
   campaignId,
   running,
@@ -93,17 +140,31 @@ export function BuilderTab({
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty] = useState(false);
+  // Timestamp of the last successful autosave — drives the "All changes saved" chip.
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [stats, setStats] = useState<NodeStatsResponse | null>(null);
   const [buildOpen, setBuildOpen] = useState(false);
   const [workflowsOpen, setWorkflowsOpen] = useState(false);
+  // Deleting a node whose branch gets pruned with it needs an explicit confirm.
+  const [confirmDelete, setConfirmDelete] = useState<{ id: string; downstream: number } | null>(null);
+  // Campaign-level SENT / ACCEPTED / REPLIED for the floating summary card (§9).
+  const [summary, setSummary] = useState<{ sent: number; accepted: number; replied: number } | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Undo/redo over graph snapshots. Consecutive config edits to the same node
+  // coalesce into one entry (via histKey) so typing doesn't flood the stack.
+  const undoStack = useRef<GraphNode[][]>([]);
+  const redoStack = useRef<GraphNode[][]>([]);
+  const lastHistKey = useRef<string | null>(null);
+  // Bumped whenever the stacks change so the Undo/Redo buttons re-render.
+  const [, setHistVersion] = useState(0);
 
   // Autosave bookkeeping (debounced silent PUT; survives tab switch / reload).
   const nodesRef = useRef<GraphNode[]>(nodes);
   const dirtyRef = useRef(dirty);
-  const runningRef = useRef(running);
   const debouncer = useRef<Debouncer | null>(null);
   const savingRef = useRef(false);
   const pendingRef = useRef(false);
@@ -114,9 +175,6 @@ export function BuilderTab({
   useEffect(() => {
     dirtyRef.current = dirty;
   }, [dirty]);
-  useEffect(() => {
-    runningRef.current = running;
-  }, [running]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -124,6 +182,11 @@ export function BuilderTab({
       const res = await api.request<{ nodes: GraphNode[] }>(`/campaigns/${campaignId}/sequence`);
       setNodes(res.nodes ?? []);
       setDirty(false);
+      // Fresh graph = fresh history (server node ids may have been remapped).
+      undoStack.current = [];
+      redoStack.current = [];
+      lastHistKey.current = null;
+      setHistVersion((v) => v + 1);
       // Live stats — best-effort; the canvas renders without them.
       void api
         .request<Record<string, number>>(`/campaigns/${campaignId}/sequence/node-counts`)
@@ -133,6 +196,24 @@ export function BuilderTab({
         .request<NodeStatsResponse>(`/campaigns/${campaignId}/sequence/node-stats`)
         .then(setStats)
         .catch(() => setStats(null));
+      void api
+        .request<{
+          requests: number;
+          messages: number;
+          inmails: number;
+          voiceNotes: number;
+          openMessages: number;
+          acceptedInvites: { count: number };
+          replies: { count: number };
+        }>(`/analytics/campaign/${campaignId}`)
+        .then((a) =>
+          setSummary({
+            sent: a.requests + a.messages + a.inmails + a.voiceNotes + a.openMessages,
+            accepted: a.acceptedInvites.count,
+            replied: a.replies.count,
+          }),
+        )
+        .catch(() => setSummary(null));
     } catch (err) {
       setError(errorMessage(err, "Could not load sequence"));
     } finally {
@@ -140,16 +221,79 @@ export function BuilderTab({
     }
   }, [api, campaignId]);
 
+  // Reload on mount AND whenever the campaign flips between live/stopped: a full
+  // save remaps node ids server-side, so re-syncing here guarantees the ids we
+  // send for live content-only saves match what the server has stored.
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, running]);
 
-  const mutate = useCallback((next: GraphNode[]): void => {
+  const mutate = useCallback((next: GraphNode[], histKey?: string): void => {
+    if (!histKey || histKey !== lastHistKey.current) {
+      undoStack.current.push(nodesRef.current);
+      if (undoStack.current.length > 50) {
+        undoStack.current.shift();
+      }
+      redoStack.current = [];
+      setHistVersion((v) => v + 1);
+    }
+    lastHistKey.current = histKey ?? null;
     editGenRef.current += 1;
     setNodes(next);
     setDirty(true);
     scheduleAutosave();
   }, []);
+
+  // Restore a snapshot from one stack, parking the current graph on the other.
+  const restore = useCallback((from: "undo" | "redo"): void => {
+    const source = from === "undo" ? undoStack.current : redoStack.current;
+    const target = from === "undo" ? redoStack.current : undoStack.current;
+    const snapshot = source.pop();
+    if (!snapshot) {
+      return;
+    }
+    target.push(nodesRef.current);
+    lastHistKey.current = null;
+    setHistVersion((v) => v + 1);
+    editGenRef.current += 1;
+    setNodes(snapshot);
+    // Close the composer if its node no longer exists in the restored graph.
+    setSelectedId((cur) => (cur && snapshot.some((n) => n.id === cur) ? cur : null));
+    setDirty(true);
+    scheduleAutosave();
+  }, []);
+  const undo = useCallback((): void => restore("undo"), [restore]);
+  const redo = useCallback((): void => restore("redo"), [restore]);
+
+  // Ctrl/Cmd+Z / Ctrl+Shift+Z / Ctrl+Y — only while the builder is the visible
+  // tab (it stays mounted behind other tabs), the composer is closed, and focus
+  // isn't in a text field (native undo wins there).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.ctrlKey || e.metaKey)) {
+        return;
+      }
+      const key = e.key.toLowerCase();
+      if (key !== "z" && key !== "y") {
+        return;
+      }
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
+        return;
+      }
+      if (!rootRef.current || rootRef.current.offsetParent === null || selectedId) {
+        return;
+      }
+      e.preventDefault();
+      if (key === "y" || e.shiftKey) {
+        redo();
+      } else {
+        undo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo, selectedId]);
 
   // --- builder handlers ----------------------------------------------------
 
@@ -172,11 +316,22 @@ export function BuilderTab({
     mutate(insertChainAtEdge(nodes, edge, chain, entryId, tailNodeId));
   };
 
-  const remove = (id: string): void => {
+  const applyRemove = (id: string): void => {
     if (selectedId === id) {
       setSelectedId(null);
     }
     mutate(removeNodeFromGraph(nodes, id));
+  };
+
+  const remove = (id: string): void => {
+    // A condition takes its whole false-branch subtree with it; anything beyond
+    // the node itself is destructive enough to warrant an explicit confirm.
+    const downstream = nodes.length - removeNodeFromGraph(nodes, id).length - 1;
+    if (downstream > 0) {
+      setConfirmDelete({ id, downstream });
+      return;
+    }
+    applyRemove(id);
   };
 
   const move = (id: string, dir: -1 | 1): void => {
@@ -188,11 +343,11 @@ export function BuilderTab({
     if (!node) {
       return;
     }
-    mutate(setNodeConfig(nodes, id, { ...node.config, [key]: value }));
+    mutate(setNodeConfig(nodes, id, { ...node.config, [key]: value }), `cfg:${id}`);
   };
 
   const setConfig = (id: string, config: Record<string, unknown>): void => {
-    mutate(setNodeConfig(nodes, id, config));
+    mutate(setNodeConfig(nodes, id, config), `cfg:${id}`);
   };
 
   const changeType = (id: string, type: string): void => {
@@ -227,8 +382,11 @@ export function BuilderTab({
 
   // --- autosave (silent, debounced full-replace PUT) -----------------------
 
-  const autosave = useCallback(async (): Promise<void> => {
-    if (runningRef.current || !dirtyRef.current) {
+  const autosave = useCallback(async (opts?: { keepalive?: boolean }): Promise<void> => {
+    // Live campaigns save too: the server accepts content-only updates (message
+    // bodies, notes, wait durations) and rejects structural changes with a clear
+    // message — which we surface via setError below.
+    if (!dirtyRef.current) {
       return;
     }
     if (savingRef.current) {
@@ -241,6 +399,9 @@ export function BuilderTab({
       await api.request(`/campaigns/${campaignId}/sequence`, {
         method: "PUT",
         body: { nodes: toSavePayload(nodesRef.current) },
+        // On tab-close the browser cancels in-flight fetches; keepalive lets the
+        // final save complete after unload so nothing is lost.
+        keepalive: opts?.keepalive,
       });
       setError(null);
       // The graph changed (AI/voice nodes affect required inputs) → refresh the gate.
@@ -248,6 +409,7 @@ export function BuilderTab({
       if (editGenRef.current === gen) {
         dirtyRef.current = false;
         setDirty(false);
+        setLastSavedAt(Date.now());
       }
     } catch (err) {
       setError(errorMessage(err, "Autosave failed — your edits are kept here; they'll retry automatically."));
@@ -283,8 +445,8 @@ export function BuilderTab({
 
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent): void => {
-      if (dirtyRef.current && !runningRef.current) {
-        void autosaveRef.current();
+      if (dirtyRef.current) {
+        void autosaveRef.current({ keepalive: true });
         e.preventDefault();
         e.returnValue = "";
       }
@@ -292,6 +454,10 @@ export function BuilderTab({
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
+
+  // Advisory pacing lint (E3 — never blocks save/run). Dismissable per visit.
+  const timingFindings = useMemo(() => lintSequenceTiming(nodes), [nodes]);
+  const [timingDismissed, setTimingDismissed] = useState(false);
 
   const ctx: BuilderContextValue = useMemo(
     () => ({
@@ -320,14 +486,38 @@ export function BuilderTab({
   return (
     // Full-bleed canvas fills the whole tab; the only chrome is two floating
     // controls (Build with AI / Workflows) so the sequence gets maximum space.
-    <div className="flex h-full flex-col">
+    <div ref={rootRef} className="flex h-full flex-col">
       {running ? (
         <div className="mx-5 mt-4 flex-shrink-0 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-foreground">
-          Stop the campaign to edit its sequence.
+          This campaign is live. Message content and wait times save automatically and apply to
+          future sends — stop the campaign to add, remove, or reorder steps.
         </div>
       ) : null}
 
       {error ? <p className="flex-shrink-0 px-5 pt-3 text-sm text-destructive">{error}</p> : null}
+
+      {timingFindings.length > 0 && !timingDismissed ? (
+        <div className="mx-5 mt-3 flex-shrink-0 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2">
+          <div className="flex items-start justify-between gap-2">
+            <ul className="space-y-1">
+              {timingFindings.map((f) => (
+                <li key={`${f.id}:${f.nodeId ?? ""}`} className="flex items-start gap-1.5 text-xs text-foreground">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
+                  {f.message}
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => setTimingDismissed(true)}
+              aria-label="Dismiss timing advisories"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {/* Full-bleed canvas — fills the remaining height. Selecting a text-bearing
           step opens a full-focus SlideOver overlay (same ComposerPanel, props). */}
@@ -336,18 +526,54 @@ export function BuilderTab({
           <SequenceCanvas />
         </BuilderProvider>
 
-        {!running ? (
-          <div className="absolute right-3 top-3 z-10 flex gap-2">
-            <Button variant="secondary" size="sm" className="shadow-raised" onClick={() => setBuildOpen(true)}>
-              <Wand2 />
-              Build with AI
+        <div className="absolute right-3 top-3 z-10 flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <SaveStatus dirty={dirty} lastSavedAt={lastSavedAt} />
+            <Button
+              variant="secondary"
+              size="icon"
+              className="size-8 shadow-raised"
+              onClick={undo}
+              disabled={undoStack.current.length === 0}
+              aria-label="Undo"
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 />
             </Button>
-            <Button variant="secondary" size="sm" className="shadow-raised" onClick={() => setWorkflowsOpen(true)}>
-              <Workflow />
-              Workflows
+            <Button
+              variant="secondary"
+              size="icon"
+              className="size-8 shadow-raised"
+              onClick={redo}
+              disabled={redoStack.current.length === 0}
+              aria-label="Redo"
+              title="Redo (Ctrl+Shift+Z)"
+            >
+              <Redo2 />
             </Button>
+            {!running ? (
+              <>
+                <Button variant="secondary" size="sm" className="shadow-raised" onClick={() => setBuildOpen(true)}>
+                  <Wand2 />
+                  Build with AI
+                </Button>
+                <Button variant="secondary" size="sm" className="shadow-raised" onClick={() => setWorkflowsOpen(true)}>
+                  <Workflow />
+                  Workflows
+                </Button>
+              </>
+            ) : null}
           </div>
-        ) : null}
+          {summary && (running || summary.sent > 0) ? (
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-card/90 px-3 py-1.5 shadow-raised backdrop-blur">
+              <SummaryStat label="Sent" value={summary.sent} />
+              <div className="h-6 w-px bg-border" />
+              <SummaryStat label="Accepted" value={summary.accepted} accent="success" />
+              <div className="h-6 w-px bg-border" />
+              <SummaryStat label="Replied" value={summary.replied} accent="primary" />
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <BuildWithAiModal
@@ -364,6 +590,36 @@ export function BuilderTab({
         currentGraph={nodes}
         onUse={applyWorkflowGraph}
       />
+
+      <Modal
+        open={confirmDelete !== null}
+        onClose={() => setConfirmDelete(null)}
+        title="Delete this step?"
+        description={
+          confirmDelete
+            ? `Deleting it also removes the ${confirmDelete.downstream} downstream step${
+                confirmDelete.downstream === 1 ? "" : "s"
+              } on its branch. You can undo this with Ctrl+Z.`
+            : undefined
+        }
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setConfirmDelete(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              if (confirmDelete) {
+                applyRemove(confirmDelete.id);
+              }
+              setConfirmDelete(null);
+            }}
+          >
+            Delete step
+          </Button>
+        </div>
+      </Modal>
 
       {selected ? (
         <SlideOver

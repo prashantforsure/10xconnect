@@ -458,15 +458,24 @@ export class UnipileChannelAdapter
     // Pull recent activity ("what they've been up to") so the AI can open on a
     // specific, current observation — best-effort, never fails the enrichment.
     const recentPosts = p.provider_id ? await this.fetchRecentPosts(account, p.provider_id) : [];
+    // Current employer: LinkedIn's full profile has no flat company field — it's
+    // the current (or most-recent) work-experience entry. Fall back to the flat
+    // field for surfaces that do send it.
+    const currentRole = p.work_experience?.find((w) => w.current || !w.end) ?? p.work_experience?.[0];
+    const company = p.current_company ?? currentRole?.company;
+    const role = p.occupation ?? currentRole?.position;
+    // Profile photo — read the variants Unipile uses (prefer the large one).
+    const avatarUrl = p.profile_picture_url_large ?? p.profile_picture_url ?? p.picture_url;
     return {
       linkedinUrl,
       providerId: p.provider_id,
       firstName,
       lastName,
+      ...(avatarUrl ? { avatarUrl } : {}),
       headline: p.headline,
       about: p.summary,
-      company: p.current_company,
-      role: p.occupation,
+      ...(company ? { company } : {}),
+      ...(role ? { role } : {}),
       location: p.location,
       connectionDegree: mapConnectionDegree(p.network_distance),
       ...(recentPosts.length ? { recentPosts } : {}),

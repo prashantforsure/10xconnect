@@ -46,6 +46,25 @@ function errorMessage(err: unknown, fallback: string): string {
   return (err as ApiError)?.message ?? (err instanceof Error ? err.message : fallback);
 }
 
+/** Convert a "HH:MM" UTC time to the viewer's local time for a readable hint. */
+function utcTimeToLocal(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) {
+    return "";
+  }
+  const d = new Date();
+  d.setUTCHours(h, m, 0, 0);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function localTimezoneLabel(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "your local time";
+  } catch {
+    return "your local time";
+  }
+}
+
 export function SettingsTab({ campaignId, onChanged }: { campaignId: string; onChanged: () => void }) {
   return (
     <div className="max-w-3xl space-y-6">
@@ -189,7 +208,10 @@ function GeneralCard({ campaignId, onChanged }: { campaignId: string; onChanged:
             min={0}
             max={20}
             value={followUpCap}
-            onChange={(e) => setFollowUpCap(Number(e.target.value))}
+            onChange={(e) => {
+              const n = Number.parseInt(e.target.value, 10);
+              setFollowUpCap(Number.isFinite(n) ? Math.max(0, Math.min(20, n)) : 0);
+            }}
             className="h-8 w-20"
           />
         </div>
@@ -241,6 +263,12 @@ function FrequencyCard({ campaignId }: { campaignId: string }) {
     }
   };
 
+  // Lint live as the sliders/inputs move (the safe maxima are already loaded), so
+  // the user sees a value will be clamped BEFORE saving — not only in the response.
+  const liveWarnings = Object.keys(CAP_LABELS)
+    .filter((type) => (caps[type] ?? 0) > (ceilings[type] ?? 50))
+    .map((type) => `${CAP_LABELS[type]} exceeds the safe max (${ceilings[type] ?? 50}) — it will be clamped.`);
+
   return (
     <Section
       title="Frequency (daily caps)"
@@ -281,7 +309,10 @@ function FrequencyCard({ campaignId }: { campaignId: string }) {
                   min={0}
                   max={max}
                   value={value}
-                  onChange={(e) => setCaps({ ...caps, [type]: Number(e.target.value) })}
+                  onChange={(e) => {
+                    const n = Number.parseInt(e.target.value, 10);
+                    setCaps({ ...caps, [type]: Number.isFinite(n) && n >= 0 ? n : 0 });
+                  }}
                   className="h-10 w-16 shrink-0 text-center text-sm font-semibold tabular-nums"
                   aria-label={`${CAP_LABELS[type]} per day`}
                 />
@@ -290,7 +321,7 @@ function FrequencyCard({ campaignId }: { campaignId: string }) {
           );
         })}
       </div>
-      <Warnings items={warnings} />
+      <Warnings items={liveWarnings.length > 0 ? liveWarnings : warnings} />
       <div className="mt-4 flex items-center gap-3">
         <Button onClick={() => void save()} disabled={saving}>
           {saving ? "Saving…" : "Save caps"}
@@ -361,13 +392,18 @@ function ScheduleCard({ campaignId }: { campaignId: string }) {
       title="Schedule (UTC)"
       description="Working hours per weekday (UTC). Actions only dispatch inside these windows. ≥7 hours/day is recommended."
     >
+      <p className="mb-3 text-xs text-muted-foreground">
+        Times are in UTC. Your timezone is{" "}
+        <span className="font-medium text-foreground">{localTimezoneLabel()}</span> — the local
+        equivalent is shown next to each enabled day.
+      </p>
       <div className="space-y-2">
         {DAYS.map((d) => {
           const day = schedule[d.key]!;
           return (
             <div
               key={d.key}
-              className="flex items-center gap-3 rounded-xl border bg-secondary/40 px-3 py-2"
+              className="flex flex-wrap items-center gap-3 rounded-xl border bg-secondary/40 px-3 py-2"
             >
               <div className="flex w-36 items-center gap-2.5">
                 <Switch
@@ -392,6 +428,11 @@ function ScheduleCard({ campaignId }: { campaignId: string }) {
                 disabled={!day.enabled}
                 className="h-8 w-28"
               />
+              {day.enabled ? (
+                <span className="text-[11px] text-muted-foreground">
+                  ≈ {utcTimeToLocal(day.start)}–{utcTimeToLocal(day.end)} local
+                </span>
+              ) : null}
             </div>
           );
         })}

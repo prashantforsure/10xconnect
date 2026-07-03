@@ -19,6 +19,8 @@ interface RequestOptions {
   body?: unknown;
   token?: string | null;
   workspaceId?: string | null;
+  /** Let the request outlive the page (unload-time autosave). Browser-capped ~64KB. */
+  keepalive?: boolean;
 }
 
 /** Low-level typed fetch against the NestJS API with auth + workspace headers. */
@@ -39,6 +41,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     response = await fetch(`${API_BASE}${path}`, {
       method: options.method ?? "GET",
       headers,
+      keepalive: options.keepalive,
       body:
         options.body === undefined
           ? undefined
@@ -86,13 +89,50 @@ export function useApi() {
 
   return useMemo(
     () => ({
-      request: async <T,>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> => {
+      request: async <T,>(
+        path: string,
+        opts: { method?: string; body?: unknown; keepalive?: boolean } = {},
+      ): Promise<T> => {
         const { data } = await supabase.auth.getSession();
         return apiFetch<T>(path, {
           ...opts,
           token: data.session?.access_token ?? null,
           workspaceId: activeWorkspaceId,
         });
+      },
+      /**
+       * Fetch a non-JSON response (e.g. a CSV export) as a Blob, with the same
+       * auth + workspace headers. Throws the parsed error envelope on non-2xx.
+       */
+      requestBlob: async (
+        path: string,
+        opts: { method?: string; body?: unknown } = {},
+      ): Promise<Blob> => {
+        const { data } = await supabase.auth.getSession();
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (data.session?.access_token) {
+          headers.Authorization = `Bearer ${data.session.access_token}`;
+        }
+        if (activeWorkspaceId) {
+          headers["X-Workspace-Id"] = activeWorkspaceId;
+        }
+        const response = await fetch(`${API_BASE}${path}`, {
+          method: opts.method ?? "GET",
+          headers,
+          body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          const envelope = text ? (JSON.parse(text) as { error?: ApiError }) : null;
+          throw (
+            envelope?.error ?? {
+              statusCode: response.status,
+              code: "error",
+              message: response.statusText,
+            }
+          );
+        }
+        return response.blob();
       },
     }),
     [supabase, activeWorkspaceId],

@@ -10,6 +10,7 @@ export * from "./dispatch";
 export * from "./inbound";
 export * from "./restrictions";
 export * from "./suppression";
+export * from "./simulation";
 export { evaluateCondition } from "./conditions";
 export { injectVariables, leadVariables } from "./variables";
 export {

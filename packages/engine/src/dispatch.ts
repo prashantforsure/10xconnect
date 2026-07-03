@@ -34,6 +34,7 @@ import {
   startOfUtcDay,
 } from "./repository";
 import { flagAccountIncident } from "./restrictions";
+import { isWorkspaceSimulated, simulatedActionResult } from "./simulation";
 import { isLeadSuppressed } from "./suppression";
 import type { EngineDeps, LeadStateRow, SequenceNodeRow } from "./types";
 
@@ -128,6 +129,27 @@ async function claimDue(deps: EngineDeps, now: Date): Promise<ClaimedAction[]> {
   });
 }
 
+/** How long a silenced AI conversation action sleeps before re-checking pause state. */
+const AI_PAUSE_RECHECK_MS = 10 * 60_000;
+
+/**
+ * True when the action's campaign is paused with the opt-in
+ * settings.pause_ai_replies flag — the "full silence" pause (§7 pause honesty).
+ * Default pause behavior (flag unset) keeps the AI answering, unchanged.
+ */
+async function aiPausedForCampaign(deps: EngineDeps, action: ClaimedAction): Promise<boolean> {
+  const cfg = asObject(action.config);
+  const campaignId = typeof cfg.campaignId === "string" ? cfg.campaignId : action.campaign_id;
+  if (!campaignId) return false;
+  const campaign = await deps.db
+    .selectFrom("campaigns")
+    .select(["status", "settings"])
+    .where("id", "=", campaignId)
+    .executeTakeFirst();
+  if (!campaign || campaign.status !== "paused") return false;
+  return asObject(campaign.settings).pause_ai_replies === true;
+}
+
 async function requeue(deps: EngineDeps, actionId: string, at: Date, config?: Json): Promise<void> {
   await deps.db
     .updateTable("actions")
@@ -194,15 +216,27 @@ async function processAction(
   // spine (queue + adapter + idempotency) but has no sequence node, so it is
   // handled before the node-required guard. This is the seam Phase 4's AI turn
   // reuses (same shape, drafted body).
-  if (asObject(action.config).kind === "conversation_reply") {
-    await handleConversationReply(deps, action, now, stats);
-    return;
-  }
-
-  // --- conversation turn (AI brain: draft, then apply the autonomy dial) ---
-  // Also node-less. Produces a message_drafts row; the autonomy dial then either
-  // leaves it pending (approve_all) or auto-sends it (Balanced/Autopilot).
-  if (asObject(action.config).kind === "conversation_turn") {
+  const configKind = asObject(action.config).kind;
+  if (configKind === "conversation_reply" || configKind === "conversation_turn") {
+    // Full-silence pause: when the campaign is paused WITH pause_ai_replies set,
+    // AI conversation work is DEFERRED (requeued, not skipped — resume lets the
+    // AI catch up; skipping would drop the turn forever, its idempotency key
+    // blocks a re-enqueue). Human-approved replies always send: a person
+    // explicitly pressed send.
+    const humanAuthored =
+      configKind === "conversation_reply" && asObject(action.config).authoredBy !== "ai";
+    if (!humanAuthored && (await aiPausedForCampaign(deps, action))) {
+      await requeue(deps, action.id, new Date(now.getTime() + AI_PAUSE_RECHECK_MS));
+      stats.held += 1;
+      return;
+    }
+    if (configKind === "conversation_reply") {
+      await handleConversationReply(deps, action, now, stats);
+      return;
+    }
+    // --- conversation turn (AI brain: draft, then apply the autonomy dial) ---
+    // Also node-less. Produces a message_drafts row; the autonomy dial then
+    // either leaves it pending (approve_all) or auto-sends it (Balanced/Autopilot).
     await handleConversationTurn(deps, action, now, stats);
     return;
   }
@@ -365,6 +399,10 @@ async function processAction(
     providerAccountId: account.provider_account_id ?? undefined,
   };
 
+  // Per-workspace simulation/test mode: run the whole pipeline but never touch the
+  // transport — no real send AND no real profile-visit read (see ./simulation).
+  const simulate = await isWorkspaceSimulated(deps.db, campaign.workspace_id);
+
   // Activity-variable personalization needs fresh profile data; that read consumes
   // the profile-visit budget (Phase 11.6). Charge it through the governor (clamped,
   // idempotent) and refresh the lead BEFORE we render the message. Best-effort — a
@@ -378,6 +416,7 @@ async function processAction(
     accountAgeDays: ageDays,
     throttleFactor,
     now,
+    simulate,
   });
 
   const enrichment = asObject(lead.enrichment);
@@ -396,8 +435,10 @@ async function processAction(
     idempotencyKey: action.idempotency_key,
     lead,
     resolveContent: deps.resolveContent,
+    resolveAttachmentUrl: deps.resolveAttachmentUrl,
     nodeId: node.id,
     campaignId: campaign.id,
+    simulate,
   });
 
   const attempts = action.attempts + 1;
@@ -523,18 +564,22 @@ async function handleConversationReply(
 
   // No rate check — a human reply to an inbound conversation is low-risk and
   // goes out immediately (Phase 3 adds conversation-specific limits).
+  // Simulation/test mode: record the reply in the thread but never transmit it.
+  const simulate = await isWorkspaceSimulated(deps.db, convo.workspaceId);
   const enrichment = asObject(convo.enrichment);
-  const result = await deps.adapter.sendMessage(
-    { accountId: convo.accountId, providerAccountId: convo.providerAccountId ?? undefined },
-    {
-      ...(convo.leadId ? { leadId: convo.leadId } : {}),
-      ...(convo.linkedinUrl ? { linkedinUrl: convo.linkedinUrl } : {}),
-      ...(typeof enrichment.providerId === "string" ? { providerId: enrichment.providerId } : {}),
-      ...(convo.email ? { email: convo.email } : {}),
-    },
-    { body },
-    { idempotencyKey: action.idempotency_key },
-  );
+  const result = simulate
+    ? simulatedActionResult(action.idempotency_key, now)
+    : await deps.adapter.sendMessage(
+        { accountId: convo.accountId, providerAccountId: convo.providerAccountId ?? undefined },
+        {
+          ...(convo.leadId ? { leadId: convo.leadId } : {}),
+          ...(convo.linkedinUrl ? { linkedinUrl: convo.linkedinUrl } : {}),
+          ...(typeof enrichment.providerId === "string" ? { providerId: enrichment.providerId } : {}),
+          ...(convo.email ? { email: convo.email } : {}),
+        },
+        { body },
+        { idempotencyKey: action.idempotency_key },
+      );
 
   const attempts = action.attempts + 1;
   if (result.status === "success") {

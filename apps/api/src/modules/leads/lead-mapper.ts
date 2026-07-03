@@ -50,6 +50,7 @@ export interface LeadView {
   connectionDegree: number | null;
   tags: string[];
   customColumns: Record<string, unknown>;
+  note: string | null;
   enrichStatus: LeadRow["enrich_status"];
   createdAt: string;
   updatedAt: string;
@@ -168,6 +169,7 @@ export function buildLeadInsert(
   candidate: Candidate,
   defaultTags: string[],
   dedupeKey: string | undefined,
+  accountId: string | null,
 ): {
   workspace_id: string;
   linkedin_url: string | null;
@@ -177,6 +179,7 @@ export function buildLeadInsert(
   custom_columns: string;
   dedupe_key: string | null;
   connection_degree: number | null;
+  account_id: string | null;
 } {
   const tags = Array.from(new Set([...candidate.tags, ...defaultTags]));
   return {
@@ -188,6 +191,9 @@ export function buildLeadInsert(
     custom_columns: JSON.stringify(candidate.customColumns),
     dedupe_key: dedupeKey ?? null,
     connection_degree: candidate.connectionDegree ?? null,
+    // The LinkedIn account this lead is sourced under (Aimfox account-scoping);
+    // null when the workspace has no connected account yet.
+    account_id: accountId,
   };
 }
 
@@ -215,6 +221,7 @@ export function toLeadView(row: LeadRow): LeadView {
     connectionDegree: row.connection_degree ?? enrichment.connectionDegree ?? null,
     tags: row.tags ?? [],
     customColumns: asRecord(row.custom_columns),
+    note: row.note ?? null,
     enrichStatus: row.enrich_status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

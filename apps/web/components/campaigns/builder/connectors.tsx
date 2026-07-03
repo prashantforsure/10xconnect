@@ -99,22 +99,15 @@ export function Stat({ children }: { children: React.ReactNode }) {
   return <span className="font-semibold text-success">{children}</span>;
 }
 
-/** A wait_x_days step rendered as a clock pill on the connector (editable + deletable). */
+/**
+ * A wait_x_days step rendered as a clock pill on the connector. The duration is
+ * a content edit and stays editable while the campaign runs; removing the wait
+ * is structural, so that item is hidden until the campaign is stopped.
+ */
 export function DelayPill({ node }: { node: GraphNode }) {
   const { running, updateConfig, remove } = useBuilder();
   const days = Number(node.config.days) || 1;
   const label = `${days} ${days === 1 ? "day" : "days"}`;
-  if (running) {
-    return (
-      <div className="flex flex-col items-center">
-        <Line className="h-2" />
-        <span className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-[11px] text-muted-foreground shadow-soft">
-          <Clock className="size-3" /> {label}
-        </span>
-        <Line className="h-2" />
-      </div>
-    );
-  }
   return (
     <div className="flex flex-col items-center">
       <Line className="h-2" />
@@ -142,10 +135,14 @@ export function DelayPill({ node }: { node: GraphNode }) {
               <span className="text-xs text-muted-foreground">days</span>
             </div>
           </div>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive" onSelect={() => remove(node.id)}>
-            <Trash2 className="size-3.5" /> Remove wait
-          </DropdownMenuItem>
+          {!running ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-destructive" onSelect={() => remove(node.id)}>
+                <Trash2 className="size-3.5" /> Remove wait
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
       <Line className="h-2" />

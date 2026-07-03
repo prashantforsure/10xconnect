@@ -43,3 +43,30 @@ export function createServiceClient(): TypedSupabaseClient {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 }
+
+/** Private Storage bucket for composer media (attachments + voice recordings). */
+export const CAMPAIGN_MEDIA_BUCKET = "campaign-media";
+
+/**
+ * Dispatch-time attachment URL resolver (engine's `resolveAttachmentUrl` hook):
+ * compose-time signed URLs expire after 1h, so the engine mints a FRESH signed
+ * URL from the stored storage ref right before the transport fetches the bytes.
+ * Returns undefined when Supabase isn't configured (bare tests / mock setups) —
+ * the engine then falls back to the stored URL. The resolver itself never throws.
+ */
+export function createAttachmentUrlResolver():
+  | ((ref: string) => Promise<string | null>)
+  | undefined {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    return undefined;
+  }
+  const storage = createServiceClient().storage.from(CAMPAIGN_MEDIA_BUCKET);
+  return async (ref: string): Promise<string | null> => {
+    try {
+      const { data } = await storage.createSignedUrl(ref, 3600);
+      return data?.signedUrl ?? null;
+    } catch {
+      return null;
+    }
+  };
+}

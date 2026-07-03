@@ -1,13 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import { createClient } from "@/lib/supabase/client";
@@ -53,6 +54,11 @@ export function GeneralSettingsForm({
   const [wsName, setWsName] = useState(workspace?.name ?? "");
   const [inboxType, setInboxType] = useState(workspace?.inboxType ?? "not_configured");
   const [autoWithdrawDays, setAutoWithdrawDays] = useState(workspace?.autoWithdrawDays ?? 14);
+  // Test/simulation mode: initialized from the API's resolved effectiveSimulation
+  // (explicit setting, else the developer-owner default), so the toggle reflects
+  // reality even when the workspace has no explicit choice yet.
+  const [simulationMode, setSimulationMode] = useState(false);
+  const [simLoaded, setSimLoaded] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -62,6 +68,29 @@ export function GeneralSettingsForm({
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Load the workspace's resolved simulation state for the toggle's initial value.
+  useEffect(() => {
+    let cancelled = false;
+    if (!workspace) {
+      setSimLoaded(false);
+      return;
+    }
+    void api
+      .request<{ id: string; effectiveSimulation?: boolean }[]>("/workspaces")
+      .then((rows) => {
+        if (!cancelled) {
+          setSimulationMode(rows.find((w) => w.id === workspace.id)?.effectiveSimulation === true);
+          setSimLoaded(true);
+        }
+      })
+      .catch(() => {
+        /* leave the toggle hidden/disabled until it loads */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, workspace]);
 
   const saveDisabled = saving || (workspace !== null && wsName.trim().length === 0);
 
@@ -100,7 +129,13 @@ export function GeneralSettingsForm({
           method: "PATCH",
           body: {
             name: wsName.trim(),
-            settings: { inbox_type: inboxType, auto_withdraw_days: autoWithdrawDays },
+            settings: {
+              inbox_type: inboxType,
+              auto_withdraw_days: autoWithdrawDays,
+              // Only write it once loaded, so a slow/failed load never clobbers the
+              // resolved value with a stale default.
+              ...(simLoaded ? { simulation_mode: simulationMode } : {}),
+            },
           },
         });
       }
@@ -216,6 +251,23 @@ export function GeneralSettingsForm({
                 <p className="text-xs text-muted-foreground">
                   Pending invites older than this are withdrawn automatically. Default 14.
                 </p>
+              </div>
+              <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
+                <div className="space-y-1">
+                  <Label htmlFor="simulation-mode">Test / simulation mode</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Runs campaigns end-to-end — dispatch, analytics, inbox — but sends{" "}
+                    <strong>nothing real</strong> to LinkedIn, so you can safely test in production.
+                    Lead enrichment still uses live data. Default on for developer accounts.
+                  </p>
+                </div>
+                <Switch
+                  id="simulation-mode"
+                  checked={simulationMode}
+                  onCheckedChange={setSimulationMode}
+                  disabled={!simLoaded}
+                  aria-label="Test / simulation mode"
+                />
               </div>
             </>
           ) : (

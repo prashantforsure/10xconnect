@@ -1,5 +1,5 @@
 import type { ChannelAdapter } from "@10xconnect/core";
-import type { DB } from "@10xconnect/db";
+import { createAttachmentUrlResolver, type DB } from "@10xconnect/db";
 import {
   type EngineDeps,
   dispatchConfigFromEnv,
@@ -25,12 +25,17 @@ export const ENGINE_DEPS = "ENGINE_DEPS";
 const engineDepsProvider = {
   provide: ENGINE_DEPS,
   inject: [KYSELY_DB, CHANNEL_ADAPTER],
-  useFactory: (db: Kysely<DB>, adapter: ChannelAdapter): EngineDeps => ({
-    db,
-    adapter,
-    config: dispatchConfigFromEnv(),
-    log: (msg: string) => new Logger("Engine").log(msg),
-  }),
+  useFactory: (db: Kysely<DB>, adapter: ChannelAdapter): EngineDeps => {
+    // Fresh signed URLs for message attachments at dispatch (stored ones expire).
+    const resolveAttachmentUrl = createAttachmentUrlResolver();
+    return {
+      db,
+      adapter,
+      config: dispatchConfigFromEnv(),
+      ...(resolveAttachmentUrl ? { resolveAttachmentUrl } : {}),
+      log: (msg: string) => new Logger("Engine").log(msg),
+    };
+  },
 };
 
 /**

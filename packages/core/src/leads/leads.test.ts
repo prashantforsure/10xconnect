@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseCsv, parseCsvToObjects } from "./csv";
-import { deriveDedupeKey, normalizeEmail, normalizeLinkedinUrl } from "./dedupe";
+import { escapeCsvCell, parseCsv, parseCsvToObjects, serializeCsv } from "./csv";
+import {
+  deriveDedupeKey,
+  isLinkedinHttpUrl,
+  normalizeEmail,
+  normalizeLinkedinUrl,
+} from "./dedupe";
 import { applyMapping, type ColumnMapping } from "./mapping";
 
 // --- CSV parsing -----------------------------------------------------------
@@ -25,6 +30,41 @@ test("parseCsv pads short rows and ignores a blank trailing line", () => {
 test("parseCsvToObjects keys cells by header", () => {
   const objs = parseCsvToObjects("email,company\njane@acme.com,Acme");
   assert.deepEqual(objs, [{ email: "jane@acme.com", company: "Acme" }]);
+});
+
+// --- CSV serialization (export safety) -------------------------------------
+
+test("serializeCsv quotes cells with commas/quotes/newlines and round-trips", () => {
+  const csv = serializeCsv(["name", "note"], [["Doe, Jane", 'She said "hi"']]);
+  assert.equal(csv, 'name,note\r\n"Doe, Jane","She said ""hi"""\r\n');
+});
+
+test("escapeCsvCell neutralizes formula-injection triggers", () => {
+  // A leading =, +, -, @ (or tab/CR) is prefixed with ' so a spreadsheet reads it as text.
+  assert.equal(escapeCsvCell("=1+1"), "'=1+1");
+  assert.equal(escapeCsvCell("@SUM(A1)"), "'@SUM(A1)");
+  assert.equal(escapeCsvCell("+441234"), "'+441234");
+  assert.equal(escapeCsvCell("-5"), "'-5");
+  // A plain value is untouched.
+  assert.equal(escapeCsvCell("Jane"), "Jane");
+  assert.equal(escapeCsvCell(null), "");
+  assert.equal(escapeCsvCell(2), "2");
+});
+
+// --- LinkedIn URL safety allowlist -----------------------------------------
+
+test("isLinkedinHttpUrl rejects dangerous schemes + non-linkedin hosts", () => {
+  assert.equal(isLinkedinHttpUrl("https://www.linkedin.com/in/jane-doe"), true);
+  assert.equal(isLinkedinHttpUrl("http://linkedin.com/in/jane"), true);
+  assert.equal(isLinkedinHttpUrl("https://sales.linkedin.com/x"), true);
+  // XSS vectors that pass a permissive z.string().url():
+  assert.equal(isLinkedinHttpUrl("javascript:alert(1)"), false);
+  assert.equal(isLinkedinHttpUrl("data:text/html,<script>1</script>"), false);
+  // Wrong host / lookalike:
+  assert.equal(isLinkedinHttpUrl("https://evil.com/in/x"), false);
+  assert.equal(isLinkedinHttpUrl("https://linkedin.com.evil.com/x"), false);
+  assert.equal(isLinkedinHttpUrl(""), false);
+  assert.equal(isLinkedinHttpUrl(null), false);
 });
 
 // --- normalization + dedupe -------------------------------------------------

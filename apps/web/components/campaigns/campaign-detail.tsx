@@ -17,6 +17,7 @@ import {
   CopyPlus,
   Info,
   MoreHorizontal,
+  Pause,
   Play,
   Share2,
   Square,
@@ -52,7 +53,11 @@ export interface CampaignDetailView {
   name: string;
   status: CampaignStatus;
   accountId: string | null;
-  settings: { skip_already_contacted: boolean; exclude_conn_req_from_reply_rate: boolean };
+  settings: {
+    skip_already_contacted: boolean;
+    exclude_conn_req_from_reply_rate: boolean;
+    pause_ai_replies?: boolean;
+  };
   leadCount: number;
 }
 
@@ -78,6 +83,20 @@ function errorMessage(err: unknown, fallback: string): string {
   return (err as ApiError)?.message ?? (err instanceof Error ? err.message : fallback);
 }
 
+/** "fires ~2:06 PM" (with the day when it isn't today) for the launch/resume flash. */
+function firstActionLabel(iso: string | null): string {
+  if (!iso) {
+    return "the first action will be scheduled inside your working hours";
+  }
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === new Date().toDateString()) {
+    return `first action fires ~${time}`;
+  }
+  const day = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  return `first action fires ${day} ~${time}`;
+}
+
 export function CampaignDetail({ campaignId }: { campaignId: string }) {
   const api = useApi();
   const router = useRouter();
@@ -91,6 +110,12 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
+  // Transient success line (e.g. "Scheduled 12 leads") shown in the notices strip.
+  const [flash, setFlash] = useState<string | null>(null);
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  const [pauseConfirmOpen, setPauseConfirmOpen] = useState(false);
+  const [pauseAiToo, setPauseAiToo] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const [auditItems, setAuditItems] = useState<ProfileAuditItem[]>([]);
   const [aiOff, setAiOff] = useState<boolean | null>(null);
@@ -161,6 +186,34 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
     void checkGate();
   }, [tab, checkGate, campaign?.accountId, campaign?.leadCount]);
 
+  // While the campaign is live, poll its status so auto-transitions (auto-complete
+  // when the last lead finishes, auto-pause on account trouble) surface here
+  // instead of happening silently — the top P0 in the campaign UX audit.
+  useEffect(() => {
+    const status = campaign?.status;
+    if (status !== "running" && status !== "paused") {
+      return;
+    }
+    const id = setInterval(() => {
+      api
+        .request<{ status: CampaignStatus }>(`/campaigns/${campaignId}/status`)
+        .then((s) => {
+          const current = campaignRef.current?.status;
+          if (!current || s.status === current) {
+            return;
+          }
+          if (s.status === "completed") {
+            setFlash("Campaign completed — every enrolled lead has finished the sequence.");
+          } else if (s.status === "paused") {
+            setFlash("Campaign was paused — check your sending account's health, then Resume.");
+          }
+          void load();
+        })
+        .catch(() => undefined);
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [api, campaignId, campaign?.status, load]);
+
   const bindAccount = async (accountId: string): Promise<void> => {
     setActionError(null);
     try {
@@ -191,8 +244,17 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
     setAuditOpen(false);
     setBusy(true);
     setActionError(null);
+    setFlash(null);
     try {
-      await api.request(`/campaigns/${campaignId}/start`, { method: "POST" });
+      const res = await api.request<{ status: string; scheduled: number; nextActionAt: string | null }>(
+        `/campaigns/${campaignId}/start`,
+        { method: "POST" },
+      );
+      setFlash(
+        res.scheduled > 0
+          ? `Scheduled ${res.scheduled} lead${res.scheduled === 1 ? "" : "s"} — ${firstActionLabel(res.nextActionAt)}.`
+          : "Campaign started. Enroll leads to begin outreach.",
+      );
       await load();
     } catch (err) {
       setActionError(errorMessage(err, "Could not start campaign"));
@@ -202,8 +264,10 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   };
 
   const stop = async (): Promise<void> => {
+    setStopConfirmOpen(false);
     setBusy(true);
     setActionError(null);
+    setFlash(null);
     try {
       await api.request(`/campaigns/${campaignId}/stop`, { method: "POST" });
       await load();
@@ -214,11 +278,64 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
     }
   };
 
+  const pause = async (silenceAi: boolean): Promise<void> => {
+    setPauseConfirmOpen(false);
+    setBusy(true);
+    setActionError(null);
+    setFlash(null);
+    try {
+      // Record the AI choice first so the dispatch gate sees it the moment the
+      // campaign flips to paused (settings are merged, not replaced).
+      await api.request(`/campaigns/${campaignId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ settings: { pause_ai_replies: silenceAi } }),
+      });
+      await api.request(`/campaigns/${campaignId}/pause`, { method: "POST" });
+      setFlash(
+        silenceAi
+          ? "Campaign paused — the sequence is frozen and AI replies are held until you Resume."
+          : "Campaign paused — the sequence is frozen, but the AI keeps answering leads who reply. Resume to pick up where each lead left off.",
+      );
+      await load();
+    } catch (err) {
+      setActionError(errorMessage(err, "Could not pause campaign"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resume = async (): Promise<void> => {
+    setBusy(true);
+    setActionError(null);
+    setFlash(null);
+    try {
+      const res = await api.request<{ status: string; scheduled: number; nextActionAt: string | null }>(
+        `/campaigns/${campaignId}/resume`,
+        { method: "POST" },
+      );
+      setFlash(
+        `Resumed — ${res.scheduled} lead${res.scheduled === 1 ? "" : "s"} re-queued from where they left off; ${firstActionLabel(res.nextActionAt)}.`,
+      );
+      await load();
+    } catch (err) {
+      setActionError(errorMessage(err, "Could not resume campaign"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const share = async (): Promise<void> => {
     try {
       const res = await api.request<{ url: string }>(`/campaigns/${campaignId}/share`, { method: "POST" });
       setShareUrl(res.url);
-      await navigator.clipboard?.writeText(res.url).catch(() => undefined);
+      let copied = false;
+      try {
+        await navigator.clipboard?.writeText(res.url);
+        copied = true;
+      } catch {
+        // Clipboard blocked (permissions / insecure context) — we surface the URL to copy manually.
+      }
+      setShareCopied(copied);
     } catch (err) {
       setActionError(errorMessage(err, "Could not create share link"));
     }
@@ -232,13 +349,20 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   }
 
   const isRunning = campaign.status === "running";
+  const isPaused = campaign.status === "paused";
+  // Running OR paused = "in flight": the sequence is locked (leads are parked on
+  // nodes; editing/deleting them would strand leads). Only stop/resume unlocks it.
+  const isActive = isRunning || isPaused;
   const hasNotice =
-    Boolean(actionError) || Boolean(shareUrl) || (Boolean(aiOff) && tab !== "context");
+    Boolean(actionError) ||
+    Boolean(flash) ||
+    Boolean(shareUrl) ||
+    (Boolean(aiOff) && tab !== "context");
 
   return (
     // Full-height, full-bleed app layout (matches the Command Dark mockup): a
     // compact tab + action bar, then a content area that fills the viewport.
-    <div className="flex h-[calc(100dvh-4rem)] flex-col">
+    <div className="flex h-full flex-col overflow-hidden">
       {/* Tab + action bar — name + status, tabs, then one primary + ⋯ overflow. */}
       <div className="flex h-[54px] flex-shrink-0 items-center gap-3 border-b border-border pl-4 pr-[22px]">
         <Link
@@ -291,11 +415,37 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
                 </option>
               ))}
           </Select>
-          {isRunning ? (
-            <Button variant="destructive" size="sm" onClick={() => void stop()} disabled={busy}>
-              <Square />
-              Stop
-            </Button>
+          {isActive ? (
+            <>
+              {isPaused ? (
+                <Button size="sm" onClick={() => void resume()} disabled={busy}>
+                  <Play />
+                  Resume
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setPauseAiToo(campaign.settings.pause_ai_replies === true);
+                    setPauseConfirmOpen(true);
+                  }}
+                  disabled={busy}
+                >
+                  <Pause />
+                  Pause
+                </Button>
+              )}
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setStopConfirmOpen(true)}
+                disabled={busy}
+              >
+                <Square />
+                Stop
+              </Button>
+            </>
           ) : (
             <Button
               size="sm"
@@ -344,9 +494,15 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
               {actionError}
             </div>
           ) : null}
+          {flash ? (
+            <div className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-foreground">
+              {flash}
+            </div>
+          ) : null}
           {shareUrl ? (
             <div className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-foreground">
-              Share link copied: <span className="font-mono text-xs text-muted-foreground">{shareUrl}</span>
+              {shareCopied ? "Share link copied:" : "Share link ready — copy it:"}{" "}
+              <span className="font-mono text-xs text-muted-foreground">{shareUrl}</span>
             </div>
           ) : null}
           {aiOff && tab !== "context" ? (
@@ -373,7 +529,7 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
         <div className={tab === "builder" ? "h-full" : "hidden"}>
           <BuilderTab
             campaignId={campaignId}
-            running={isRunning}
+            running={isActive}
             accounts={accounts}
             onChanged={() => void checkGate()}
           />
@@ -385,7 +541,7 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
         ) : null}
         {tab === "context" ? (
           <div className="h-full overflow-auto px-6 py-5">
-            <ContextTab campaignId={campaignId} />
+            <ContextTab campaignId={campaignId} onChanged={() => void checkGate()} />
           </div>
         ) : null}
         {tab === "analytics" ? (
@@ -429,6 +585,56 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
               {busy ? "Starting…" : "Run anyway"}
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={pauseConfirmOpen}
+        onClose={() => setPauseConfirmOpen(false)}
+        title="Pause this campaign?"
+        description="Pausing freezes every queued sequence step — leads stay parked where they are, and Resume picks each one up from that exact step."
+      >
+        <div className="space-y-4">
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={pauseAiToo}
+              onChange={(e) => setPauseAiToo(e.target.checked)}
+            />
+            <span>
+              Also pause AI conversation replies
+              <span className="block text-xs text-muted-foreground">
+                By default the AI keeps answering leads who reply while the campaign is paused.
+                Check this to go fully silent — held replies send after you Resume. Replies you
+                approve yourself always send.
+              </span>
+            </span>
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setPauseConfirmOpen(false)} disabled={busy}>
+              Keep running
+            </Button>
+            <Button onClick={() => void pause(pauseAiToo)} disabled={busy}>
+              {busy ? "Pausing…" : "Pause campaign"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={stopConfirmOpen}
+        onClose={() => setStopConfirmOpen(false)}
+        title="Stop this campaign?"
+        description="Stopping cancels every queued action and ends outreach. Leads keep their progress, but re-running only picks up leads that never started. To pause and continue later, use Pause instead."
+      >
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setStopConfirmOpen(false)} disabled={busy}>
+            Keep running
+          </Button>
+          <Button variant="destructive" onClick={() => void stop()} disabled={busy}>
+            {busy ? "Stopping…" : "Stop campaign"}
+          </Button>
         </div>
       </Modal>
 

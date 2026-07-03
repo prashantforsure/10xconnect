@@ -17,6 +17,10 @@ interface Subscription {
   billingCycle: "monthly" | "annual";
   pricePerSlot: number;
   monthlyCost: number;
+  /** True when this workspace is on the developer allowlist (full, free access). */
+  developer?: boolean;
+  /** True when sending-account slots are uncapped (developer access). */
+  unlimited?: boolean;
 }
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -87,11 +91,19 @@ export function BillingClient() {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
 
-  const pricePerSlot = cycle === "annual" ? 39 : 49;
+  const isDeveloper = sub?.developer === true;
+  const pricePerSlot = isDeveloper ? 0 : cycle === "annual" ? 39 : 49;
   const cost = slots * pricePerSlot;
 
   return (
     <div className="space-y-6">
+      {isDeveloper ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+          <span className="font-semibold text-primary">Developer access</span> — full access to
+          every feature, unlimited sending accounts, and no payment required. This override is
+          scoped to your developer email.
+        </div>
+      ) : null}
       <div className="surface-card p-6">
         <div className="flex items-center justify-between gap-3">
           <div>

@@ -1,5 +1,16 @@
-import { isSalesNavigatorSearchUrl, LEAD_FIELD_KEYS } from "@10xconnect/core";
+import { isLinkedinHttpUrl, isSalesNavigatorSearchUrl, LEAD_FIELD_KEYS } from "@10xconnect/core";
 import { z } from "zod";
+
+// A LinkedIn profile/search URL that is safe to persist and later render as an
+// `href`. `z.string().url()` accepts `javascript:`/`data:` URLs, so we constrain
+// the scheme + host to linkedin.com (see isLinkedinHttpUrl).
+const linkedinUrlSchema = z
+  .string()
+  .trim()
+  .max(2000)
+  .refine((u) => isLinkedinHttpUrl(u), {
+    message: "Must be an http(s) linkedin.com URL",
+  });
 
 // ---------------------------------------------------------------------------
 // Sources (CLAUDE.md §8). CSV + an existing list are resolved internally; the
@@ -76,7 +87,7 @@ const listImportSchema = z
 const profileUrlsImportSchema = z
   .object({
     source: z.literal("profile_urls"),
-    urls: z.array(z.string().trim().url().max(2000)).min(1).max(IMPORT_LIMIT_MAX),
+    urls: z.array(linkedinUrlSchema).min(1).max(IMPORT_LIMIT_MAX),
     ...targetFields,
   })
   .strict();
@@ -84,7 +95,9 @@ const profileUrlsImportSchema = z
 const linkedinImportSchema = z
   .object({
     source: z.enum(LINKEDIN_SOURCE_KINDS),
-    url: z.string().url().max(2000).optional(),
+    // Constrained to a linkedin.com host: the continuous-import poller re-fetches
+    // this URL on a schedule, so an arbitrary URL here is an SSRF/abuse surface.
+    url: linkedinUrlSchema.optional(),
     keywords: z.string().trim().max(200).optional(),
     filters: leadFinderFiltersSchema.optional(),
     engagement: z.enum(["likers", "commenters", "both"]).optional(),
@@ -145,10 +158,17 @@ export type FindRequestDto = z.infer<typeof findRequestSchema>;
 // PATCH /leads/:id — edit identifiers, display fields, tags, custom columns.
 export const updateLeadSchema = z
   .object({
-    linkedinUrl: z.string().url().max(2000).nullable().optional(),
+    linkedinUrl: linkedinUrlSchema.nullable().optional(),
     email: z.string().email().max(255).nullable().optional(),
     tags: tagsSchema.optional(),
-    customColumns: z.record(z.string().max(2000)).optional(),
+    // Bound the user-defined column map so a caller can't bloat a row / DoS
+    // export with thousands of keys.
+    customColumns: z
+      .record(z.string().trim().min(1).max(120), z.string().max(2000))
+      .refine((o) => Object.keys(o).length <= 100, {
+        message: "Too many custom columns (max 100)",
+      })
+      .optional(),
     fields: z
       .object({
         firstName: z.string().trim().max(120).optional(),
@@ -160,6 +180,8 @@ export const updateLeadSchema = z
       })
       .strict()
       .optional(),
+    // Free-text CRM note; null/empty clears it.
+    note: z.string().max(5000).nullable().optional(),
   })
   .strict()
   .refine((v) => Object.keys(v).length > 0, { message: "No fields to update" });
@@ -172,6 +194,11 @@ export const bulkActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("add_tags"), leadIds: leadIds(), tags: tagsSchema }),
   z.object({ action: z.literal("remove_tags"), leadIds: leadIds(), tags: tagsSchema }),
   z.object({ action: z.literal("enroll_campaign"), leadIds: leadIds(), campaignId: z.string().uuid() }),
+  z.object({
+    action: z.literal("mark_do_not_contact"),
+    leadIds: leadIds(),
+    reason: z.string().trim().max(300).optional(),
+  }),
   z.object({ action: z.literal("delete"), leadIds: leadIds() }),
 ]);
 export type BulkActionDto = z.infer<typeof bulkActionSchema>;
@@ -191,3 +218,17 @@ export const listLeadsQuerySchema = z
     offset: z.coerce.number().int().min(0).default(0),
   });
 export type ListLeadsQueryDto = z.infer<typeof listLeadsQuerySchema>;
+
+// POST /leads/export — CSV export of the current filter (or an explicit selection).
+// POST (not GET) so the auth'd request body can carry a large selectedIds list and
+// the download is fetched with the bearer token, not a bare link.
+export const exportLeadsSchema = z
+  .object({
+    search: z.string().trim().max(200).optional(),
+    listId: z.string().uuid().optional(),
+    tag: z.string().trim().max(60).optional(),
+    enrichStatus: z.enum(["pending", "enriching", "enriched", "failed"]).optional(),
+    selectedIds: z.array(z.string().uuid()).max(10_000).optional(),
+  })
+  .strict();
+export type ExportLeadsDto = z.infer<typeof exportLeadsSchema>;

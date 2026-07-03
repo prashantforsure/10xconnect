@@ -1,19 +1,27 @@
 "use client";
 
 import {
+  Activity,
+  Ban,
+  Building2,
   Check,
   ChevronLeft,
   ChevronRight,
-  Columns3,
   Contact,
+  Download,
   ExternalLink,
   LayoutGrid,
   LayoutList,
+  Linkedin,
   ListFilter,
+  Mail,
+  MapPin,
+  MessageSquare,
   MoreVertical,
   Plus,
   RefreshCw,
   Search,
+  Send,
   Tags,
   Trash2,
   Upload,
@@ -24,6 +32,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ConnectionsPanel } from "@/components/contacts/connections-panel";
 import { ImportModal } from "@/components/contacts/import-modal";
+import { SuppressionPanel } from "@/components/contacts/suppression-panel";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,31 +48,25 @@ import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { SlideOver } from "@/components/ui/slide-over";
+import { Textarea } from "@/components/ui/textarea";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import {
   type CampaignSummary,
   type EnrichStatus,
+  type LeadActivityItem,
+  type LeadDetail,
   type LeadListResult,
   type LeadView,
   type ListView,
 } from "@/lib/contacts/types";
-import { cn } from "@/lib/utils";
+import { cn, safeHttpUrl } from "@/lib/utils";
 import { useWorkspace } from "@/lib/workspace/context";
 
-type ColumnKey = "title" | "company" | "email" | "linkedin" | "tags" | "status";
-const COLUMNS: { key: ColumnKey; label: string }[] = [
-  { key: "title", label: "Title" },
-  { key: "company", label: "Company" },
-  { key: "email", label: "Email" },
-  { key: "linkedin", label: "LinkedIn" },
-  { key: "tags", label: "Tags" },
-  { key: "status", label: "Status" },
-];
 const PAGE_SIZE = 50;
 const ENRICH_STATUSES: EnrichStatus[] = ["pending", "enriching", "enriched", "failed"];
 
-type BulkAction = "tag" | "list" | "campaign" | "delete" | null;
+type BulkAction = "tag" | "list" | "campaign" | "dnc" | "delete" | null;
 
 function errorMessage(err: unknown, fallback: string): string {
   return (err as ApiError)?.message ?? (err instanceof Error ? err.message : fallback);
@@ -97,8 +100,10 @@ export function ContactsClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Which main panel is showing: the contacts table or the Connections browser.
-  const [panel, setPanel] = useState<"contacts" | "connections">("contacts");
+  // Which main panel is showing: the contacts table, the Connections browser, or
+  // the do-not-contact list.
+  const [panel, setPanel] = useState<"contacts" | "connections" | "suppression">("contacts");
+  const [exporting, setExporting] = useState(false);
 
   // Filters.
   const [activeListId, setActiveListId] = useState<string | null>(null);
@@ -108,16 +113,8 @@ export function ContactsClient() {
   const [tagFilter, setTagFilter] = useState("");
   const [offset, setOffset] = useState(0);
 
-  // View + columns.
+  // View.
   const [view, setView] = useState<"list" | "board">("list");
-  const [visibleCols, setVisibleCols] = useState<Record<ColumnKey, boolean>>({
-    title: true,
-    company: true,
-    email: true,
-    linkedin: true,
-    tags: true,
-    status: true,
-  });
 
   // Selection + bulk.
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -190,11 +187,6 @@ export function ContactsClient() {
 
   const leads = result?.leads ?? [];
   const total = result?.total ?? 0;
-  const allSelected = leads.length > 0 && leads.every((l) => selected.has(l.id));
-
-  const toggleAll = (): void => {
-    setSelected(allSelected ? new Set() : new Set(leads.map((l) => l.id)));
-  };
   const toggleOne = (id: string): void => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -207,6 +199,33 @@ export function ContactsClient() {
   const refreshAll = useCallback(async () => {
     await Promise.all([loadLeads(), loadLists()]);
   }, [loadLeads, loadLists]);
+
+  // Export the current filter (or the current selection) to a CSV download.
+  const exportCsv = useCallback(async () => {
+    setExporting(true);
+    setError(null);
+    try {
+      const body: Record<string, unknown> = {};
+      if (debouncedSearch) body.search = debouncedSearch;
+      if (activeListId) body.listId = activeListId;
+      if (enrichFilter) body.enrichStatus = enrichFilter;
+      if (tagFilter.trim()) body.tag = tagFilter.trim();
+      if (selected.size > 0) body.selectedIds = [...selected];
+      const blob = await api.requestBlob("/leads/export", { method: "POST", body });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "contacts.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(errorMessage(err, "Could not export contacts"));
+    } finally {
+      setExporting(false);
+    }
+  }, [api, debouncedSearch, activeListId, enrichFilter, tagFilter, selected]);
 
   // Active list (for the header title) + a friendly subtitle.
   const activeList = activeListId ? lists.find((l) => l.id === activeListId) : null;
@@ -247,6 +266,12 @@ export function ContactsClient() {
             label="Connections"
             icon={<Contact className="size-3.5" />}
           />
+          <SidebarItem
+            active={panel === "suppression"}
+            onClick={() => setPanel("suppression")}
+            label="Do not contact"
+            icon={<Ban className="size-3.5" />}
+          />
           {lists.length > 0 ? <div className="mx-1 my-2 h-px bg-border" /> : null}
           {lists.map((l) => (
             <SidebarItem
@@ -276,6 +301,8 @@ export function ContactsClient() {
       {/* Main */}
       {panel === "connections" ? (
         <ConnectionsPanel campaigns={campaigns} onChanged={refreshAll} />
+      ) : panel === "suppression" ? (
+        <SuppressionPanel />
       ) : (
         <div className="flex min-w-0 flex-1 flex-col overflow-y-auto px-7 py-6">
           {/* Title row */}
@@ -296,6 +323,14 @@ export function ContactsClient() {
                 aria-label="Refresh"
               >
                 <RefreshCw className="size-4" />
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={exporting || total === 0}
+                onClick={() => void exportCsv()}
+                title={selected.size > 0 ? "Export selected" : "Export current filter"}
+              >
+                <Download /> {exporting ? "Exporting…" : "Export"}
               </Button>
               <Button onClick={() => setImportOpen(true)}>
                 <Upload /> Import
@@ -380,30 +415,6 @@ export function ContactsClient() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="secondary" size="sm" className="bg-[#1A1811]">
-                  <Columns3 /> Columns
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                {COLUMNS.map((c) => (
-                  <DropdownMenuItem
-                    key={c.key}
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      setVisibleCols((v) => ({ ...v, [c.key]: !v[c.key] }));
-                    }}
-                  >
-                    <span className="flex w-4 justify-center">
-                      {visibleCols[c.key] ? <Check className="size-4" /> : null}
-                    </span>
-                    {c.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
             <div className="ml-auto flex overflow-hidden rounded-[9px] border border-border bg-[#1A1811]">
               <button
                 type="button"
@@ -453,6 +464,9 @@ export function ContactsClient() {
               <Button variant="secondary" size="sm" className="bg-[#1A1811]" onClick={() => setBulkAction("campaign")}>
                 Add to campaign
               </Button>
+              <Button variant="secondary" size="sm" className="bg-[#1A1811]" onClick={() => setBulkAction("dnc")}>
+                <Ban /> Do not contact
+              </Button>
               <Button variant="destructive" size="sm" onClick={() => setBulkAction("delete")}>
                 <Trash2 /> Delete
               </Button>
@@ -477,10 +491,7 @@ export function ContactsClient() {
             ) : view === "list" ? (
               <LeadTable
                 leads={leads}
-                visibleCols={visibleCols}
                 selected={selected}
-                allSelected={allSelected}
-                onToggleAll={toggleAll}
                 onToggleOne={toggleOne}
                 onOpen={setDetailLead}
                 onEnroll={(id) => setSingleEnroll(id)}
@@ -535,6 +546,7 @@ export function ContactsClient() {
           await api.request(`/leads/${id}/enrich`, { method: "POST" });
           await refreshAll();
         }}
+        onChanged={refreshAll}
       />
 
       <ImportModal
@@ -642,154 +654,147 @@ function Checkbox({
   );
 }
 
+/**
+ * Lead list — the SAME card as the campaign Leads tab (LeadListRow) for
+ * app-wide consistency: avatar + name + degree pill, title·company / headline,
+ * and a subtle meta line (location · LinkedIn · email). The campaign tab's
+ * expandable step-history is intentionally omitted (it only makes sense inside a
+ * campaign). A hover-reveal checkbox + a ⋮ menu carry the contacts-only actions.
+ */
 function LeadTable({
   leads,
-  visibleCols,
   selected,
-  allSelected,
-  onToggleAll,
   onToggleOne,
   onOpen,
   onEnroll,
 }: {
   leads: LeadView[];
-  visibleCols: Record<ColumnKey, boolean>;
   selected: Set<string>;
-  allSelected: boolean;
-  onToggleAll: () => void;
   onToggleOne: (id: string) => void;
   onOpen: (lead: LeadView) => void;
   onEnroll: (id: string) => void;
 }) {
   return (
-    <div className="overflow-hidden rounded-[14px] border border-border bg-card">
-      <table className="w-full text-sm">
-        <thead className="bg-card text-[10.5px] uppercase tracking-[0.08em] text-[#6E675B]">
-          <tr className="border-b border-border">
-            <th className="w-10 px-4 py-3">
-              <span className="flex justify-center">
-                <Checkbox checked={allSelected} onChange={onToggleAll} />
-              </span>
-            </th>
-            <th className="px-4 py-3 text-left font-semibold">Lead</th>
-            {visibleCols.title ? <th className="px-4 py-3 text-left font-semibold">Title</th> : null}
-            {visibleCols.company ? <th className="px-4 py-3 text-left font-semibold">Company</th> : null}
-            {visibleCols.email ? <th className="px-4 py-3 text-left font-semibold">Email</th> : null}
-            {visibleCols.linkedin ? <th className="px-4 py-3 text-left font-semibold">LinkedIn</th> : null}
-            {visibleCols.tags ? <th className="px-4 py-3 text-left font-semibold">Tags</th> : null}
-            {visibleCols.status ? <th className="px-4 py-3 text-left font-semibold">Status</th> : null}
-            <th className="w-12 px-4 py-3" aria-label="Actions" />
-          </tr>
-        </thead>
-        <tbody>
-          {leads.map((lead) => (
-            <tr
-              key={lead.id}
-              onClick={() => onOpen(lead)}
-              className={cn(
-                "crow group cursor-pointer border-b border-[#221F17] transition-colors last:border-b-0 hover:bg-accent",
-                selected.has(lead.id) && "bg-primary/5",
-              )}
+    <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
+      {leads.map((lead) => {
+        const href = safeHttpUrl(lead.linkedinUrl);
+        const degree = degreeLabel(lead.connectionDegree);
+        return (
+          <div
+            key={lead.id}
+            onClick={() => onOpen(lead)}
+            className={cn(
+              "group flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors hover:bg-accent",
+              selected.has(lead.id) && "bg-primary/5",
+            )}
+          >
+            {/* Selection — in the campaign card's chevron slot */}
+            <span
+              className="mt-1 flex opacity-0 transition-opacity group-hover:opacity-100 has-[:checked]:opacity-100"
+              onClick={(e) => e.stopPropagation()}
             >
-              <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
-                <span className="flex justify-center">
-                  <Checkbox checked={selected.has(lead.id)} onChange={() => onToggleOne(lead.id)} />
-                </span>
-              </td>
-              <td className="px-4 py-2.5">
-                <div className="flex items-center gap-2.5">
-                  <Avatar name={lead.name ?? undefined} src={lead.avatarUrl} size="sm" />
-                  <div className="min-w-0">
-                    <div className="truncate font-medium text-foreground">{lead.name ?? "—"}</div>
-                    {lead.location ? (
-                      <div className="truncate text-xs text-[#7A7363]">{lead.location}</div>
-                    ) : null}
-                  </div>
+              <Checkbox checked={selected.has(lead.id)} onChange={() => onToggleOne(lead.id)} />
+            </span>
+
+            <Avatar name={lead.name ?? undefined} src={lead.avatarUrl} size="md" />
+
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-medium">{lead.name ?? "—"}</span>
+                {degree ? (
+                  <span className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {degree}
+                  </span>
+                ) : null}
+              </div>
+
+              {lead.role || lead.company ? (
+                <div className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                  {lead.role ? <span className="truncate">{lead.role}</span> : null}
+                  {lead.role && lead.company ? (
+                    <span className="text-muted-foreground/50">·</span>
+                  ) : null}
+                  {lead.company ? (
+                    <span className="inline-flex min-w-0 items-center gap-1">
+                      <Building2 className="size-3 shrink-0" />
+                      <span className="truncate">{lead.company}</span>
+                    </span>
+                  ) : null}
                 </div>
-              </td>
-              {visibleCols.title ? (
-                <td className="px-4 py-2.5 text-muted-foreground">{lead.role ?? lead.headline ?? "—"}</td>
+              ) : lead.headline ? (
+                <div className="truncate text-xs text-muted-foreground">{lead.headline}</div>
               ) : null}
-              {visibleCols.company ? (
-                <td className="px-4 py-2.5 text-[#D8D0C2]">{lead.company ?? "—"}</td>
-              ) : null}
-              {visibleCols.email ? (
-                <td className="px-4 py-2.5 text-[#7A7363]">{lead.email ?? "—"}</td>
-              ) : null}
-              {visibleCols.linkedin ? (
-                <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
-                  {lead.linkedinUrl ? (
-                    <a
-                      href={lead.linkedinUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-chart-2 hover:underline"
-                    >
-                      Profile <ExternalLink className="size-3" />
-                      {degreeLabel(lead.connectionDegree) ? (
-                        <span className="text-xs text-muted-foreground">
-                          ({degreeLabel(lead.connectionDegree)})
-                        </span>
-                      ) : null}
-                    </a>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-              ) : null}
-              {visibleCols.tags ? (
-                <td className="px-4 py-2.5">
-                  <div className="flex flex-wrap gap-1">
-                    {lead.tags.map((t) => (
-                      <Badge key={t} variant="secondary">
-                        {t}
-                      </Badge>
-                    ))}
-                  </div>
-                </td>
-              ) : null}
-              {visibleCols.status ? (
-                <td className="px-4 py-2.5">
-                  <StatusBadge status={lead.enrichStatus} />
-                </td>
-              ) : null}
-              <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
-                <div className="flex justify-end opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label="Row actions"
-                        className="flex size-[26px] items-center justify-center rounded-[7px] bg-secondary text-muted-foreground transition-colors hover:text-foreground"
+
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                {lead.location ? (
+                  <span className="inline-flex items-center gap-1">
+                    <MapPin className="size-3" />
+                    {lead.location}
+                  </span>
+                ) : null}
+                {href ? (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1 text-chart-2 hover:underline"
+                  >
+                    <Linkedin className="size-3" />
+                    Profile
+                  </a>
+                ) : null}
+                {lead.email ? (
+                  <a
+                    href={`mailto:${lead.email}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex max-w-[16rem] items-center gap-1 hover:text-foreground hover:underline"
+                  >
+                    <Mail className="size-3 shrink-0" />
+                    <span className="truncate">{lead.email}</span>
+                  </a>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Labels + actions */}
+            <div className="flex shrink-0 items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              {lead.tags.slice(0, 2).map((t) => (
+                <Badge key={t} variant="secondary" className="hidden sm:inline-flex">
+                  {t}
+                </Badge>
+              ))}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Row actions"
+                    className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    <MoreVertical className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => onOpen(lead)}>View details</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onEnroll(lead.id)}>
+                    Add to campaign
+                  </DropdownMenuItem>
+                  {href ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => window.open(href, "_blank", "noopener,noreferrer")}
                       >
-                        <MoreVertical className="size-3.5" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => onOpen(lead)}>View details</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => onEnroll(lead.id)}>
-                        Add to campaign
+                        <ExternalLink /> Open LinkedIn
                       </DropdownMenuItem>
-                      {lead.linkedinUrl ? (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onSelect={() =>
-                              window.open(lead.linkedinUrl!, "_blank", "noopener,noreferrer")
-                            }
-                          >
-                            <ExternalLink /> Open LinkedIn
-                          </DropdownMenuItem>
-                        </>
-                      ) : null}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -867,31 +872,120 @@ function LeadBoard({
   );
 }
 
+const CAMPAIGN_STATUS_VARIANT: Record<string, NonNullable<BadgeProps["variant"]>> = {
+  running: "success",
+  active: "success",
+  replied: "info",
+  completed: "muted",
+  stopped: "warning",
+  paused: "warning",
+  failed: "destructive",
+  draft: "muted",
+  pending: "muted",
+};
+
 function LeadDetailDrawer({
   lead,
   onClose,
   onEnroll,
   onReEnrich,
+  onChanged,
 }: {
   lead: LeadView | null;
   onClose: () => void;
   onEnroll: (id: string) => void;
   onReEnrich: (id: string) => Promise<void>;
+  onChanged: () => void | Promise<void>;
 }) {
+  const api = useApi();
   const [busy, setBusy] = useState(false);
+  const [dncBusy, setDncBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset transient state whenever a different lead opens.
+  const [detail, setDetail] = useState<LeadDetail | null>(null);
+  const [activity, setActivity] = useState<LeadActivityItem[] | null>(null);
+  const [note, setNote] = useState("");
+  const [noteDirty, setNoteDirty] = useState(false);
+  const [noteSaving, setNoteSaving] = useState(false);
+
+  const leadId = lead?.id ?? null;
+
+  // Load full detail + activity whenever a different lead opens.
   useEffect(() => {
     setBusy(false);
+    setDncBusy(false);
     setError(null);
-  }, [lead?.id]);
+    setDetail(null);
+    setActivity(null);
+    setNoteDirty(false);
+    if (!leadId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [d, a] = await Promise.all([
+          api.request<LeadDetail>(`/leads/${leadId}`),
+          api
+            .request<LeadActivityItem[]>(`/leads/${leadId}/activity`)
+            .catch(() => [] as LeadActivityItem[]),
+        ]);
+        if (cancelled) return;
+        setDetail(d);
+        setNote(d.note ?? "");
+        setActivity(a);
+      } catch (err) {
+        if (!cancelled) setError(errorMessage(err, "Could not load contact"));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, leadId]);
+
+  const saveNote = async (): Promise<void> => {
+    if (!leadId) return;
+    setNoteSaving(true);
+    setError(null);
+    try {
+      await api.request(`/leads/${leadId}`, {
+        method: "PATCH",
+        body: { note: note.trim() ? note.trim() : null },
+      });
+      setNoteDirty(false);
+      await onChanged();
+    } catch (err) {
+      setError(errorMessage(err, "Could not save note"));
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
+  const markDnc = async (): Promise<void> => {
+    if (!leadId) return;
+    setDncBusy(true);
+    setError(null);
+    try {
+      await api.request("/leads/bulk", {
+        method: "POST",
+        body: { action: "mark_do_not_contact", leadIds: [leadId] },
+      });
+      await onChanged();
+      onClose();
+    } catch (err) {
+      setError(errorMessage(err, "Could not mark do-not-contact"));
+    } finally {
+      setDncBusy(false);
+    }
+  };
 
   const open = lead !== null;
   const role = lead?.role ?? lead?.headline ?? null;
+  const href = safeHttpUrl(lead?.linkedinUrl);
+  const campaigns = detail?.campaigns ?? [];
+  const about = detail?.enrichment?.about;
+  const recentPosts = detail?.enrichment?.recentPosts ?? [];
 
   return (
-    <SlideOver open={open} onClose={onClose} title={undefined} widthClass="w-[420px] max-w-[92vw]">
+    <SlideOver open={open} onClose={onClose} title={undefined} widthClass="w-[460px] max-w-[94vw]">
       {lead ? (
         <div className="flex h-full flex-col">
           {/* Header */}
@@ -926,15 +1020,40 @@ function LeadDetailDrawer({
               ) : null}
             </div>
 
+            {/* Campaign membership — where this lead lives across campaigns. */}
+            <Section label="Campaigns">
+              {campaigns.length > 0 ? (
+                <div className="flex flex-col gap-1.5">
+                  {campaigns.map((c) => (
+                    <a
+                      key={c.id}
+                      href={`/campaigns/${c.id}?tab=leads`}
+                      className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 transition-colors hover:border-[#38321F]"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">
+                        {c.name}
+                      </span>
+                      <Badge variant={CAMPAIGN_STATUS_VARIANT[c.leadStatus] ?? "muted"}>
+                        {c.leadStatus}
+                      </Badge>
+                      <ExternalLink className="size-3 text-muted-foreground" />
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Not in any campaign yet.</p>
+              )}
+            </Section>
+
             <Section label="Enrichment">
               <div className="overflow-hidden rounded-xl border border-border">
                 <DetailRow label="Email" value={lead.email ?? "—"} />
                 <DetailRow
                   label="LinkedIn"
                   value={
-                    lead.linkedinUrl ? (
+                    href ? (
                       <a
-                        href={lead.linkedinUrl}
+                        href={href}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-chart-2 hover:underline"
@@ -955,6 +1074,29 @@ function LeadDetailDrawer({
               </div>
             </Section>
 
+            {about ? (
+              <Section label="About">
+                <p className="whitespace-pre-line text-[12.5px] leading-relaxed text-[#D8D0C2]">
+                  {about}
+                </p>
+              </Section>
+            ) : null}
+
+            {recentPosts.length > 0 ? (
+              <Section label="Recent posts">
+                <div className="flex flex-col gap-1.5">
+                  {recentPosts.slice(0, 3).map((p, i) => (
+                    <div
+                      key={p.postId ?? i}
+                      className="rounded-lg border border-border bg-card px-3 py-2 text-[12px] leading-relaxed text-[#D8D0C2]"
+                    >
+                      {p.text ?? "—"}
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            ) : null}
+
             <Section label="Tags">
               {lead.tags.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
@@ -968,12 +1110,48 @@ function LeadDetailDrawer({
                 <p className="text-xs text-muted-foreground">No tags yet.</p>
               )}
             </Section>
+
+            {/* Notes — free-text CRM note, saved on demand. */}
+            <Section label="Notes">
+              <Textarea
+                value={note}
+                onChange={(e) => {
+                  setNote(e.target.value);
+                  setNoteDirty(true);
+                }}
+                placeholder="Add a private note about this contact…"
+                rows={3}
+                className="text-[12.5px]"
+              />
+              {noteDirty ? (
+                <div className="mt-2 flex justify-end">
+                  <Button size="sm" disabled={noteSaving} onClick={() => void saveNote()}>
+                    {noteSaving ? "Saving…" : "Save note"}
+                  </Button>
+                </div>
+              ) : null}
+            </Section>
+
+            {/* Activity timeline — cross-campaign actions + messages. */}
+            <Section label="Activity">
+              {activity === null ? (
+                <p className="text-xs text-muted-foreground">Loading…</p>
+              ) : activity.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No activity yet.</p>
+              ) : (
+                <div className="flex flex-col gap-2.5">
+                  {activity.slice(0, 30).map((item, i) => (
+                    <ActivityRow key={i} item={item} />
+                  ))}
+                </div>
+              )}
+            </Section>
           </div>
 
           {/* Footer actions */}
           <div className="border-t border-border p-[18px]">
             {error ? <p className="mb-2 text-xs text-destructive">{error}</p> : null}
-            <div className="flex gap-2.5">
+            <div className="flex flex-wrap gap-2.5">
               <Button className="flex-1" onClick={() => onEnroll(lead.id)}>
                 Add to campaign
               </Button>
@@ -995,11 +1173,49 @@ function LeadDetailDrawer({
                 <RefreshCw className={cn("size-4", busy && "animate-spin")} />
                 {busy ? "Re-enriching…" : "Re-enrich"}
               </Button>
+              <Button variant="ghost" disabled={dncBusy} onClick={() => void markDnc()}>
+                <Ban className="size-4" /> {dncBusy ? "Working…" : "Do not contact"}
+              </Button>
             </div>
           </div>
         </div>
       ) : null}
     </SlideOver>
+  );
+}
+
+function ActivityRow({ item }: { item: LeadActivityItem }) {
+  const isMessage = item.kind === "message";
+  const inbound = item.label === "inbound";
+  const Icon = isMessage ? MessageSquare : item.label.includes("email") ? Send : Activity;
+  const label = isMessage
+    ? inbound
+      ? "Reply received"
+      : "Message sent"
+    : item.label.replace(/_/g, " ");
+  return (
+    <div className="flex gap-2.5">
+      <span
+        className={cn(
+          "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full",
+          isMessage && inbound ? "bg-chart-2/15 text-chart-2" : "bg-secondary text-muted-foreground",
+        )}
+      >
+        <Icon className="size-3.5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[12.5px] font-medium capitalize text-foreground">{label}</span>
+          {item.status ? (
+            <span className="text-[10.5px] text-[#7A7363]">{item.status}</span>
+          ) : null}
+        </div>
+        {item.body ? (
+          <p className="mt-0.5 line-clamp-2 text-[11.5px] text-[#9A9384]">{item.body}</p>
+        ) : null}
+        <span className="text-[10.5px] text-[#5C564A]">{new Date(item.at).toLocaleString()}</span>
+      </div>
+    </div>
   );
 }
 
@@ -1173,7 +1389,9 @@ function BulkModal({
         ? "Add to list"
         : action === "campaign"
           ? "Enroll in campaign"
-          : "Delete contacts";
+          : action === "dnc"
+            ? "Mark do-not-contact"
+            : "Delete contacts";
 
   return (
     <Modal open onClose={close} title={title} description={`${count} contact${count === 1 ? "" : "s"} selected.`}>
@@ -1216,6 +1434,12 @@ function BulkModal({
             )}
           </div>
         ) : null}
+        {action === "dnc" ? (
+          <p className="text-sm text-muted-foreground">
+            Adds the selected contacts to the workspace do-not-contact list. They will never be
+            contacted again from any campaign. The contacts themselves stay in your list.
+          </p>
+        ) : null}
         {action === "delete" ? (
           <p className="text-sm text-muted-foreground">
             This permanently deletes the selected contacts and removes them from all lists and campaigns.
@@ -1243,6 +1467,8 @@ function BulkModal({
                 void run({ action: "add_to_list", listId });
               } else if (action === "campaign") {
                 void run({ action: "enroll_campaign", campaignId });
+              } else if (action === "dnc") {
+                void run({ action: "mark_do_not_contact" });
               } else {
                 void run({ action: "delete" });
               }

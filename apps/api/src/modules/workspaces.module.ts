@@ -1,5 +1,6 @@
 import { type Role, can } from "@10xconnect/core";
 import type { DB } from "@10xconnect/db";
+import { resolveSimulation } from "@10xconnect/engine";
 import {
   BadRequestException,
   Body,
@@ -48,6 +49,9 @@ const updateWorkspaceSchema = z
       .object({
         inbox_type: z.enum(INBOX_TYPES).optional(),
         auto_withdraw_days: z.number().int().min(1).max(90).optional(),
+        // Per-workspace test/simulation mode: run the full pipeline but send nothing
+        // real (safe production testing). Explicit here; unset → developer default.
+        simulation_mode: z.boolean().optional(),
       })
       .optional(),
     branding: z.record(z.unknown()).optional(),
@@ -69,6 +73,11 @@ type UpdateMemberRoleDto = z.infer<typeof updateMemberRoleSchema>;
 interface WorkspaceSettings {
   inbox_type: (typeof INBOX_TYPES)[number];
   auto_withdraw_days: number;
+  /**
+   * Test/simulation mode toggle. Explicit boolean when the user has set it; left
+   * UNSET (undefined) so the developer-owner default applies (see effectiveSimulation).
+   */
+  simulation_mode?: boolean;
 }
 
 const DEFAULT_SETTINGS: WorkspaceSettings = {
@@ -84,6 +93,12 @@ export interface WorkspaceView {
   settings: WorkspaceSettings;
   branding: Record<string, unknown>;
   created_at: string;
+  /**
+   * Resolved test/simulation state (explicit setting, else developer-owner default).
+   * The UI toggle + "Simulation mode" banner read this so they reflect reality even
+   * when simulation_mode is unset.
+   */
+  effectiveSimulation: boolean;
 }
 
 export interface MemberView {
@@ -117,6 +132,8 @@ export class WorkspacesService {
     const rows = await this.db
       .selectFrom("workspaces")
       .innerJoin("memberships", "memberships.workspace_id", "workspaces.id")
+      // Owner email drives the developer-default of simulation mode (effectiveSimulation).
+      .leftJoin("profiles", "profiles.id", "workspaces.owner_id")
       .where("memberships.user_id", "=", userId)
       .select([
         "workspaces.id as id",
@@ -126,18 +143,19 @@ export class WorkspacesService {
         "workspaces.settings as settings",
         "workspaces.branding as branding",
         "workspaces.created_at as created_at",
+        "profiles.email as ownerEmail",
       ])
       .orderBy("workspaces.created_at", "asc")
       .execute();
 
-    return rows.map((r) => this.toView(r));
+    return rows.map((r) => this.toView(r, r.ownerEmail));
   }
 
   /**
    * Create a workspace AND the creator's Owner membership atomically, so a
    * workspace can never exist without an owner.
    */
-  async create(userId: string, dto: CreateWorkspaceDto): Promise<WorkspaceView> {
+  async create(userId: string, dto: CreateWorkspaceDto, ownerEmail?: string | null): Promise<WorkspaceView> {
     return this.db.transaction().execute(async (trx) => {
       const workspace = await trx
         .insertInto("workspaces")
@@ -155,7 +173,9 @@ export class WorkspacesService {
         .values({ workspace_id: workspace.id, user_id: userId, role: "owner" })
         .execute();
 
-      return this.toView({ ...workspace, role: "owner" });
+      // Pass the creator's email so a developer's new workspace reflects its
+      // default simulation state immediately (settings carry no explicit choice yet).
+      return this.toView({ ...workspace, role: "owner" }, ownerEmail);
     });
   }
 
@@ -167,8 +187,13 @@ export class WorkspacesService {
   ): Promise<WorkspaceView> {
     const current = await this.db
       .selectFrom("workspaces")
-      .where("id", "=", workspaceId)
-      .select(["settings", "branding"])
+      .leftJoin("profiles", "profiles.id", "workspaces.owner_id")
+      .where("workspaces.id", "=", workspaceId)
+      .select([
+        "workspaces.settings as settings",
+        "workspaces.branding as branding",
+        "profiles.email as ownerEmail",
+      ])
       .executeTakeFirst();
     if (!current) {
       throw new NotFoundException("Workspace not found");
@@ -192,7 +217,7 @@ export class WorkspacesService {
       .returning(["id", "name", "owner_id", "settings", "branding", "created_at"])
       .executeTakeFirstOrThrow();
 
-    return this.toView({ ...updated, role: actorRole });
+    return this.toView({ ...updated, role: actorRole }, current.ownerEmail);
   }
 
   /** Delete the workspace; FK ON DELETE CASCADE removes all scoped rows. */
@@ -466,6 +491,9 @@ export class WorkspacesService {
         typeof parsed.auto_withdraw_days === "number"
           ? parsed.auto_withdraw_days
           : DEFAULT_SETTINGS.auto_withdraw_days,
+      // Preserve boolean | undefined — undefined means "no explicit choice" so the
+      // developer-owner default decides (see resolveSimulation).
+      ...(typeof parsed.simulation_mode === "boolean" ? { simulation_mode: parsed.simulation_mode } : {}),
     };
   }
 
@@ -480,23 +508,29 @@ export class WorkspacesService {
     return {};
   }
 
-  private toView(row: {
-    id: string;
-    name: string;
-    owner_id: string;
-    role: Role;
-    settings: unknown;
-    branding: unknown;
-    created_at: string;
-  }): WorkspaceView {
+  private toView(
+    row: {
+      id: string;
+      name: string;
+      owner_id: string;
+      role: Role;
+      settings: unknown;
+      branding: unknown;
+      created_at: string;
+    },
+    ownerEmail?: string | null,
+  ): WorkspaceView {
+    const settings = this.parseSettings(row.settings);
     return {
       id: row.id,
       name: row.name,
       owner_id: row.owner_id,
       role: row.role,
-      settings: this.parseSettings(row.settings),
+      settings,
       branding: this.parseBranding(row.branding),
       created_at: row.created_at,
+      // Explicit setting wins; otherwise a developer-owned workspace defaults to on.
+      effectiveSimulation: resolveSimulation(settings, ownerEmail ?? null),
     };
   }
 }
@@ -515,7 +549,7 @@ export class WorkspacesController {
     @CurrentUser() user: AuthUser,
     @Body(new ZodValidationPipe(createWorkspaceSchema)) body: CreateWorkspaceDto,
   ): Promise<WorkspaceView> {
-    return this.workspaces.create(user.id, body);
+    return this.workspaces.create(user.id, body, user.email ?? null);
   }
 
   @Patch(":id")

@@ -19,7 +19,8 @@ import {
   voiceNoteDeliveryCapability,
 } from "@10xconnect/core";
 
-import type { ContentResolver, LeadRow } from "./types";
+import { simulatedActionResult } from "./simulation";
+import type { AttachmentUrlResolver, ContentResolver, LeadRow } from "./types";
 import { injectVariables, leadVariables } from "./variables";
 
 export interface ExecuteInput {
@@ -32,9 +33,17 @@ export interface ExecuteInput {
   idempotencyKey: string;
   lead: LeadRow;
   resolveContent?: ContentResolver;
+  /** Mint fresh signed URLs for attachments at dispatch (stored ones expire). */
+  resolveAttachmentUrl?: AttachmentUrlResolver;
   /** Phase 5: node + campaign ids for the per-prospect preview cache. */
   nodeId?: string;
   campaignId?: string;
+  /**
+   * Per-workspace SIMULATION/test mode: when true, DO NOT call the transport —
+   * return a synthetic SIMULATED success so the pipeline advances but no real
+   * action reaches a prospect (safe production testing — see ./simulation).
+   */
+  simulate?: boolean;
 }
 
 function failure(idempotencyKey: string, message: string): ActionResult {
@@ -67,23 +76,47 @@ async function text(input: ExecuteInput, keys: string[]): Promise<string> {
   return renderMessageBody(body, leadVariables(input.lead));
 }
 
-/** Map a node's stored composer attachments to deliverable transport attachments. */
-function attachmentsFor(input: ExecuteInput): MessageAttachment[] | undefined {
+/**
+ * Map a node's stored composer attachments to deliverable transport attachments.
+ * The compose-time signed URL expires (1h TTL) long before a late sequence step
+ * fires, so when the host wires resolveAttachmentUrl we mint a FRESH URL from
+ * the storage ref at dispatch; the stored URL is only the fallback. Absolute
+ * (external) refs pass through untouched.
+ */
+async function attachmentsFor(input: ExecuteInput): Promise<MessageAttachment[] | undefined> {
   const list = readAttachments(input.config);
   if (!list.length) return undefined;
-  return list.map((a) => ({
-    ref: a.ref,
-    ...(a.url ? { url: a.url } : {}),
-    ...(a.name ? { name: a.name } : {}),
-    ...(a.mime ? { mime: a.mime } : {}),
-    ...(a.kind ? { kind: a.kind } : {}),
-  }));
+  const out: MessageAttachment[] = [];
+  for (const a of list) {
+    let url = a.url;
+    if (input.resolveAttachmentUrl && a.ref && !/^https?:\/\//i.test(a.ref)) {
+      try {
+        url = (await input.resolveAttachmentUrl(a.ref)) ?? a.url;
+      } catch {
+        // Resolver failure is non-fatal — fall back to the stored URL.
+      }
+    }
+    out.push({
+      ref: a.ref,
+      ...(url ? { url } : {}),
+      ...(a.name ? { name: a.name } : {}),
+      ...(a.mime ? { mime: a.mime } : {}),
+      ...(a.kind ? { kind: a.kind } : {}),
+    });
+  }
+  return out;
 }
 
 /** Execute a transport node via the adapter; returns the typed ActionResult. */
 export async function executeTransportAction(input: ExecuteInput): Promise<ActionResult> {
   const { adapter, accountRef, leadRef, config } = input;
   const opts: SendOptions = { idempotencyKey: input.idempotencyKey };
+
+  // Simulation/test mode (safe production testing): never touch the transport —
+  // return a synthetic success so the sequence advances but nothing is sent.
+  if (input.simulate) {
+    return simulatedActionResult(input.idempotencyKey);
+  }
 
   switch (input.nodeType) {
     case "send_connection_request": {
@@ -95,7 +128,7 @@ export async function executeTransportAction(input: ExecuteInput): Promise<Actio
       });
     }
     case "send_message": {
-      const attachments = attachmentsFor(input);
+      const attachments = await attachmentsFor(input);
       return adapter.sendMessage(
         accountRef,
         leadRef,
@@ -104,7 +137,7 @@ export async function executeTransportAction(input: ExecuteInput): Promise<Actio
       );
     }
     case "send_message_to_open_profile": {
-      const attachments = attachmentsFor(input);
+      const attachments = await attachmentsFor(input);
       return adapter.sendOpenProfileMessage(
         accountRef,
         leadRef,
