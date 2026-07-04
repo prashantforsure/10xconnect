@@ -201,7 +201,10 @@ export class ConversationsService {
     if (!isConversationSyncCapable(this.adapter)) {
       return { ...empty, supported: false };
     }
-    const account = await this.db
+    // Multi-account unibox (§6 agency surface): sync EVERY connected LinkedIn account,
+    // not just one. Each account owns its own threads; syncThread stamps the owning
+    // account on the conversation so the inbox can filter/attribute per sender.
+    const accounts = await this.db
       .selectFrom("sending_accounts")
       .select(["id", "provider_account_id"])
       .where("workspace_id", "=", workspaceId)
@@ -209,8 +212,8 @@ export class ConversationsService {
       .where("status", "in", ["active", "warming"])
       .orderBy("status", "asc")
       .orderBy("created_at", "asc")
-      .executeTakeFirst();
-    if (!account) {
+      .execute();
+    if (accounts.length === 0) {
       return empty;
     }
 
@@ -221,22 +224,23 @@ export class ConversationsService {
       .executeTakeFirst();
     const campaignOnly = asObject(ws?.settings).inbox_type === "campaign_only";
 
-    const page = await this.adapter.listConversations(
-      { accountId: account.id, providerAccountId: account.provider_account_id ?? undefined },
-      { limit: 30 },
-    );
-
     // HeyReach model: in "all conversations" mode only import threads active in the
     // last 30 days (never the whole history — that pulls old/personal chats). In
     // campaign-only mode, thread age doesn't matter (enrolled leads only).
     const recentSinceIso = new Date(Date.now() - SYNC_WINDOW_DAYS * 86_400_000).toISOString();
 
     const result: SyncResult = { ...empty, accountConnected: true };
-    for (const thread of page.threads) {
-      const r = await this.syncThread(workspaceId, account.id, thread, campaignOnly, recentSinceIso);
-      if (r.conversationCreated) result.conversationsAdded += 1;
-      if (r.leadCreated) result.newContacts += 1;
-      result.messagesAdded += r.messagesAdded;
+    for (const account of accounts) {
+      const page = await this.adapter.listConversations(
+        { accountId: account.id, providerAccountId: account.provider_account_id ?? undefined },
+        { limit: 30 },
+      );
+      for (const thread of page.threads) {
+        const r = await this.syncThread(workspaceId, account.id, thread, campaignOnly, recentSinceIso);
+        if (r.conversationCreated) result.conversationsAdded += 1;
+        if (r.leadCreated) result.newContacts += 1;
+        result.messagesAdded += r.messagesAdded;
+      }
     }
     return result;
   }

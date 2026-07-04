@@ -13,9 +13,12 @@ import {
   AlertTriangle,
   ArrowLeft,
   BookmarkPlus,
+  Check,
   CheckCircle2,
+  ChevronDown,
   CopyPlus,
   Info,
+  Linkedin,
   MoreHorizontal,
   Pause,
   Play,
@@ -39,10 +42,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/ui/modal";
-import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
@@ -104,6 +107,8 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
 
   const [campaign, setCampaign] = useState<CampaignDetailView | null>(null);
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
+  // Sender pool (multi-account rotation, §6). Empty = no sender bound.
+  const [poolIds, setPoolIds] = useState<string[]>([]);
   const [tab, setTab] = useState<Tab>("builder");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -133,12 +138,16 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
     setLoading(true);
     setError(null);
     try {
-      const [c, accs] = await Promise.all([
+      const [c, accs, pool] = await Promise.all([
         api.request<CampaignDetailView>(`/campaigns/${campaignId}`),
         api.request<AccountOption[]>("/accounts"),
+        api
+          .request<{ accountIds: string[] }>(`/campaigns/${campaignId}/senders`)
+          .catch(() => ({ accountIds: [] as string[] })),
       ]);
       setCampaign(c);
       setAccounts(accs);
+      setPoolIds(pool.accountIds);
     } catch (err) {
       setError(errorMessage(err, "Could not load campaign"));
     } finally {
@@ -214,16 +223,27 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
     return () => clearInterval(id);
   }, [api, campaignId, campaign?.status, load]);
 
-  const bindAccount = async (accountId: string): Promise<void> => {
+  // Sender pool (multi-account rotation, §6). Toggling a sender PUTs the whole pool;
+  // the backend re-anchors campaigns.account_id to the first pool member, so we
+  // refetch just the campaign to keep the launch-readiness gate + audit in sync —
+  // without the full-page loading flash a load() would trigger on every click.
+  const toggleSender = async (accountId: string): Promise<void> => {
+    const next = poolIds.includes(accountId)
+      ? poolIds.filter((id) => id !== accountId)
+      : [...poolIds, accountId];
+    const prev = poolIds;
+    setPoolIds(next); // optimistic
     setActionError(null);
     try {
-      await api.request(`/campaigns/${campaignId}`, {
-        method: "PATCH",
-        body: { accountId: accountId || null },
+      await api.request(`/campaigns/${campaignId}/senders`, {
+        method: "PUT",
+        body: { accountIds: next },
       });
-      await load();
+      const c = await api.request<CampaignDetailView>(`/campaigns/${campaignId}`);
+      setCampaign(c);
     } catch (err) {
-      setActionError(errorMessage(err, "Could not set account"));
+      setPoolIds(prev); // revert on failure
+      setActionError(errorMessage(err, "Could not update senders"));
     }
   };
 
@@ -353,6 +373,17 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   // Running OR paused = "in flight": the sequence is locked (leads are parked on
   // nodes; editing/deleting them would strand leads). Only stop/resume unlocks it.
   const isActive = isRunning || isPaused;
+  const linkedinAccounts = accounts.filter((a) => a.type === "linkedin");
+  const senderName = (id: string): string => {
+    const a = linkedinAccounts.find((x) => x.id === id);
+    return a?.label ?? a?.name ?? "LinkedIn account";
+  };
+  const poolLabel =
+    poolIds.length === 0
+      ? "No sender"
+      : poolIds.length === 1
+        ? senderName(poolIds[0])
+        : `${poolIds.length} senders`;
   const hasNotice =
     Boolean(actionError) ||
     Boolean(flash) ||
@@ -398,23 +429,58 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
           ))}
         </div>
 
-        {/* Actions — account selector, one primary (Run/Stop), ⋯ overflow. */}
+        {/* Actions — sender-pool picker (multi-account rotation), one primary (Run/Stop), ⋯ overflow. */}
         <div className="ml-auto flex items-center gap-2">
-          <Select
-            value={campaign.accountId ?? ""}
-            onChange={(e) => void bindAccount(e.target.value)}
-            className="h-9 w-auto min-w-[9rem] text-[12.5px]"
-            aria-label="Sending account"
-          >
-            <option value="">No account</option>
-            {accounts
-              .filter((a) => a.type === "linkedin")
-              .map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label ?? a.name ?? "LinkedIn account"} ({a.status})
-                </option>
-              ))}
-          </Select>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 min-w-[9rem] justify-between gap-2 text-[12.5px]"
+                aria-label="Sending accounts"
+              >
+                <span className="flex items-center gap-1.5 truncate">
+                  <Linkedin className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{poolLabel}</span>
+                </span>
+                <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64">
+              <DropdownMenuLabel>
+                {poolIds.length > 1 ? "Senders — rotate across leads" : "Sender"}
+              </DropdownMenuLabel>
+              {linkedinAccounts.length === 0 ? (
+                <DropdownMenuItem disabled>No LinkedIn account connected</DropdownMenuItem>
+              ) : (
+                linkedinAccounts.map((a) => {
+                  const on = poolIds.includes(a.id);
+                  return (
+                    <DropdownMenuItem
+                      key={a.id}
+                      // Keep the menu open on select so several senders can be toggled.
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        void toggleSender(a.id);
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <span
+                        className={cn(
+                          "flex size-4 shrink-0 items-center justify-center rounded border",
+                          on ? "border-primary bg-primary text-primary-foreground" : "border-input",
+                        )}
+                      >
+                        {on ? <Check className="size-3" /> : null}
+                      </span>
+                      <span className="flex-1 truncate">{a.label ?? a.name ?? "LinkedIn account"}</span>
+                      <span className="text-[11px] capitalize text-muted-foreground">{a.status}</span>
+                    </DropdownMenuItem>
+                  );
+                })
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
           {isActive ? (
             <>
               {isPaused ? (

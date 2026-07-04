@@ -88,6 +88,8 @@ export interface LeadStateRow {
   current_node_id: string | null;
   status: string;
   history: Json;
+  /** Sticky sender assigned to this lead for the whole sequence (sender rotation). */
+  account_id?: string | null;
 }
 
 /** One entry appended to lead_campaign_state.history as a lead progresses. */

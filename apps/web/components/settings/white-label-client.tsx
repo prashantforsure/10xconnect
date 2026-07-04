@@ -12,6 +12,7 @@ import { useWorkspace } from "@/lib/workspace/context";
 interface Branding {
   brandName?: string;
   primaryColor?: string;
+  logoUrl?: string;
   customDomain?: string;
 }
 interface WorkspaceView {
@@ -71,6 +72,9 @@ export function WhiteLabelClient() {
   return (
     <div className="max-w-md">
       <div className="surface-card space-y-4 p-6">
+        <p className="text-sm text-muted-foreground">
+          Branding is applied to the client-facing campaign reports you share (Campaign → ⋯ → Share).
+        </p>
         <div className="space-y-2">
           <Label htmlFor="wl-name">Brand name</Label>
           <Input
@@ -79,6 +83,32 @@ export function WhiteLabelClient() {
             onChange={(e) => setBranding({ ...branding, brandName: e.target.value })}
             placeholder="Your Agency"
           />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="wl-logo">Logo URL</Label>
+          <div className="flex items-center gap-2">
+            {branding.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={branding.logoUrl}
+                alt="Logo preview"
+                className="h-10 w-10 shrink-0 rounded-lg border object-contain"
+              />
+            ) : (
+              <span className="grid size-10 shrink-0 place-items-center rounded-lg border text-xs text-muted-foreground">
+                —
+              </span>
+            )}
+            <Input
+              id="wl-logo"
+              value={branding.logoUrl ?? ""}
+              onChange={(e) => setBranding({ ...branding, logoUrl: e.target.value })}
+              placeholder="https://youragency.com/logo.png"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            A hosted image URL (PNG/SVG). Shown at the top of every client report.
+          </p>
         </div>
         <div className="space-y-2">
           <Label htmlFor="wl-color">Primary color</Label>

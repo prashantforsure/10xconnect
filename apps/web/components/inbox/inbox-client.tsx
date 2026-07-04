@@ -253,6 +253,10 @@ export function InboxClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  // Multi-account unibox (§6): the connected LinkedIn senders + the active
+  // per-account filter (null = every sender).
+  const [accounts, setAccounts] = useState<{ id: string; name: string | null; avatarUrl: string | null }[]>([]);
+  const [accountFilter, setAccountFilter] = useState<string | null>(null);
   const [inboxTypeModal, setInboxTypeModal] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
@@ -279,8 +283,12 @@ export function InboxClient() {
     }
     setLoading(true);
     try {
+      const params = new URLSearchParams();
+      if (filter !== "all") params.set("filter", filter);
+      if (accountFilter) params.set("accountId", accountFilter);
+      const convoQs = params.toString();
       const [list, sr, workspaces, sdr, stats] = await Promise.all([
-        api.request<ListItem[]>(`/conversations${filter !== "all" ? `?filter=${filter}` : ""}`),
+        api.request<ListItem[]>(`/conversations${convoQs ? `?${convoQs}` : ""}`),
         api.request<SavedResponse[]>("/saved-responses"),
         api.request<WorkspaceView[]>("/workspaces"),
         api.request<{ enabled: boolean }>("/ai-sdr/settings").catch(() => null),
@@ -302,11 +310,38 @@ export function InboxClient() {
     } finally {
       setLoading(false);
     }
-  }, [api, activeWorkspaceId, selectedId, filter]);
+  }, [api, activeWorkspaceId, selectedId, filter, accountFilter]);
 
   useEffect(() => {
     void loadList();
   }, [loadList]);
+
+  // Load connected senders once (independent of the conversation filter) so the
+  // unibox can offer per-account filter chips — HeyReach/Aimfox agency parity.
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      return;
+    }
+    void api
+      .request<
+        Array<{
+          id: string;
+          type: string;
+          name: string | null;
+          label: string | null;
+          status: string;
+          avatar_url: string | null;
+        }>
+      >("/accounts")
+      .then((rows) =>
+        setAccounts(
+          rows
+            .filter((r) => r.type === "linkedin" && (r.status === "active" || r.status === "warming"))
+            .map((r) => ({ id: r.id, name: r.label ?? r.name, avatarUrl: r.avatar_url })),
+        ),
+      )
+      .catch(() => setAccounts([]));
+  }, [api, activeWorkspaceId]);
 
   const loadDetail = useCallback(
     async (id: string) => {
@@ -679,6 +714,36 @@ export function InboxClient() {
               </button>
             ))}
           </div>
+          {accounts.length > 1 ? (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <button
+                onClick={() => setAccountFilter(null)}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                  accountFilter === null
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                )}
+              >
+                All senders
+              </button>
+              {accounts.map((a) => (
+                <button
+                  key={a.id}
+                  onClick={() => setAccountFilter(a.id)}
+                  className={cn(
+                    "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                    accountFilter === a.id
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  <Linkedin className="size-3 shrink-0" />
+                  {a.name ?? "Account"}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div className="no-scrollbar flex flex-1 flex-col gap-0.5 overflow-auto px-2.5 pb-2.5">
           {loading ? (

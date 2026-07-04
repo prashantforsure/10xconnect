@@ -56,6 +56,16 @@ export interface CampaignMetrics {
   progress: number; // % of enrolled leads that reached a terminal step
 }
 
+/** A LinkedIn account shown in the campaign sender-pool picker (§6 multi-account). */
+export interface SenderOption {
+  id: string;
+  name: string | null;
+  label: string | null;
+  status: string;
+  avatar_url: string | null;
+  country: string | null;
+}
+
 export interface CampaignView {
   id: string;
   name: string;
@@ -272,6 +282,107 @@ export class CampaignsService {
     if (!account) {
       throw new BadRequestException("Sending account not found in this workspace");
     }
+  }
+
+  private async assertCampaign(workspaceId: string, campaignId: string): Promise<void> {
+    const row = await this.db
+      .selectFrom("campaigns")
+      .select("id")
+      .where("workspace_id", "=", workspaceId)
+      .where("id", "=", campaignId)
+      .executeTakeFirst();
+    if (!row) {
+      throw new NotFoundException("Campaign not found");
+    }
+  }
+
+  /**
+   * The campaign's sender POOL (multi-account rotation) plus every LinkedIn account
+   * in the workspace to pick from. Falls back to [account_id] so a legacy single-
+   * account campaign still reports its one sender. `accounts` powers the picker.
+   */
+  async getSenders(
+    workspaceId: string,
+    campaignId: string,
+  ): Promise<{ accountIds: string[]; accounts: SenderOption[] }> {
+    await this.assertCampaign(workspaceId, campaignId);
+    const [pool, campaign, accounts] = await Promise.all([
+      this.db
+        .selectFrom("campaign_accounts")
+        .select("account_id")
+        .where("workspace_id", "=", workspaceId)
+        .where("campaign_id", "=", campaignId)
+        .orderBy("created_at", "asc")
+        .execute(),
+      this.db
+        .selectFrom("campaigns")
+        .select("account_id")
+        .where("workspace_id", "=", workspaceId)
+        .where("id", "=", campaignId)
+        .executeTakeFirst(),
+      this.db
+        .selectFrom("sending_accounts")
+        .select(["id", "name", "label", "status", "avatar_url", "country"])
+        .where("workspace_id", "=", workspaceId)
+        .where("type", "=", "linkedin")
+        .orderBy("created_at", "asc")
+        .execute(),
+    ]);
+    const accountIds =
+      pool.length > 0
+        ? pool.map((p) => p.account_id)
+        : campaign?.account_id
+          ? [campaign.account_id]
+          : [];
+    return { accountIds, accounts: accounts as SenderOption[] };
+  }
+
+  /**
+   * Replace the campaign's sender pool. Every id must be a LinkedIn account in the
+   * workspace. Also anchors campaigns.account_id to the FIRST pool member (the
+   * primary/default sender) so single-account code paths + analytics stay stable.
+   */
+  async setSenders(
+    workspaceId: string,
+    campaignId: string,
+    accountIds: string[],
+  ): Promise<{ accountIds: string[] }> {
+    await this.assertCampaign(workspaceId, campaignId);
+    const unique = [...new Set(accountIds)];
+    if (unique.length > 0) {
+      const rows = await this.db
+        .selectFrom("sending_accounts")
+        .select("id")
+        .where("workspace_id", "=", workspaceId)
+        .where("type", "=", "linkedin")
+        .where("id", "in", unique)
+        .execute();
+      const found = new Set(rows.map((r) => r.id));
+      if (unique.some((id) => !found.has(id))) {
+        throw new BadRequestException(
+          "Every sender must be a LinkedIn account connected to this workspace.",
+        );
+      }
+    }
+    await this.db.transaction().execute(async (trx) => {
+      await trx.deleteFrom("campaign_accounts").where("campaign_id", "=", campaignId).execute();
+      if (unique.length > 0) {
+        await trx
+          .insertInto("campaign_accounts")
+          .values(
+            unique.map((id) => ({ workspace_id: workspaceId, campaign_id: campaignId, account_id: id })),
+          )
+          .execute();
+      }
+      await trx
+        .updateTable("campaigns")
+        .set({ account_id: unique[0] ?? null })
+        .where("id", "=", campaignId)
+        .where("workspace_id", "=", workspaceId)
+        .execute();
+    });
+    this.logger.log(`Set ${unique.length} sender(s) on campaign ${campaignId}`);
+    return { accountIds: unique };
   }
 
   /**

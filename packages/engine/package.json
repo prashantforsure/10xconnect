@@ -9,7 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "tsx --test src/nodes.test.ts src/executor.test.ts src/config.test.ts src/simulation.test.ts",
-    "test:integration": "tsx --test src/phase1.integration.test.ts src/phase2.integration.test.ts src/phase3.integration.test.ts src/phase4.integration.test.ts src/phase5.integration.test.ts src/phase6.integration.test.ts src/phase7.integration.test.ts src/backend-gaps.integration.test.ts src/pause-resume.integration.test.ts src/pause-ai-gate.integration.test.ts src/simulation.integration.test.ts"
+    "test:integration": "tsx --test src/phase1.integration.test.ts src/phase2.integration.test.ts src/phase3.integration.test.ts src/phase4.integration.test.ts src/phase5.integration.test.ts src/phase6.integration.test.ts src/phase7.integration.test.ts src/backend-gaps.integration.test.ts src/pause-resume.integration.test.ts src/pause-ai-gate.integration.test.ts src/simulation.integration.test.ts src/sender-rotation.integration.test.ts"
   },
   "dependencies": {
     "@10xconnect/config": "workspace:*",

@@ -376,6 +376,8 @@ export type Database = {
           current_node_id: string | null;
           status: string;
           history: Json;
+          /** Sticky sender assigned to this lead for this campaign (sender rotation). */
+          account_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -387,6 +389,7 @@ export type Database = {
           current_node_id?: string | null;
           status?: string;
           history?: Json;
+          account_id?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -398,8 +401,30 @@ export type Database = {
           current_node_id?: string | null;
           status?: string;
           history?: Json;
+          account_id?: string | null;
           created_at?: string;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      campaign_accounts: {
+        Row: {
+          workspace_id: string;
+          campaign_id: string;
+          account_id: string;
+          created_at: string;
+        };
+        Insert: {
+          workspace_id: string;
+          campaign_id: string;
+          account_id: string;
+          created_at?: string;
+        };
+        Update: {
+          workspace_id?: string;
+          campaign_id?: string;
+          account_id?: string;
+          created_at?: string;
         };
         Relationships: [];
       };

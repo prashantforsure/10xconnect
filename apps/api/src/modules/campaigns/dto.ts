@@ -146,6 +146,16 @@ export const duplicateCampaignSchema = z.object({
 });
 export type DuplicateCampaignDto = z.infer<typeof duplicateCampaignSchema>;
 
+// --- Sender pool (multi-account rotation) ----------------------------------
+
+// The set of LinkedIn accounts a campaign rotates sends across. Empty = clear the
+// pool (campaign has no sender until one is set). Order = the pool order; the first
+// becomes the campaign's primary/default account.
+export const setSendersSchema = z.object({
+  accountIds: z.array(z.string().uuid()).max(50),
+});
+export type SetSendersDto = z.infer<typeof setSendersSchema>;
+
 export const abCompareSchema = z.object({
   campaignIds: z.array(z.string().uuid()).min(2).max(10),
 });

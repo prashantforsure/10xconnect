@@ -11,7 +11,20 @@ import type { Kysely } from "kysely";
 
 import { isConditionType, nodeToActionType } from "./nodes";
 import { loadGraph } from "./repository";
+import { assignAndPersist, getCampaignPool } from "./senders";
 import type { EngineDeps, HistoryEntry, LeadStateRow, SequenceNodeRow } from "./types";
+
+/** Columns that hydrate a LeadStateRow — includes the sticky sender (rotation). */
+const LEAD_STATE_COLS = [
+  "id",
+  "workspace_id",
+  "lead_id",
+  "campaign_id",
+  "current_node_id",
+  "status",
+  "history",
+  "account_id",
+] as const;
 
 const DAY_MS = 86_400_000;
 
@@ -93,7 +106,10 @@ async function scheduleNodeAction(
     .insertInto("actions")
     .values({
       workspace_id: state.workspace_id,
-      account_id: campaign.account_id,
+      // Sender rotation: stamp the action with the lead's STICKY assigned sender so
+      // every step of its sequence goes from the same account; fall back to the
+      // campaign default for single-account (no-pool) campaigns.
+      account_id: state.account_id ?? campaign.account_id,
       lead_id: state.lead_id,
       campaign_id: campaign.id,
       node_id: node.id,
@@ -233,18 +249,20 @@ export async function advanceLead(
  */
 async function nextAccountSlot(
   deps: EngineDeps,
-  campaign: CampaignRow,
+  accountId: string | null,
   schedule: import("@10xconnect/core").WeekSchedule,
   earliest: Date,
 ): Promise<Date> {
   const ignore = deps.config.ignoreWorkingHours;
-  if (!campaign.account_id) {
+  if (!accountId) {
     return computeFirstDispatchAt(schedule, earliest, ignore);
   }
+  // Chain off the assigned SENDER's own queue (rotation): each account paces
+  // independently, so the pool spreads touches without any account bursting.
   const row = await deps.db
     .selectFrom("actions")
     .select((eb) => eb.fn.max("scheduled_at").as("last"))
-    .where("account_id", "=", campaign.account_id)
+    .where("account_id", "=", accountId)
     .where((eb) => eb.or([eb("status", "=", "pending"), eb("executed_at", "is not", null)]))
     .executeTakeFirst();
   const last = row?.last ? new Date(row.last as unknown as string) : null;
@@ -277,7 +295,7 @@ async function scheduleLead(
   const start = target ?? rootNode;
   const schedule = parseSchedule(campaign.schedule);
   const base = new Date(now(deps).getTime() + extraMs);
-  const scheduledAt = await nextAccountSlot(deps, campaign, schedule, base);
+  const scheduledAt = await nextAccountSlot(deps, state.account_id ?? campaign.account_id, schedule, base);
   await deps.db
     .updateTable("lead_campaign_state")
     .set({ current_node_id: start.id })
@@ -420,12 +438,18 @@ export async function enrollLeads(
         })),
       )
       .onConflict((oc) => oc.columns(["campaign_id", "lead_id"]).doNothing())
-      .returning(["id", "workspace_id", "lead_id", "campaign_id", "current_node_id", "status", "history"])
+      .returning([...LEAD_STATE_COLS])
       .execute()) as LeadStateRow[];
     inserted.push(...rows);
   }
   result.enrolled = inserted.length;
   result.skippedDuplicate = toInsert.length - inserted.length;
+
+  // 5b) Sender rotation: assign each newly-enrolled lead a STICKY sender, balanced
+  //     least-loaded across the campaign's pool (mutates inserted[].account_id so the
+  //     scheduling below uses it). No-pool campaigns are a no-op → account_id stays
+  //     null → engine falls back to campaign.account_id (single-account behavior).
+  await assignAndPersist(deps.db, campaign, inserted);
 
   // 6) If the campaign is already running (or auto-completed — new leads reopen
   //    it, so continuous imports keep flowing), schedule each new lead. Kept a
@@ -492,7 +516,10 @@ export async function startCampaign(
     if (!campaign) {
       throw new Error("Campaign not found");
     }
-    if (!campaign.account_id) {
+    // Sender rotation: a campaign is startable if it has a sender POOL (campaign_accounts)
+    // or a single bound account (the pool falls back to [account_id]).
+    const pool = await getCampaignPool(trx, campaignId, campaign.account_id);
+    if (pool.length === 0) {
       throw new Error("Bind a sending account before starting the campaign.");
     }
 
@@ -531,11 +558,15 @@ export async function startCampaign(
 
     const states = (await trx
       .selectFrom("lead_campaign_state")
-      .select(["id", "workspace_id", "lead_id", "campaign_id", "current_node_id", "status", "history"])
+      .select([...LEAD_STATE_COLS])
       .where("campaign_id", "=", campaignId)
       .where("status", "=", "active")
       .where("current_node_id", "is", null)
       .execute()) as LeadStateRow[];
+
+    // Backfill sticky senders for leads enrolled before the pool was set (mutates
+    // account_id in place so scheduleLead stamps the right sender).
+    await assignAndPersist(trx, campaign, states);
 
     const root = byId.get(rootId) as SequenceNodeRow;
     for (const state of states) {
@@ -635,7 +666,8 @@ export async function resumeCampaign(
     if (campaign.status !== "paused") {
       throw new Error("Only a paused campaign can be resumed.");
     }
-    if (!campaign.account_id) {
+    const pool = await getCampaignPool(trx, campaignId, campaign.account_id);
+    if (pool.length === 0) {
       throw new Error("Bind a sending account before resuming the campaign.");
     }
     const { rootId, byId } = await loadGraph(trx, campaignId);
@@ -651,7 +683,7 @@ export async function resumeCampaign(
 
     const states = (await trx
       .selectFrom("lead_campaign_state")
-      .select(["id", "workspace_id", "lead_id", "campaign_id", "current_node_id", "status", "history"])
+      .select([...LEAD_STATE_COLS])
       .where("campaign_id", "=", campaignId)
       .where("status", "=", "active")
       .execute()) as LeadStateRow[];
@@ -696,7 +728,7 @@ async function scheduleLeadResume(
   const start = target ?? fromNode;
   const schedule = parseSchedule(campaign.schedule);
   const base = new Date(now(deps).getTime() + extraMs);
-  const scheduledAt = await nextAccountSlot(deps, campaign, schedule, base);
+  const scheduledAt = await nextAccountSlot(deps, state.account_id ?? campaign.account_id, schedule, base);
   await deps.db
     .updateTable("lead_campaign_state")
     .set({ current_node_id: start.id })

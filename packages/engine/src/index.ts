@@ -9,6 +9,7 @@ export * from "./campaign-runner";
 export * from "./dispatch";
 export * from "./inbound";
 export * from "./restrictions";
+export * from "./senders";
 export * from "./suppression";
 export * from "./simulation";
 export { evaluateCondition } from "./conditions";

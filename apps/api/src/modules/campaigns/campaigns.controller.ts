@@ -23,6 +23,8 @@ import {
   type SaveScheduleDto,
   saveSequenceSchema,
   type SaveSequenceDto,
+  setSendersSchema,
+  type SetSendersDto,
   updateCampaignSchema,
   type UpdateCampaignDto,
 } from "./dto";
@@ -112,6 +114,22 @@ export class CampaignsController {
     @Body(new ZodValidationPipe(saveScheduleSchema)) body: SaveScheduleDto,
   ) {
     return this.campaigns.saveSchedule(workspaceId, id, body);
+  }
+
+  // --- Sender pool (multi-account rotation) --------------------------------
+
+  @Get(":id/senders")
+  getSenders(@WorkspaceId() workspaceId: string, @Param("id") id: string) {
+    return this.campaigns.getSenders(workspaceId, id);
+  }
+
+  @Put(":id/senders")
+  setSenders(
+    @WorkspaceId() workspaceId: string,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(setSendersSchema)) body: SetSendersDto,
+  ) {
+    return this.campaigns.setSenders(workspaceId, id, body.accountIds);
   }
 
   // --- Sequence graph ------------------------------------------------------

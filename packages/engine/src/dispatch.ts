@@ -34,6 +34,7 @@ import {
   startOfUtcDay,
 } from "./repository";
 import { flagAccountIncident } from "./restrictions";
+import { pickRerouteSender } from "./senders";
 import { isWorkspaceSimulated, simulatedActionResult } from "./simulation";
 import { isLeadSuppressed } from "./suppression";
 import type { EngineDeps, LeadStateRow, SequenceNodeRow } from "./types";
@@ -277,12 +278,47 @@ async function processAction(
     return skip("suppressed");
   }
 
-  // Account must be sendable. Promote a finished warm-up; hold paused/restricted.
-  const account = await deps.db
-    .selectFrom("sending_accounts")
-    .select(["id", "status", "provider_account_id", "warmup_state"])
-    .where("id", "=", campaign.account_id ?? "")
-    .executeTakeFirst();
+  // Sender resolution (rotation): send from the lead's STICKY assigned sender
+  // (stamped on the action), falling back to the campaign default for single-account
+  // campaigns. Every downstream gate (rate governor, accountRef) keys off the account
+  // loaded here, so caps + proxy isolate per sender automatically.
+  const loadAccount = (id: string) =>
+    deps.db
+      .selectFrom("sending_accounts")
+      .select(["id", "status", "provider_account_id", "warmup_state"])
+      .where("id", "=", id)
+      .executeTakeFirst();
+
+  let sendAccountId = action.account_id ?? campaign.account_id;
+  let account = sendAccountId ? await loadAccount(sendAccountId) : undefined;
+
+  // Reroute away from a dead/paused assigned sender to a healthy pool member (§6
+  // "reroute across the user's other healthy accounts"), persisting the switch so the
+  // rest of the lead's sequence follows the new sender — only if the pool has one.
+  if (
+    !account ||
+    account.status === "disconnected" ||
+    account.status === "paused" ||
+    account.status === "restricted"
+  ) {
+    const alt = await pickRerouteSender(deps.db, campaign, sendAccountId);
+    if (alt && alt !== sendAccountId) {
+      const rerouted = await loadAccount(alt);
+      if (rerouted) {
+        account = rerouted;
+        sendAccountId = alt;
+        await deps.db
+          .updateTable("lead_campaign_state")
+          .set({ account_id: alt })
+          .where("campaign_id", "=", campaign.id)
+          .where("lead_id", "=", action.lead_id)
+          .execute();
+        await deps.db.updateTable("actions").set({ account_id: alt }).where("id", "=", action.id).execute();
+        deps.log?.(`rerouted lead ${action.lead_id} → healthy sender ${alt}`);
+      }
+    }
+  }
+
   if (!account) {
     return skip("no sending account");
   }

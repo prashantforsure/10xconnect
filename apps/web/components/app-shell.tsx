@@ -2,6 +2,7 @@
 
 import {
   BookOpen,
+  Building2,
   Code,
   DollarSign,
   Inbox,
@@ -53,6 +54,7 @@ const navSections: NavSection[] = [
       { href: "/contacts", label: "Contacts", icon: Users },
       { href: "/inbox", label: "Inbox", icon: Inbox },
       { href: "/accounts", label: "Accounts", icon: ShieldCheck, match: "/accounts" },
+      { href: "/agency", label: "Agency", icon: Building2, match: "/agency" },
     ],
   },
   {
@@ -76,6 +78,7 @@ const SECTION_LABELS: { prefix: string; label: string }[] = [
   { prefix: "/contacts", label: "Contacts" },
   { prefix: "/inbox", label: "Inbox" },
   { prefix: "/accounts", label: "Accounts" },
+  { prefix: "/agency", label: "Agency" },
   { prefix: "/settings", label: "Settings" },
   { prefix: "/affiliate", label: "Affiliate" },
   { prefix: "/tutorials", label: "Tutorials" },

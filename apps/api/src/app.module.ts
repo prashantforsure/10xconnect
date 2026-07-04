@@ -11,6 +11,7 @@ import { HealthController } from "./health/health.controller";
 import { MeController } from "./me/me.controller";
 import { MediaController } from "./media/media.controller";
 import { AccountsModule } from "./modules/accounts.module";
+import { AgencyModule } from "./modules/agency.module";
 import { AiModule } from "./modules/ai.module";
 import { AnalyticsModule } from "./modules/analytics.module";
 import { ApiKeysModule } from "./modules/api-keys.module";
@@ -25,6 +26,7 @@ import { LeadsModule } from "./modules/leads/leads.module";
 import { ListsModule } from "./modules/lists.module";
 import { NotificationsModule } from "./modules/notifications.module";
 import { PersonalizationModule } from "./modules/personalization.module";
+import { PublicReportsModule } from "./modules/public-reports.module";
 import { SuppressionModule } from "./modules/suppression.module";
 import { WebhooksModule } from "./modules/webhooks.module";
 import { WorkflowTemplatesModule } from "./modules/workflow-templates.module";
@@ -58,6 +60,8 @@ import { WorkspacesModule } from "./modules/workspaces.module";
     WebhooksModule,
     ApiKeysModule,
     IntegrationsModule,
+    PublicReportsModule,
+    AgencyModule,
     DevModule,
   ],
   controllers: [HealthController, MeController, MediaController],
