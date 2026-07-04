@@ -14,51 +14,38 @@ const BRAND_POINTS = [
 
 export function AuthShell({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <main className="flex min-h-screen bg-background">
-      {/* Brand panel */}
-      <aside className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-secondary p-12 lg:flex">
-        <div className="pointer-events-none absolute inset-x-0 -top-32 h-96 bg-[radial-gradient(60%_60%_at_30%_0%,hsl(15_87%_59%/0.18),transparent)]" />
-        <Link href="/" className="relative flex items-center gap-2.5">
-          <span className="flex size-9 items-center justify-center rounded-lg bg-primary font-display text-sm font-bold text-primary-foreground shadow-soft">
+    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
+      <div className="w-full max-w-[420px]">
+        <Link href="/" className="mb-8 flex items-center justify-center gap-2.5">
+          <span className="flex size-8 items-center justify-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
             10x
           </span>
-          <span className="font-display text-xl font-semibold tracking-tight">Connect</span>
+          <span className="text-lg font-semibold tracking-tight text-foreground">Connect</span>
         </Link>
-        <div className="relative">
-          <span className="eyebrow">
-            <ShieldCheck className="size-3.5 text-primary" /> Safety-first outreach
-          </span>
-          <h2 className="mt-5 font-display text-4xl font-bold leading-tight tracking-tight">
-            Start more conversations on LinkedIn — without burning your accounts.
-          </h2>
-          <ul className="mt-8 space-y-3">
-            {BRAND_POINTS.map((p) => (
-              <li key={p} className="flex items-start gap-2.5 text-sm">
-                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <Check className="size-3" />
-                </span>
-                {p}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <p className="relative text-xs text-muted-foreground">
-          © {new Date().getFullYear()} 10xConnect
-        </p>
-      </aside>
 
-      {/* Form */}
-      <div className="flex flex-1 items-center justify-center px-4 py-12">
-        <div className="w-full max-w-sm">
-          <Link href="/" className="mb-8 flex items-center gap-2 lg:hidden">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary font-display text-sm font-bold text-primary-foreground">
-              10x
-            </span>
-            <span className="font-display text-lg font-semibold tracking-tight">Connect</span>
-          </Link>
-          <h1 className="mb-6 font-display text-2xl font-bold tracking-tight">{title}</h1>
+        <div className="rounded-xl border border-border bg-card p-6 sm:p-8">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
+          <p className="mb-6 mt-1.5 flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
+            <ShieldCheck className="size-3.5 text-primary" />
+            Safety-first LinkedIn + email outreach
+          </p>
           {children}
         </div>
+
+        <ul className="mt-6 space-y-2 px-1">
+          {BRAND_POINTS.map((p) => (
+            <li key={p} className="flex items-start gap-2 text-[12px] text-muted-foreground">
+              <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-primary/[0.14] text-primary">
+                <Check className="size-2.5" />
+              </span>
+              {p}
+            </li>
+          ))}
+        </ul>
+
+        <p className="mt-6 text-center text-[11px] text-white/35">
+          © {new Date().getFullYear()} 10xConnect
+        </p>
       </div>
     </main>
   );
@@ -67,14 +54,14 @@ export function AuthShell({ title, children }: { title: string; children: ReactN
 export function Banner({ error, message }: { error?: string; message?: string }) {
   if (error) {
     return (
-      <p className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      <p className="mb-4 rounded-md border border-destructive/30 bg-destructive/[0.12] px-3 py-2 text-[13px] text-destructive">
         {error}
       </p>
     );
   }
   if (message) {
     return (
-      <p className="mb-4 rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+      <p className="mb-4 rounded-md border border-success/30 bg-success/[0.13] px-3 py-2 text-[13px] text-success">
         {message}
       </p>
     );

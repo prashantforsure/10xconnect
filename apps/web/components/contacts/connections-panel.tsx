@@ -177,18 +177,18 @@ export function ConnectionsPanel({
 
       {/* Action bar */}
       {selected.size > 0 ? (
-        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#38321F] bg-[#26221A] px-3.5 py-2.5">
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-inset px-3.5 py-2.5">
           <span className="flex items-center gap-2 text-[12.5px] font-semibold text-foreground">
             <span className="flex size-[18px] items-center justify-center rounded-[5px] bg-primary text-white">
               <Check className="size-3" strokeWidth={3.2} />
             </span>
             {selected.size} selected
           </span>
-          <span className="h-[18px] w-px bg-[#38321F]" />
+          <span className="h-[18px] w-px bg-white/[0.06]" />
           <Button
             variant="secondary"
             size="sm"
-            className="bg-[#1A1811]"
+            className="bg-surface"
             disabled={busy !== null}
             onClick={() => void runImport()}
           >
@@ -216,7 +216,7 @@ export function ConnectionsPanel({
           <>
             <div className="overflow-hidden rounded-[14px] border border-border bg-card">
               <table className="w-full text-sm">
-                <thead className="bg-card text-[10.5px] uppercase tracking-[0.08em] text-[#6E675B]">
+                <thead className="bg-card text-[10.5px] uppercase tracking-[0.08em] text-white/45">
                   <tr className="border-b border-border">
                     <th className="w-10 px-4 py-3">
                       <span className="flex justify-center">
@@ -245,7 +245,7 @@ export function ConnectionsPanel({
                       <tr
                         key={url ?? c.providerId ?? `${c.name}-${i}`}
                         className={cn(
-                          "border-b border-[#221F17] transition-colors last:border-b-0 hover:bg-accent",
+                          "border-b border-white/[0.06] transition-colors last:border-b-0 hover:bg-accent",
                           isSelected && "bg-primary/5",
                         )}
                       >
@@ -266,7 +266,7 @@ export function ConnectionsPanel({
                             <div className="min-w-0">
                               <div className="truncate font-medium text-foreground">{c.name ?? "—"}</div>
                               {c.location ? (
-                                <div className="truncate text-xs text-[#7A7363]">{c.location}</div>
+                                <div className="truncate text-xs text-muted-foreground">{c.location}</div>
                               ) : null}
                             </div>
                           </div>
@@ -332,7 +332,7 @@ export function ConnectionsPanel({
 function EmptyState({ accountConnected }: { accountConnected: boolean }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-      <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+      <span className="flex size-14 items-center justify-center rounded-xl bg-primary/[0.14] text-primary">
         <Users className="size-7" />
       </span>
       <div>

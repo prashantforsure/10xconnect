@@ -3,22 +3,22 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-// Command Dark badges render as wash pills: bg-<sem>/15 + text-<sem>, no border,
-// ~11.5px / 700. Status/safety pills should use these variants (never bespoke
-// rose/amber/violet one-offs).
+// Status chips render as tint pills: low-alpha accent bg + solid accent text,
+// no border, ~10.5px / 600, radius 5px. Use these variants (never bespoke
+// one-offs). Default = info/AI (indigo tint + #9BA3EB text).
 const badgeVariants = cva(
-  "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11.5px] font-bold leading-none transition-colors",
+  "inline-flex items-center gap-1.5 rounded-[5px] px-2 py-0.5 text-[10.5px] font-semibold leading-none transition-colors",
   {
     variants: {
       variant: {
-        default: "bg-primary/15 text-primary",
-        secondary: "bg-secondary text-secondary-foreground",
-        outline: "border border-border text-foreground",
-        muted: "bg-muted-foreground/15 text-muted-foreground",
-        success: "bg-success/15 text-success",
-        warning: "bg-warning/15 text-warning",
-        destructive: "bg-destructive/15 text-destructive",
-        info: "bg-chart-2/15 text-chart-2",
+        default: "bg-primary/[0.14] text-indigo-text",
+        secondary: "bg-white/[0.06] text-white/55",
+        outline: "border border-white/10 text-white/70",
+        muted: "bg-white/[0.06] text-white/55",
+        success: "bg-success/[0.13] text-success",
+        warning: "bg-warning/[0.13] text-warning",
+        destructive: "bg-destructive/[0.12] text-destructive",
+        info: "bg-linkedin/[0.14] text-linkedin",
       },
     },
     defaultVariants: {

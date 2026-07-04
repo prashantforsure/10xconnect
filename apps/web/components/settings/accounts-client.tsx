@@ -380,7 +380,7 @@ export function AccountsClient() {
 
       {linkedInAccounts.length === 0 ? (
         <div className="surface-card flex flex-col items-center border-dashed p-12 text-center">
-          <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <span className="flex size-14 items-center justify-center rounded-xl bg-primary/[0.14] text-primary">
             <ShieldCheck className="size-7" />
           </span>
           <p className="mt-4 font-display text-lg font-semibold">Connect your first LinkedIn account</p>
@@ -408,7 +408,7 @@ export function AccountsClient() {
       )}
 
       {/* Safety engine reassurance — first-class, always visible */}
-      <div className="flex items-start gap-3 rounded-2xl border border-success/20 bg-success/[0.06] p-4">
+      <div className="flex items-start gap-3 rounded-lg border border-success/25 bg-success/[0.08] p-4">
         <ShieldCheck className="mt-0.5 size-[17px] shrink-0 text-success" />
         <p className="text-[12.5px] leading-relaxed text-muted-foreground">
           <strong className="font-semibold text-foreground">How the safety engine protects you.</strong>{" "}
@@ -577,7 +577,7 @@ function AccountCard({
   const needsReconnect = account.status === "restricted" || account.status === "disconnected";
   const title = account.label || account.name || "LinkedIn account";
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5">
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-5">
       <div className="flex items-center gap-4">
         <HealthRing score={account.health_score} />
         <div className="min-w-0 flex-1">
@@ -637,7 +637,7 @@ function AccountCard({
         <span className="mb-1.5 block text-[11.5px] font-medium text-muted-foreground">
           Daily pacing · safe limits
         </span>
-        <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+        <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
           <div
             className={cn("h-full rounded-full", healthTone(account.health_score).track)}
             style={{ width: `${Math.max(6, Math.min(100, account.health_score))}%` }}
@@ -725,7 +725,7 @@ function ConnectChooserModal({
             <button
               key={o.key}
               onClick={() => onPick(o.key)}
-              className="flex w-full items-start gap-3 rounded-xl border border-border bg-secondary px-4 py-3 text-left transition-colors hover:border-input hover:bg-accent"
+              className="flex w-full items-start gap-3 rounded-md border border-border bg-inset px-4 py-3 text-left transition-colors hover:border-white/20 hover:bg-white/[0.03]"
             >
               <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <o.icon className="size-4" />

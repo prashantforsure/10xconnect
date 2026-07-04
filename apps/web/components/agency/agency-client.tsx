@@ -52,8 +52,8 @@ const num = (n: number): string => n.toLocaleString();
 
 function healthTone(h: number | null): string {
   if (h === null) return "text-muted-foreground";
-  if (h >= 70) return "text-emerald-600";
-  if (h >= 40) return "text-amber-600";
+  if (h >= 70) return "text-success";
+  if (h >= 40) return "text-warning";
   return "text-destructive";
 }
 
@@ -118,14 +118,14 @@ export function AgencyClient() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[880px] text-sm">
             <thead>
-              <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Client</th>
-                <th className="px-4 py-3 text-right font-medium">Leads</th>
-                <th className="px-4 py-3 text-right font-medium">Campaigns</th>
-                <th className="px-4 py-3 text-right font-medium">Accepted</th>
-                <th className="px-4 py-3 text-right font-medium">Replies</th>
-                <th className="px-4 py-3 text-right font-medium">Accounts</th>
-                <th className="px-4 py-3 text-right font-medium">Inbox</th>
+              <tr className="border-b border-border text-left text-[10.5px] font-semibold uppercase tracking-[0.06em] text-white/40">
+                <th className="px-4 py-3 font-semibold">Client</th>
+                <th className="px-4 py-3 text-right font-semibold">Leads</th>
+                <th className="px-4 py-3 text-right font-semibold">Campaigns</th>
+                <th className="px-4 py-3 text-right font-semibold">Accepted</th>
+                <th className="px-4 py-3 text-right font-semibold">Replies</th>
+                <th className="px-4 py-3 text-right font-semibold">Accounts</th>
+                <th className="px-4 py-3 text-right font-semibold">Inbox</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -221,7 +221,7 @@ export function AgencyClient() {
       </div>
 
       {clients.length <= 1 ? (
-        <div className="flex items-start gap-3 rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+        <div className="flex items-start gap-3 rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
           <Building2 className="mt-0.5 size-4 shrink-0" />
           <p>
             This view aggregates every workspace you belong to. Create one workspace per client (top-left
@@ -244,11 +244,11 @@ function Stat({
 }) {
   return (
     <div className="surface-card p-4">
-      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-white/40">{label}</p>
       <p
         className={cn(
-          "mt-1.5 text-2xl font-bold tabular-nums",
-          highlight ? "text-amber-600" : "text-foreground",
+          "mt-1.5 text-[22px] font-semibold tracking-[-0.02em] tabular-nums",
+          highlight ? "text-warning" : "text-foreground",
         )}
       >
         {value}

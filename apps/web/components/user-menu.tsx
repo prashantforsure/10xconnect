@@ -4,7 +4,6 @@ import { LogOut } from "lucide-react";
 
 import { logout } from "@/app/auth/actions";
 import { Avatar } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,26 +12,37 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export function UserMenu({ email }: { email: string }) {
+export function UserMenu({ email, collapsed = false }: { email: string; collapsed?: boolean }) {
+  const monogram = (
+    <span className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-avatar text-[10.5px] font-semibold text-white/75">
+      {email.charAt(0).toUpperCase()}
+    </span>
+  );
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          className="h-auto w-full justify-start gap-2.5 rounded-[10px] px-2.5 py-2 text-left"
-        >
-          <span className="flex size-[30px] shrink-0 items-center justify-center rounded-full border border-input bg-muted font-display text-[11px] font-bold text-primary">
-            {email.charAt(0).toUpperCase()}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[12.5px] font-semibold text-foreground">
-              {email.split("@")[0]}
+        {collapsed ? (
+          <button
+            type="button"
+            title={email}
+            className="mx-auto flex items-center justify-center rounded-md p-1 transition-colors hover:bg-white/[0.05]"
+          >
+            {monogram}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-white/[0.05]"
+          >
+            {monogram}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[12.5px] font-medium text-white/85">
+                {email.split("@")[0]}
+              </span>
+              <span className="block truncate text-[11px] font-normal text-white/40">{email}</span>
             </span>
-            <span className="block truncate text-[10.5px] font-normal text-muted-foreground">
-              {email}
-            </span>
-          </span>
-        </Button>
+          </button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top" className="w-60">
         <DropdownMenuLabel className="flex items-center gap-2.5 font-normal">
@@ -43,7 +53,7 @@ export function UserMenu({ email }: { email: string }) {
         <form action={logout}>
           <button
             type="submit"
-            className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground [&_svg]:size-4"
+            className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-[13px] text-white/70 outline-none transition-colors hover:bg-white/[0.06] hover:text-foreground [&_svg]:size-4"
           >
             <LogOut />
             Log out

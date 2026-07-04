@@ -97,7 +97,7 @@ export function SuppressionPanel() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search email or LinkedIn URL…"
-            className="h-9 bg-[#1A1811] text-[12.5px]"
+            className="h-9 bg-surface text-[12.5px]"
           />
         </div>
       </div>
@@ -108,7 +108,7 @@ export function SuppressionPanel() {
           <p className="p-4 text-sm text-muted-foreground">Loading…</p>
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-[14px] border border-border bg-card p-12 text-center">
-            <span className="flex size-14 items-center justify-center rounded-2xl bg-destructive/15 text-destructive">
+            <span className="flex size-14 items-center justify-center rounded-xl bg-destructive/[0.12] text-destructive">
               <Ban className="size-7" />
             </span>
             <div>
@@ -126,7 +126,7 @@ export function SuppressionPanel() {
         ) : (
           <div className="overflow-hidden rounded-[14px] border border-border bg-card">
             <table className="w-full text-sm">
-              <thead className="text-[10.5px] uppercase tracking-[0.08em] text-[#6E675B]">
+              <thead className="text-[10.5px] uppercase tracking-[0.08em] text-white/45">
                 <tr className="border-b border-border">
                   <th className="px-4 py-3 text-left font-semibold">Identifier</th>
                   <th className="px-4 py-3 text-left font-semibold">Reason</th>
@@ -152,7 +152,7 @@ export function SuppressionPanel() {
               <Button
                 variant="secondary"
                 size="sm"
-                className="bg-[#1A1811]"
+                className="bg-surface"
                 disabled={offset === 0}
                 onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
               >
@@ -161,7 +161,7 @@ export function SuppressionPanel() {
               <Button
                 variant="secondary"
                 size="sm"
-                className="bg-[#1A1811]"
+                className="bg-surface"
                 disabled={offset + PAGE_SIZE >= total}
                 onClick={() => setOffset(offset + PAGE_SIZE)}
               >
@@ -187,7 +187,7 @@ export function SuppressionPanel() {
 function SuppressionRow({ entry, onRemove }: { entry: SuppressionEntry; onRemove: () => void }) {
   const href = safeHttpUrl(entry.linkedinUrl);
   return (
-    <tr className="border-b border-[#221F17] transition-colors last:border-b-0 hover:bg-accent">
+    <tr className="border-b border-white/[0.06] transition-colors last:border-b-0 hover:bg-accent">
       <td className="px-4 py-2.5">
         <div className="flex flex-col gap-0.5">
           {entry.email ? <span className="font-medium text-foreground">{entry.email}</span> : null}
@@ -202,7 +202,7 @@ function SuppressionRow({ entry, onRemove }: { entry: SuppressionEntry; onRemove
                 {entry.linkedinUrl} <ExternalLink className="size-3" />
               </a>
             ) : (
-              <span className="text-xs text-[#7A7363]">{entry.linkedinUrl}</span>
+              <span className="text-xs text-muted-foreground">{entry.linkedinUrl}</span>
             )
           ) : null}
         </div>
@@ -210,7 +210,7 @@ function SuppressionRow({ entry, onRemove }: { entry: SuppressionEntry; onRemove
       <td className="px-4 py-2.5">
         <Badge variant="secondary">{entry.reason ?? "manual"}</Badge>
       </td>
-      <td className="px-4 py-2.5 text-xs text-[#7A7363]">
+      <td className="px-4 py-2.5 text-xs text-muted-foreground">
         {new Date(entry.createdAt).toLocaleDateString()}
       </td>
       <td className="px-4 py-2.5">

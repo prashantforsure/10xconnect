@@ -117,7 +117,7 @@ export function CampaignsList() {
             <LayoutTemplate />
             Templates
           </Button>
-          <Button onClick={() => setCreateOpen(true)} className="shadow-[0_0_18px_-5px_hsl(var(--primary)/0.6)]">
+          <Button onClick={() => setCreateOpen(true)}>
             <Plus />
             New campaign
           </Button>
@@ -130,7 +130,7 @@ export function CampaignsList() {
         <p className="text-sm text-muted-foreground">Loading campaigns…</p>
       ) : campaigns.length === 0 ? (
         <div className="surface-card flex flex-col items-center border-dashed p-14 text-center">
-          <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+          <span className="flex size-14 items-center justify-center rounded-xl bg-primary/[0.14] text-primary">
             <Megaphone className="size-7" />
           </span>
           <p className="mt-4 font-display text-lg font-semibold">No campaigns yet</p>
@@ -138,7 +138,7 @@ export function CampaignsList() {
             Create your first campaign, add a sequence of steps, enroll leads, and run it.
           </p>
           <div className="mt-5 flex items-center gap-2">
-            <Button onClick={() => setCreateOpen(true)} className="shadow-[0_0_18px_-5px_hsl(var(--primary)/0.6)]">
+            <Button onClick={() => setCreateOpen(true)}>
               <Plus />
               New campaign
             </Button>

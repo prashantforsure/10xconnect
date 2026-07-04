@@ -11,6 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
+import { cn } from "@/lib/utils";
 
 const CAP_LABELS: Record<string, string> = {
   connection_request: "Connection requests",
@@ -105,7 +106,7 @@ function ToggleRow({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between gap-4 rounded-xl border bg-secondary/40 px-4 py-3 text-sm">
+    <label className="flex items-center justify-between gap-4 rounded-md border border-border bg-inset px-4 py-3 text-[13px]">
       <span>{label}</span>
       <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
     </label>
@@ -117,10 +118,10 @@ function Warnings({ items }: { items: string[] }) {
     return null;
   }
   return (
-    <ul className="mt-3 space-y-1 rounded-xl border border-warning/40 bg-warning/10 p-3 text-xs text-foreground">
+    <ul className="mt-3 space-y-1 rounded-md border border-warning/30 bg-warning/[0.13] p-3 text-xs text-warning">
       {items.map((w) => (
         <li key={w} className="flex gap-2">
-          <span className="text-warning-foreground">•</span>
+          <span>•</span>
           {w}
         </li>
       ))}
@@ -196,7 +197,7 @@ function GeneralCard({ campaignId, onChanged }: { campaignId: string; onChanged:
           checked={excludeConn}
           onChange={setExcludeConn}
         />
-        <div className="flex items-center justify-between gap-4 rounded-xl border bg-secondary/40 px-4 py-3 text-sm">
+        <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-inset px-4 py-3 text-[13px]">
           <div>
             <div>Follow-up cap</div>
             <p className="text-xs text-muted-foreground">
@@ -274,7 +275,7 @@ function FrequencyCard({ campaignId }: { campaignId: string }) {
       title="Frequency (daily caps)"
       description="Per-account daily limits, aggregated across campaigns. Values above the safe maximum are clamped automatically."
     >
-      <div className="mb-4 flex gap-2.5 rounded-xl border border-primary/30 bg-primary/10 px-3.5 py-3 text-xs">
+      <div className="mb-4 flex gap-2.5 rounded-md border border-primary/25 bg-primary/[0.10] px-3.5 py-3 text-xs">
         <Info className="mt-0.5 size-4 shrink-0 text-primary" />
         <span className="text-muted-foreground">
           <strong className="text-foreground">Note:</strong> these numbers may vary with your
@@ -313,7 +314,10 @@ function FrequencyCard({ campaignId }: { campaignId: string }) {
                     const n = Number.parseInt(e.target.value, 10);
                     setCaps({ ...caps, [type]: Number.isFinite(n) && n >= 0 ? n : 0 });
                   }}
-                  className="h-10 w-16 shrink-0 text-center text-sm font-semibold tabular-nums"
+                  className={cn(
+                    "h-9 w-16 shrink-0 text-center text-sm font-semibold tabular-nums",
+                    value > max && "border-warning/60 text-warning",
+                  )}
                   aria-label={`${CAP_LABELS[type]} per day`}
                 />
               </div>
@@ -403,7 +407,7 @@ function ScheduleCard({ campaignId }: { campaignId: string }) {
           return (
             <div
               key={d.key}
-              className="flex flex-wrap items-center gap-3 rounded-xl border bg-secondary/40 px-3 py-2"
+              className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-inset px-3 py-2"
             >
               <div className="flex w-36 items-center gap-2.5">
                 <Switch

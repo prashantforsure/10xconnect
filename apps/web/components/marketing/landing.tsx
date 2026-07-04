@@ -107,7 +107,7 @@ const TESTIMONIALS = [
     name: "Priya S.",
     role: "SDR Lead",
     initials: "PS",
-    bg: "bg-[#743CE2]",
+    bg: "bg-branch",
   },
 ];
 
@@ -144,7 +144,7 @@ export function Landing() {
           style={{ background: "radial-gradient(55% 60% at 50% 0%, hsl(var(--primary)/0.16), transparent)" }}
         />
         <div className="relative">
-          <span className="eyebrow shadow-soft">
+          <span className="eyebrow">
             <ShieldCheck className="size-3.5 text-primary" /> Safety-first LinkedIn + email outreach
           </span>
           <h1 className="mx-auto mt-6 max-w-[880px] text-balance font-display text-[40px] font-semibold leading-[1.04] tracking-[-0.03em] sm:text-[58px]">
@@ -188,7 +188,7 @@ export function Landing() {
               {[...INTEGRATIONS, ...INTEGRATIONS].map((name, i) => (
                 <span
                   key={`${name}-${i}`}
-                  className="whitespace-nowrap px-7 font-display text-lg font-bold text-[#635A4C]"
+                  className="whitespace-nowrap px-7 font-display text-lg font-bold text-white/35"
                 >
                   {name}
                 </span>
@@ -271,7 +271,7 @@ export function Landing() {
             {FEATURES.map((f) => (
               <div
                 key={f.title}
-                className="reveal surface-card p-6 transition-all duration-200 hover:-translate-y-1 hover:shadow-soft-lg"
+                className="reveal surface-card p-6 transition-all duration-200 hover:-translate-y-1 hover:shadow-raised"
               >
                 <span className="flex size-[46px] items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <f.icon className="size-5" />
@@ -309,20 +309,20 @@ export function Landing() {
 
       {/* -------------------------------- SAFETY MOAT ------------------------------ */}
       <section id="safety" className="scroll-mt-24 px-6 pb-12 pt-6">
-        <div className="reveal relative mx-auto max-w-6xl overflow-hidden rounded-[28px] bg-foreground px-8 py-14 text-[#F7F2E8] sm:px-14">
+        <div className="reveal relative mx-auto max-w-6xl overflow-hidden rounded-[28px] border border-border bg-card px-8 py-14 text-foreground sm:px-14">
           <div
             className="pointer-events-none absolute -right-20 -top-20 size-[340px] rounded-full opacity-35"
             style={{ background: "radial-gradient(circle, hsl(var(--primary)), transparent 70%)" }}
           />
           <div className="relative grid items-center gap-12 lg:grid-cols-2">
             <div>
-              <span className="inline-flex items-center gap-2 rounded-full border border-[#F7F2E8]/20 px-3.5 py-1.5 text-xs font-semibold text-[#F7F2E8]/80">
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3.5 py-1.5 text-xs font-semibold text-white/80">
                 <ShieldCheck className="size-3.5 text-primary" /> The #1 priority
               </span>
               <h2 className="mt-5 font-display text-[34px] font-semibold leading-[1.08] tracking-[-0.02em] sm:text-[40px]">
                 We refuse to burn your accounts
               </h2>
-              <p className="mt-4 leading-relaxed text-[#F7F2E8]/70">
+              <p className="mt-4 leading-relaxed text-white/70">
                 A rate governor, working-hours scheduler, warm-up state machine and live health
                 monitor are all ours — and they clamp or pause before they ever risk a restriction.
                 Account safety is a lifecycle we design for, not an error we hit.
@@ -337,11 +337,11 @@ export function Landing() {
               {SAFETY.map((s) => (
                 <div
                   key={s.label}
-                  className="rounded-2xl border border-[#F7F2E8]/15 bg-[#F7F2E8]/[0.04] p-[18px]"
+                  className="rounded-lg border border-white/15 bg-white/[0.04] p-[18px]"
                 >
                   <s.icon className="size-5 text-primary" />
                   <div className="mt-2.5 text-sm font-semibold">{s.label}</div>
-                  <div className="mt-0.5 text-xs text-[#F7F2E8]/55">{s.value}</div>
+                  <div className="mt-0.5 text-xs text-white/55">{s.value}</div>
                 </div>
               ))}
             </div>
@@ -364,7 +364,7 @@ export function Landing() {
             {TESTIMONIALS.map((t) => (
               <figure
                 key={t.name}
-                className="reveal surface-card flex flex-col p-6 transition-all duration-200 hover:-translate-y-1 hover:shadow-soft-lg"
+                className="reveal surface-card flex flex-col p-6 transition-all duration-200 hover:-translate-y-1 hover:shadow-raised"
               >
                 <div className="text-[15px] tracking-[2px] text-primary">★★★★★</div>
                 <blockquote className="mt-4 flex-1 text-[15px] leading-relaxed text-foreground">
@@ -431,7 +431,7 @@ export function Landing() {
           {FAQ.map((item) => (
             <details
               key={item.q}
-              className="group surface-card rounded-2xl px-5 py-[18px] [&_summary]:list-none"
+              className="group surface-card px-5 py-[18px] [&_summary]:list-none"
             >
               <summary className="flex cursor-pointer items-center justify-between gap-4 text-[15.5px] font-semibold">
                 {item.q}
@@ -482,7 +482,7 @@ export function Landing() {
 
 function HeroPreview() {
   return (
-    <div className="float surface-card mt-12 overflow-hidden text-left shadow-soft-lg">
+    <div className="float surface-card mt-12 overflow-hidden text-left shadow-overlay">
       <BrowserChrome url="app.10xconnect.com / campaigns / Q2 Founders" />
       <div className="grid md:grid-cols-[1fr_1.15fr]">
         <div className="border-b p-6 md:border-b-0 md:border-r">
@@ -505,7 +505,7 @@ function HeroPreview() {
             <StatTile tint="bg-tint-green" value="41%" label="Accept rate" />
             <StatTile tint="bg-tint-violet" value="57" label="Booked" />
           </div>
-          <div className="mt-3 rounded-2xl border p-3.5">
+          <div className="mt-3 rounded-lg border p-3.5">
             <div className="mb-2.5 flex items-center justify-between">
               <span className="text-[12.5px] font-semibold">Account health</span>
               <span className="inline-flex items-center gap-1.5 rounded-full bg-success/12 px-2.5 py-0.5 text-[11px] font-bold text-success">
@@ -544,13 +544,13 @@ function MockSequence() {
           </div>
         </div>
         <Connector />
-        <div className="flex items-center gap-3 rounded-xl border border-[#DED1FB] bg-[#F1ECFE] px-3.5 py-3">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-white text-[#743CE2]">
+        <div className="flex items-center gap-3 rounded-xl border border-branch/30 bg-branch/[0.14] px-3.5 py-3">
+          <span className="flex size-8 items-center justify-center rounded-lg bg-elevated text-branch">
             <GitBranch className="size-4" />
           </span>
           <div>
-            <div className="text-sm font-semibold text-[#5B3BA8]">Invite accepted?</div>
-            <div className="text-[11.5px] text-[#9C84C8]">yes → continue · no → stop</div>
+            <div className="text-sm font-semibold text-branch">Invite accepted?</div>
+            <div className="text-[11.5px] text-branch/70">yes → continue · no → stop</div>
           </div>
         </div>
         <Connector />
@@ -604,7 +604,7 @@ function MockPersonalization() {
 
 function MockInbox() {
   const threads = [
-    { initials: "PS", name: "Priya Shah", msg: "Sure, let's find a time…", bg: "bg-[#743CE2]", active: true },
+    { initials: "PS", name: "Priya Shah", msg: "Sure, let's find a time…", bg: "bg-branch", active: true },
     { initials: "DK", name: "Daniel Kim", msg: "What does pricing look like?", bg: "bg-[#3C66E2]", active: false },
     { initials: "SL", name: "Sara Lee", msg: "Thanks for connecting!", bg: "bg-success", active: false },
   ];
@@ -656,9 +656,9 @@ function MockInbox() {
 function BrowserChrome({ url }: { url: string }) {
   return (
     <div className="flex items-center gap-1.5 border-b bg-secondary/50 px-4 py-3">
-      <span className="size-[11px] rounded-full bg-[#E2A8A0]" />
-      <span className="size-[11px] rounded-full bg-[#E8CF9A]" />
-      <span className="size-[11px] rounded-full bg-[#A8CDB0]" />
+      <span className="size-[11px] rounded-full bg-destructive" />
+      <span className="size-[11px] rounded-full bg-warning" />
+      <span className="size-[11px] rounded-full bg-success" />
       <span className="ml-3 text-xs text-muted-foreground">{url}</span>
     </div>
   );
@@ -687,11 +687,11 @@ function SeqNode({
 }) {
   if (condition) {
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-[#DED1FB] bg-[#F1ECFE] px-3.5 py-3">
-        <span className="flex size-[30px] items-center justify-center rounded-lg bg-white text-[#743CE2]">
+      <div className="flex items-center gap-3 rounded-xl border border-branch/30 bg-branch/[0.14] px-3.5 py-3">
+        <span className="flex size-[30px] items-center justify-center rounded-lg bg-elevated text-branch">
           <Icon className="size-4" />
         </span>
-        <span className="text-[13.5px] font-semibold text-[#5B3BA8]">{label}</span>
+        <span className="text-[13.5px] font-semibold text-branch">{label}</span>
       </div>
     );
   }
@@ -707,7 +707,7 @@ function SeqNode({
 
 function StatTile({ tint, value, label }: { tint: string; value: string; label: string }) {
   return (
-    <div className={`rounded-2xl p-3.5 ${tint}`}>
+    <div className={`rounded-lg p-3.5 ${tint}`}>
       <div className="font-display text-2xl font-bold text-foreground">{value}</div>
       <div className="text-xs text-foreground/60">{label}</div>
     </div>

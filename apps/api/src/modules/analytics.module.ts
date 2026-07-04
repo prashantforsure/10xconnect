@@ -276,6 +276,116 @@ export class AnalyticsService {
     return { range, aiReplies, conversationsHandled, hotLeads, escalations, pendingDrafts, estimatedHoursSaved };
   }
 
+  /**
+   * The dashboard "Waiting on you" review queue — every AI suggestion that needs a
+   * human: pending drafts (approve/edit/discard) and escalations (hot leads to take
+   * over). Projects existing tables (message_drafts + relationship_state + the last
+   * inbound message) so the dashboard reuses the SAME approve/discard actions the
+   * inbox already exposes — no new write path, no fabricated data. Scoped to
+   * connected accounts (mirrors the inbox unibox), newest first.
+   */
+  async reviewQueue(workspaceId: string, limit = 8) {
+    const rows = await this.db
+      .selectFrom("message_drafts as d")
+      .innerJoin("conversations as c", "c.id", "d.conversation_id")
+      .innerJoin("sending_accounts as sa", "sa.id", "c.account_id")
+      .leftJoin("leads as l", "l.id", "c.lead_id")
+      .leftJoin("relationship_state as r", "r.lead_id", "c.lead_id")
+      .select([
+        "d.id as draftId",
+        "d.conversation_id as conversationId",
+        "d.status as status",
+        "d.body as body",
+        "d.confidence as confidence",
+        "d.reasoning as reasoning",
+        "d.created_at as createdAt",
+        "l.enrichment as enrichment",
+        "l.email as email",
+        "l.linkedin_url as linkedinUrl",
+        "r.intent_score as intentScore",
+        "r.stage as relStage",
+        "r.summary as relSummary",
+        "r.next_action as relNextAction",
+      ])
+      .where("d.workspace_id", "=", workspaceId)
+      .where("d.status", "in", ["pending", "escalated"])
+      .where("sa.status", "in", ["active", "warming"])
+      .orderBy("d.created_at", "desc")
+      .limit(Math.min(Math.max(limit, 1), 25))
+      .execute();
+
+    const lastInbound = await this.lastInboundMessages(rows.map((r) => r.conversationId));
+
+    const items = rows.map((r) => {
+      const reasoning = asObject(r.reasoning);
+      const reason = (reasoning.reason as string | undefined) ?? null;
+      const isHot = r.status === "escalated" && (reason === "hot_lead" || r.relStage === "hot_lead");
+      const e = asObject(r.enrichment);
+      return {
+        draftId: r.draftId,
+        conversationId: r.conversationId,
+        leadName: leadName(r.enrichment, r.email, r.linkedinUrl),
+        role: typeof e.role === "string" ? e.role : null,
+        company: typeof e.company === "string" ? e.company : null,
+        headline: typeof e.headline === "string" ? e.headline : null,
+        // "draft" = pending reply awaiting approval; "hot_lead" = escalated buyer to
+        // take over; "escalation" = any other AI handoff (out-of-KB, hard-no, …).
+        kind: r.status === "pending" ? "draft" : isHot ? "hot_lead" : "escalation",
+        status: r.status,
+        reason,
+        body: r.body,
+        confidence: r.confidence,
+        summary: (reasoning.summary as string | undefined) ?? r.relSummary ?? null,
+        nextStep: (reasoning.nextStep as string | undefined) ?? r.relNextAction ?? null,
+        intentScore: r.intentScore ?? null,
+        isHot,
+        lastInbound: lastInbound.get(r.conversationId) ?? null,
+        createdAt: r.createdAt,
+      };
+    });
+
+    // Workspace-wide totals for the header badge ("N drafts · M hot") — independent
+    // of the display limit.
+    const [{ count: draftCount }, { count: hotCount }] = await Promise.all([
+      this.db
+        .selectFrom("message_drafts")
+        .select((eb) => eb.fn.countAll<string>().as("count"))
+        .where("workspace_id", "=", workspaceId)
+        .where("status", "=", "pending")
+        .executeTakeFirstOrThrow(),
+      this.db
+        .selectFrom("message_drafts")
+        .select((eb) => eb.fn.countAll<string>().as("count"))
+        .where("workspace_id", "=", workspaceId)
+        .where("status", "=", "escalated")
+        .where((eb) => eb(sql<string>`reasoning->>'reason'`, "=", "hot_lead"))
+        .executeTakeFirstOrThrow(),
+    ]);
+
+    return { items, counts: { drafts: Number(draftCount), hot: Number(hotCount) } };
+  }
+
+  /** Latest inbound (lead → you) message per conversation — the "what they asked" line. */
+  private async lastInboundMessages(conversationIds: string[]) {
+    const map = new Map<string, { body: string | null; at: string }>();
+    if (conversationIds.length === 0) {
+      return map;
+    }
+    const rows = await this.db
+      .selectFrom("messages")
+      .select(["conversation_id", "body", "created_at"])
+      .where("conversation_id", "in", conversationIds)
+      .where("direction", "=", "inbound")
+      .orderBy("created_at", "desc")
+      .execute();
+    for (const m of rows) {
+      if (!map.has(m.conversation_id)) {
+        map.set(m.conversation_id, { body: m.body, at: m.created_at });
+      }
+    }
+    return map;
+  }
+
   /** Outbound message count, optionally by author + window, or distinct conversations. */
   private async countMessages(
     workspaceId: string,
@@ -521,6 +631,12 @@ export class AnalyticsController {
   @Get("ai-sdr")
   aiSdr(@WorkspaceId() workspaceId: string, @Query("range") range?: string) {
     return this.analytics.aiSdr(workspaceId, parseAnalyticsRange(range));
+  }
+
+  @Get("review-queue")
+  reviewQueue(@WorkspaceId() workspaceId: string, @Query("limit") limit?: string) {
+    const n = Number.parseInt(limit ?? "", 10);
+    return this.analytics.reviewQueue(workspaceId, Number.isFinite(n) ? n : 8);
   }
 
   @Get("unit-economics")

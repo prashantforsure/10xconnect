@@ -189,15 +189,18 @@ export function MembersClient() {
       </div>
 
       {actionError ? (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {actionError}
         </div>
       ) : null}
 
       {/* Members */}
-      <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
+      <div className="divide-y divide-white/[0.06] overflow-hidden rounded-lg border border-border bg-card">
         {data.members.map((member) => (
-          <div key={member.userId} className="flex items-center gap-3 px-4 py-3">
+          <div
+            key={member.userId}
+            className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-white/[0.03]"
+          >
             <Avatar name={member.name ?? member.email ?? undefined} size="md" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{member.name ?? member.email}</div>
@@ -248,10 +251,13 @@ export function MembersClient() {
       {/* Pending invites */}
       {data.invites.length > 0 ? (
         <div className="space-y-2">
-          <h2 className="font-display text-base font-semibold">Pending invites</h2>
-          <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
+          <h2 className="text-[15px] font-semibold">Pending invites</h2>
+          <div className="divide-y divide-white/[0.06] overflow-hidden rounded-lg border border-border bg-card">
             {data.invites.map((invite) => (
-              <div key={invite.id} className="flex items-center gap-3 px-4 py-3">
+              <div
+                key={invite.id}
+                className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-white/[0.03]"
+              >
                 <div className="min-w-0 flex-1 truncate text-sm">{invite.email}</div>
                 <RoleBadge role={invite.role} />
                 <Badge variant="muted">Pending</Badge>

@@ -87,9 +87,9 @@ export function NodeCard({ node }: { node: GraphNode }) {
       className={cn(
         // Content stays editable while the campaign runs (composer + inline
         // fields); only STRUCTURE controls (move/delete) lock below.
-        "seqnode group relative w-[340px] rounded-[14px] border bg-card px-3.5 py-3 text-left transition-colors",
+        "seqnode group relative w-[340px] rounded-lg border bg-card px-3.5 py-3 text-left transition-colors",
         composer ? "cursor-pointer" : "",
-        isSelected ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-[hsl(45_16%_25%)]",
+        isSelected ? "border-primary ring-1 ring-primary/40" : "border-border hover:border-white/20",
       )}
       onClick={composer ? () => selectComposer(node.id) : undefined}
     >

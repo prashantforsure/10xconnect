@@ -244,8 +244,8 @@ export function ContactsClient() {
   return (
     <div className="flex h-full bg-background">
       {/* Lists sidebar */}
-      <aside className="flex w-[212px] shrink-0 flex-col overflow-y-auto border-r border-border bg-[#1A1811] p-3">
-        <div className="mb-2.5 px-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#5C564A]">
+      <aside className="flex w-[212px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface p-3">
+        <div className="mb-2.5 px-2 text-[10px] font-bold uppercase tracking-[0.12em] text-white/40">
           My lists
         </div>
         <nav className="flex flex-col gap-0.5">
@@ -290,7 +290,7 @@ export function ContactsClient() {
           <button
             type="button"
             onClick={() => setCreateListOpen(true)}
-            className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-[#7A7363] transition-colors hover:bg-accent hover:text-foreground"
+            className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <Plus className="size-3.5" />
             New list
@@ -341,18 +341,18 @@ export function ContactsClient() {
           {/* Quiet toolbar */}
           <div className="mb-3.5 flex flex-wrap items-center gap-2">
             <div className="relative w-[230px] max-w-full">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[#7A7363]" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search contacts…"
-                className="h-9 bg-[#1A1811] pl-9 text-[12.5px]"
+                className="h-9 bg-surface pl-9 text-[12.5px]"
               />
             </div>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="secondary" size="sm" className="bg-[#1A1811]">
+                <Button variant="secondary" size="sm" className="bg-surface">
                   <ListFilter />
                   Filter
                   {filtersActive ? <span className="size-1.5 rounded-full bg-primary" /> : null}
@@ -415,7 +415,7 @@ export function ContactsClient() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <div className="ml-auto flex overflow-hidden rounded-[9px] border border-border bg-[#1A1811]">
+            <div className="ml-auto flex overflow-hidden rounded-[9px] border border-border bg-surface">
               <button
                 type="button"
                 onClick={() => setView("list")}
@@ -447,24 +447,24 @@ export function ContactsClient() {
 
           {/* Bulk action bar — appears only on selection */}
           {selected.size > 0 ? (
-            <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-[#38321F] bg-[#26221A] px-3.5 py-2.5">
+            <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-inset px-3.5 py-2.5">
               <span className="flex items-center gap-2 text-[12.5px] font-semibold text-foreground">
                 <span className="flex size-[18px] items-center justify-center rounded-[5px] bg-primary text-white">
                   <Check className="size-3" strokeWidth={3.2} />
                 </span>
                 {selected.size} selected
               </span>
-              <span className="h-[18px] w-px bg-[#38321F]" />
-              <Button variant="secondary" size="sm" className="bg-[#1A1811]" onClick={() => setBulkAction("tag")}>
+              <span className="h-[18px] w-px bg-white/[0.06]" />
+              <Button variant="secondary" size="sm" className="bg-surface" onClick={() => setBulkAction("tag")}>
                 <Tags /> Tag
               </Button>
-              <Button variant="secondary" size="sm" className="bg-[#1A1811]" onClick={() => setBulkAction("list")}>
+              <Button variant="secondary" size="sm" className="bg-surface" onClick={() => setBulkAction("list")}>
                 <Plus /> Add to list
               </Button>
-              <Button variant="secondary" size="sm" className="bg-[#1A1811]" onClick={() => setBulkAction("campaign")}>
+              <Button variant="secondary" size="sm" className="bg-surface" onClick={() => setBulkAction("campaign")}>
                 Add to campaign
               </Button>
-              <Button variant="secondary" size="sm" className="bg-[#1A1811]" onClick={() => setBulkAction("dnc")}>
+              <Button variant="secondary" size="sm" className="bg-surface" onClick={() => setBulkAction("dnc")}>
                 <Ban /> Do not contact
               </Button>
               <Button variant="destructive" size="sm" onClick={() => setBulkAction("delete")}>
@@ -474,7 +474,7 @@ export function ContactsClient() {
                 type="button"
                 onClick={() => setSelected(new Set())}
                 aria-label="Clear selection"
-                className="ml-auto flex size-7 items-center justify-center rounded-[7px] text-[#7A7363] transition-colors hover:bg-accent hover:text-foreground"
+                className="ml-auto flex size-7 items-center justify-center rounded-[7px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 <X className="size-4" />
               </button>
@@ -510,7 +510,7 @@ export function ContactsClient() {
                   <Button
                     variant="secondary"
                     size="icon"
-                    className="size-7 bg-[#1A1811]"
+                    className="size-7 bg-surface"
                     disabled={offset === 0}
                     onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
                     aria-label="Previous page"
@@ -520,7 +520,7 @@ export function ContactsClient() {
                   <Button
                     variant="secondary"
                     size="icon"
-                    className="size-7 bg-[#1A1811]"
+                    className="size-7 bg-surface"
                     disabled={offset + PAGE_SIZE >= total}
                     onClick={() => setOffset(offset + PAGE_SIZE)}
                     aria-label="Next page"
@@ -625,7 +625,7 @@ function SidebarItem({
         <span
           className={cn(
             "font-display text-[11px] font-semibold",
-            active ? "text-primary" : "text-[#7A7363]",
+            active ? "text-primary" : "text-muted-foreground",
           )}
         >
           {count}
@@ -675,7 +675,7 @@ function LeadTable({
   onEnroll: (id: string) => void;
 }) {
   return (
-    <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
+    <div className="divide-y overflow-hidden rounded-lg border bg-card">
       {leads.map((lead) => {
         const href = safeHttpUrl(lead.linkedinUrl);
         const degree = degreeLabel(lead.connectionDegree);
@@ -702,7 +702,7 @@ function LeadTable({
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-medium">{lead.name ?? "—"}</span>
                 {degree ? (
-                  <span className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  <span className="shrink-0 rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                     {degree}
                   </span>
                 ) : null}
@@ -769,7 +769,7 @@ function LeadTable({
                   <button
                     type="button"
                     aria-label="Row actions"
-                    className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
                   >
                     <MoreVertical className="size-4" />
                   </button>
@@ -833,11 +833,11 @@ function LeadBoard({
   return (
     <div className="flex gap-3 overflow-x-auto pb-1">
       {columns.map(([tag, items]) => (
-        <div key={tag} className="flex w-64 shrink-0 flex-col rounded-xl border border-border bg-[#1A1811] p-3">
+        <div key={tag} className="flex w-64 shrink-0 flex-col rounded-xl border border-border bg-surface p-3">
           <div className="mb-3 flex items-center gap-2 text-[11.5px] font-semibold text-muted-foreground">
             <span className="size-2 rounded-full bg-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">{tag}</span>
-            <span className="text-[#5C564A]">{items.length}</span>
+            <span className="text-white/40">{items.length}</span>
           </div>
           <div className="flex flex-col gap-2">
             {items.map((lead) => (
@@ -845,7 +845,7 @@ function LeadBoard({
                 key={`${tag}-${lead.id}`}
                 onClick={() => onOpen(lead)}
                 className={cn(
-                  "cursor-pointer rounded-[9px] border border-border bg-card p-3 text-sm transition-colors hover:border-[#38321F]",
+                  "cursor-pointer rounded-[9px] border border-border bg-card p-3 text-sm transition-colors hover:border-white/20",
                   selected.has(lead.id) && "ring-2 ring-primary",
                 )}
               >
@@ -855,7 +855,7 @@ function LeadBoard({
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium text-foreground">{lead.name ?? "—"}</div>
-                    <div className="mt-1 truncate text-xs text-[#7A7363]">
+                    <div className="mt-1 truncate text-xs text-muted-foreground">
                       {lead.role ?? lead.headline ?? ""} {lead.company ? `· ${lead.company}` : ""}
                     </div>
                     <div className="mt-2">
@@ -995,7 +995,7 @@ function LeadDetailDrawer({
               <div className="truncate font-display text-base font-semibold text-foreground">
                 {lead.name ?? "—"}
               </div>
-              <div className="mt-1 truncate text-xs text-[#7A7363]">
+              <div className="mt-1 truncate text-xs text-muted-foreground">
                 {[role, lead.company].filter(Boolean).join(" · ") || "—"}
               </div>
             </div>
@@ -1028,7 +1028,7 @@ function LeadDetailDrawer({
                     <a
                       key={c.id}
                       href={`/campaigns/${c.id}?tab=leads`}
-                      className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 transition-colors hover:border-[#38321F]"
+                      className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 transition-colors hover:border-white/20"
                     >
                       <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">
                         {c.name}
@@ -1207,13 +1207,13 @@ function ActivityRow({ item }: { item: LeadActivityItem }) {
         <div className="flex items-center gap-2">
           <span className="text-[12.5px] font-medium capitalize text-foreground">{label}</span>
           {item.status ? (
-            <span className="text-[10.5px] text-[#7A7363]">{item.status}</span>
+            <span className="text-[10.5px] text-muted-foreground">{item.status}</span>
           ) : null}
         </div>
         {item.body ? (
-          <p className="mt-0.5 line-clamp-2 text-[11.5px] text-[#9A9384]">{item.body}</p>
+          <p className="mt-0.5 line-clamp-2 text-[11.5px] text-muted-foreground">{item.body}</p>
         ) : null}
-        <span className="text-[10.5px] text-[#5C564A]">{new Date(item.at).toLocaleString()}</span>
+        <span className="text-[10.5px] text-white/40">{new Date(item.at).toLocaleString()}</span>
       </div>
     </div>
   );
@@ -1222,7 +1222,7 @@ function ActivityRow({ item }: { item: LeadActivityItem }) {
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="mb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.09em] text-[#7A7363]">
+      <div className="mb-2.5 text-[10.5px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
         {label}
       </div>
       {children}
@@ -1243,10 +1243,10 @@ function DetailRow({
     <div
       className={cn(
         "flex items-center gap-2.5 px-3.5 py-2.5",
-        !last && "border-b border-[#221F17]",
+        !last && "border-b border-white/[0.06]",
       )}
     >
-      <span className="w-16 shrink-0 text-[11.5px] text-[#7A7363]">{label}</span>
+      <span className="w-16 shrink-0 text-[11.5px] text-muted-foreground">{label}</span>
       <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-foreground">{value}</span>
     </div>
   );
@@ -1255,7 +1255,7 @@ function DetailRow({
 function EmptyState({ onImport }: { onImport: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-[14px] border border-border bg-card p-12 text-center">
-      <span className="flex size-14 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+      <span className="flex size-14 items-center justify-center rounded-xl bg-primary/[0.14] text-primary">
         <Users className="size-7" />
       </span>
       <div>
@@ -1281,7 +1281,7 @@ function CreateListModal({
   onCreate: (name: string, color: string | null) => Promise<void>;
 }) {
   const [name, setName] = useState("");
-  const [color, setColor] = useState("#F2683C");
+  const [color, setColor] = useState("#5E6AD2");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

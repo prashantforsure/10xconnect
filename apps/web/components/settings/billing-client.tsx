@@ -107,21 +107,21 @@ export function BillingClient() {
       <div className="surface-card p-6">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="font-display text-base font-semibold">Subscription</h2>
+            <h2 className="text-[15px] font-semibold">Subscription</h2>
             <p className="text-xs text-muted-foreground">
               Status: <span className="capitalize">{sub?.status?.replace("_", " ") ?? "—"}</span>
             </p>
           </div>
-          <div className="inline-flex rounded-full border bg-secondary p-1 text-xs">
+          <div className="inline-flex rounded-md border border-border bg-surface p-0.5 text-xs">
             {(["monthly", "annual"] as const).map((c) => (
               <button
                 key={c}
                 onClick={() => setCycle(c)}
                 className={cn(
-                  "rounded-full px-3 py-1 font-medium capitalize transition-colors",
+                  "rounded-sm px-3 py-1 font-medium capitalize transition-colors",
                   cycle === c
-                    ? "bg-primary text-primary-foreground shadow-soft"
-                    : "text-muted-foreground hover:text-foreground",
+                    ? "bg-white/[0.09] text-foreground"
+                    : "text-white/55 hover:text-white/80",
                 )}
               >
                 {c}
@@ -131,7 +131,7 @@ export function BillingClient() {
         </div>
 
         <div className="mt-5">
-          <div className="font-display text-4xl font-bold tracking-tight">
+          <div className="text-[26px] font-semibold tracking-[-0.02em] tabular-nums">
             ${cost}
             <span className="text-sm font-normal text-muted-foreground">/mo</span>
           </div>
@@ -170,7 +170,7 @@ export function BillingClient() {
       </div>
 
       <div className="surface-card p-6">
-        <h2 className="font-display text-base font-semibold">What&apos;s included</h2>
+        <h2 className="text-[15px] font-semibold">What&apos;s included</h2>
         <ul className="mt-3 grid gap-2.5 text-sm sm:grid-cols-2">
           {INCLUDED_FEATURES.map((f) => (
             <li key={f} className="flex items-start gap-2">

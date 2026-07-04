@@ -229,7 +229,7 @@ function Money({
   highlight?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border bg-card p-4 shadow-soft">
+    <div className="rounded-lg border bg-card p-4 shadow-soft">
       <div
         className={
           "font-display text-2xl font-bold tracking-tight" + (highlight ? " text-primary" : "")
@@ -257,7 +257,7 @@ function Stat({
   accent?: "success" | "primary";
 }) {
   return (
-    <div className="rounded-2xl border bg-card p-4 shadow-soft">
+    <div className="rounded-lg border bg-card p-4 shadow-soft">
       <div className="flex items-baseline gap-2">
         <span
           className={cn(

@@ -38,8 +38,8 @@ export default async function ResetPasswordPage({
         <Field label="Email" name="email" type="email" autoComplete="email" />
         <SubmitButton>Send reset link</SubmitButton>
       </form>
-      <div className="mt-4 text-sm text-muted-foreground">
-        <Link href="/login" className="font-medium transition-colors hover:text-primary">
+      <div className="mt-4 text-[13px] text-muted-foreground">
+        <Link href="/login" className="font-medium text-indigo-text hover:underline">
           Back to log in
         </Link>
       </div>

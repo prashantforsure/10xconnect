@@ -23,7 +23,7 @@ const GUIDES: Array<{ id: string; title: string }> = [
 
 function Code({ children }: { children: string }) {
   return (
-    <pre className="overflow-x-auto rounded-xl border bg-secondary/40 p-4 text-xs leading-relaxed">
+    <pre className="overflow-x-auto rounded-lg border border-border bg-inset p-4 text-xs leading-relaxed text-muted-foreground">
       {children}
     </pre>
   );
@@ -41,9 +41,9 @@ function Guide({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="scroll-mt-24 space-y-4 rounded-2xl border bg-card p-6">
-      <h2 className="flex items-center gap-3 font-display text-lg font-semibold tracking-tight">
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
+    <section id={id} className="scroll-mt-24 space-y-4 rounded-lg border border-border bg-card p-6">
+      <h2 className="flex items-center gap-3 text-[15px] font-semibold tracking-tight">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/[0.14] text-sm font-semibold text-indigo-text">
           {n}
         </span>
         {title}
@@ -57,8 +57,8 @@ export default function TutorialsPage() {
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       <header className="mb-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.13em] text-primary">Tutorials</p>
-        <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight">
+        <p className="eyebrow">Tutorials</p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
           Connect your stack
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">

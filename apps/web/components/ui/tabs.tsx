@@ -54,7 +54,7 @@ function TabsList({ className, ...props }: React.HTMLAttributes<HTMLDivElement>)
     <div
       role="tablist"
       className={cn(
-        "inline-flex items-center gap-1 rounded-xl border border-border bg-secondary p-1 text-muted-foreground",
+        "inline-flex items-center gap-0.5 rounded-md border border-border bg-surface p-0.5 text-muted-foreground",
         className,
       )}
       {...props}
@@ -77,10 +77,10 @@ function TabsTrigger({ value, className, ...props }: TabsTriggerProps) {
       data-state={active ? "active" : "inactive"}
       onClick={() => setValue(value)}
       className={cn(
-        "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-4",
+        "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-sm px-3 py-1 text-[12.5px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&_svg]:size-4",
         active
-          ? "bg-primary/15 font-semibold text-primary"
-          : "hover:bg-accent hover:text-foreground",
+          ? "bg-white/[0.09] font-medium text-foreground"
+          : "text-white/55 hover:text-white/80",
         className,
       )}
       {...props}

@@ -10,7 +10,7 @@ const UPDATED = "June 18, 2026";
 
 export default function ExtensionPrivacyPage() {
   return (
-    <main className="mx-auto max-w-2xl px-6 py-16">
+    <main className="mx-auto max-w-2xl bg-background px-6 py-16 text-foreground">
       <h1 className="font-display text-3xl font-bold tracking-tight">
         10xConnect Browser Extension — Privacy Policy
       </h1>

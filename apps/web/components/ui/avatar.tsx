@@ -17,17 +17,10 @@ interface AvatarProps extends React.HTMLAttributes<HTMLSpanElement> {
 }
 
 /**
- * Deterministic dark tint per name so avatars are consistent across renders.
- * On Command Dark the tint.* values are dark warm fills, so the initials read
- * in the accent color over them for a calm, legible chip.
+ * Neutral monogram fill per the design — a calm avatar circle (#2A2C33) with
+ * white/75 initials, consistent across the app regardless of name.
  */
-const TINTS = [
-  "bg-tint-coral text-primary",
-  "bg-tint-blue text-chart-2",
-  "bg-tint-green text-success",
-  "bg-tint-violet text-chart-4",
-  "bg-tint-amber text-warning",
-];
+const MONOGRAM = "bg-avatar text-white/75";
 
 function initials(name?: string): string {
   if (!name) {
@@ -41,15 +34,6 @@ function initials(name?: string): string {
     return parts[0]!.slice(0, 2).toUpperCase();
   }
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
-}
-
-function tintFor(name?: string): string {
-  const key = name ?? "";
-  let hash = 0;
-  for (let i = 0; i < key.length; i += 1) {
-    hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
-  }
-  return TINTS[hash % TINTS.length]!;
 }
 
 const Avatar = React.forwardRef<HTMLSpanElement, AvatarProps>(
@@ -66,9 +50,9 @@ const Avatar = React.forwardRef<HTMLSpanElement, AvatarProps>(
       <span
         ref={ref}
         className={cn(
-          "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold ring-2 ring-card",
+          "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold",
           SIZES[size],
-          !showImage && tintFor(name),
+          !showImage && MONOGRAM,
           className,
         )}
         {...props}

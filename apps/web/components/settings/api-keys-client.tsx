@@ -143,7 +143,7 @@ export function ApiKeysClient() {
       </div>
 
       {newKey ? (
-        <div className="rounded-xl border border-success/40 bg-success/10 p-3 text-sm">
+        <div className="rounded-lg border border-success/40 bg-success/10 p-3 text-sm">
           <p className="font-medium text-success">Copy your key now — it won&apos;t be shown again:</p>
           <div className="mt-2 flex items-center gap-2">
             <code className="flex-1 break-all rounded-lg bg-card px-2 py-1 text-xs">{newKey}</code>
@@ -169,15 +169,18 @@ export function ApiKeysClient() {
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : keys.length === 0 ? (
         <div className="surface-card border-dashed p-8 text-center text-sm text-muted-foreground">
-          <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <KeyRound className="size-6" />
           </span>
           No API keys yet.
         </div>
       ) : (
-        <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
+        <div className="divide-y divide-white/[0.06] overflow-hidden rounded-lg border border-border bg-card">
           {keys.map((k) => (
-            <div key={k.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+            <div
+              key={k.id}
+              className="flex flex-wrap items-center gap-3 px-4 py-3 transition-colors hover:bg-white/[0.03]"
+            >
               <div className="min-w-0 flex-1 text-sm">
                 {renamingId === k.id ? (
                   <div className="flex items-center gap-2">

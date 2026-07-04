@@ -534,7 +534,7 @@ export function ImportModal({
                     "flex items-start gap-3 rounded-xl border p-3.5 text-left transition-colors",
                     active
                       ? "border-primary bg-primary/10 ring-1 ring-primary/30"
-                      : "border-border bg-card hover:border-[#38321F] hover:bg-accent",
+                      : "border-border bg-card hover:border-white/20 hover:bg-accent",
                   )}
                 >
                   <span

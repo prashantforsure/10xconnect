@@ -11,77 +11,95 @@ const config: Config = {
         display: ["var(--font-display)", "var(--font-sans)", "ui-sans-serif", "sans-serif"],
       },
       colors: {
+        // --border / --input bake their own white-alpha, so no <alpha-value>.
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
+        ring: "hsl(var(--ring) / <alpha-value>)",
+        background: "hsl(var(--background) / <alpha-value>)",
+        foreground: "hsl(var(--foreground) / <alpha-value>)",
         primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+          DEFAULT: "hsl(var(--primary) / <alpha-value>)",
+          foreground: "hsl(var(--primary-foreground) / <alpha-value>)",
         },
         secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
+          DEFAULT: "hsl(var(--secondary) / <alpha-value>)",
+          foreground: "hsl(var(--secondary-foreground) / <alpha-value>)",
         },
         destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
+          DEFAULT: "hsl(var(--destructive) / <alpha-value>)",
+          foreground: "hsl(var(--destructive-foreground) / <alpha-value>)",
         },
         success: {
-          DEFAULT: "hsl(var(--success))",
-          foreground: "hsl(var(--success-foreground))",
+          DEFAULT: "hsl(var(--success) / <alpha-value>)",
+          foreground: "hsl(var(--success-foreground) / <alpha-value>)",
         },
         warning: {
-          DEFAULT: "hsl(var(--warning))",
-          foreground: "hsl(var(--warning-foreground))",
+          DEFAULT: "hsl(var(--warning) / <alpha-value>)",
+          foreground: "hsl(var(--warning-foreground) / <alpha-value>)",
         },
         muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
+          DEFAULT: "hsl(var(--muted) / <alpha-value>)",
+          foreground: "hsl(var(--muted-foreground) / <alpha-value>)",
         },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
+          DEFAULT: "hsl(var(--accent) / <alpha-value>)",
+          foreground: "hsl(var(--accent-foreground) / <alpha-value>)",
         },
         popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
+          DEFAULT: "hsl(var(--popover) / <alpha-value>)",
+          foreground: "hsl(var(--popover-foreground) / <alpha-value>)",
         },
         card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
+          DEFAULT: "hsl(var(--card) / <alpha-value>)",
+          foreground: "hsl(var(--card-foreground) / <alpha-value>)",
         },
         chart: {
-          1: "hsl(var(--chart-1))",
-          2: "hsl(var(--chart-2))",
-          3: "hsl(var(--chart-3))",
-          4: "hsl(var(--chart-4))",
-          5: "hsl(var(--chart-5))",
+          1: "hsl(var(--chart-1) / <alpha-value>)",
+          2: "hsl(var(--chart-2) / <alpha-value>)",
+          3: "hsl(var(--chart-3) / <alpha-value>)",
+          4: "hsl(var(--chart-4) / <alpha-value>)",
+          5: "hsl(var(--chart-5) / <alpha-value>)",
         },
-        // Command Dark tints for avatar/initials backgrounds (sit on the dark canvas)
+        // Design surface levels (near-black, cool-neutral).
+        rail: "#0A0B0D", // sidebar, inbox lead panel
+        surface: "#101113", // cards / list containers (= card)
+        inset: "#0C0D0F", // inputs, table sub-rows, footers
+        elevated: "#18191B", // modals, toast, menus
+        avatar: "#2A2C33", // avatar circles
+        // Design accent extras.
+        indigo: {
+          DEFAULT: "#5E6AD2",
+          text: "#9BA3EB", // indigo text on dark (links, AI labels)
+        },
+        branch: "#B79CEF", // sequence branch / condition nodes
+        linkedin: "#3C8FE2", // LinkedIn glyph
+        // Cool low-alpha tints for avatar/initials backgrounds on the dark canvas.
         tint: {
-          coral: "hsl(15 45% 18%)",
-          blue: "hsl(210 45% 18%)",
-          green: "hsl(159 35% 16%)",
-          violet: "hsl(264 38% 20%)",
-          amber: "hsl(40 45% 18%)",
+          coral: "hsl(234 40% 22%)",
+          blue: "hsl(210 45% 20%)",
+          green: "hsl(144 30% 18%)",
+          violet: "hsl(263 40% 24%)",
+          amber: "hsl(34 45% 20%)",
         },
       },
       borderRadius: {
-        xl: "calc(var(--radius) + 4px)",
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        xl: "calc(var(--radius) + 4px)", // 12px — modals
+        lg: "var(--radius)", // 8px — cards
+        md: "calc(var(--radius) - 1px)", // 7px — controls
+        sm: "calc(var(--radius) - 2px)", // 6px — small controls
       },
       boxShadow: {
-        // Marketing (warm cream) elevation — unchanged.
-        soft: "0 1px 2px 0 hsl(30 20% 20% / 0.04), 0 2px 8px -2px hsl(30 20% 20% / 0.06)",
-        "soft-md": "0 2px 4px -1px hsl(30 20% 20% / 0.05), 0 8px 24px -6px hsl(30 20% 20% / 0.10)",
-        "soft-lg": "0 10px 40px -8px hsl(30 20% 20% / 0.16)",
-        // Command Dark elevation: raised cards/menus and overlay/modal/slide-over.
+        // Marketing (warm cream) elevation — retained for the reskinned marketing.
+        soft: "0 1px 2px 0 rgba(0,0,0,0.3), 0 2px 8px -2px rgba(0,0,0,0.4)",
+        "soft-md": "0 2px 4px -1px rgba(0,0,0,0.3), 0 8px 24px -6px rgba(0,0,0,0.5)",
+        "soft-lg": "0 10px 40px -8px rgba(0,0,0,0.6)",
+        // Cool-dark elevation.
         raised: "0 8px 22px -10px rgba(0,0,0,.6)",
         overlay: "0 24px 60px -20px rgba(0,0,0,.8)",
+        // Design spec shadows.
+        modal: "0 40px 100px -20px rgba(0,0,0,0.8)",
+        toast: "0 20px 50px -15px rgba(0,0,0,0.7)",
+        drawer: "-30px 0 80px -20px rgba(0,0,0,0.6)",
       },
       keyframes: {
         "fade-in": {

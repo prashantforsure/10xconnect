@@ -91,7 +91,7 @@ export function Sparkline({
 /** Large filled area chart for the dashboard hero (renders on the dark card). */
 export function HeroAreaChart({
   values,
-  color = "#F2683C",
+  color = "#5E6AD2",
   height = 148,
 }: {
   values: number[];

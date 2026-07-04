@@ -29,11 +29,11 @@ export default async function LoginPage({
         <Field label="Password" name="password" type="password" autoComplete="current-password" />
         <SubmitButton>Log in</SubmitButton>
       </form>
-      <div className="mt-4 flex justify-between text-sm text-muted-foreground">
-        <Link href="/signup" className="font-medium transition-colors hover:text-primary">
+      <div className="mt-4 flex justify-between text-[13px] text-muted-foreground">
+        <Link href="/signup" className="font-medium text-indigo-text hover:underline">
           Create account
         </Link>
-        <Link href="/reset-password" className="transition-colors hover:text-primary">
+        <Link href="/reset-password" className="text-indigo-text hover:underline">
           Forgot password?
         </Link>
       </div>

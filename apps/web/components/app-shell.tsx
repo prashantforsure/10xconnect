@@ -3,6 +3,8 @@
 import {
   BookOpen,
   Building2,
+  ChevronsLeft,
+  ChevronsRight,
   Code,
   DollarSign,
   Inbox,
@@ -10,7 +12,7 @@ import {
   type LucideIcon,
   Megaphone,
   MessagesSquare,
-  PanelLeftClose,
+  PanelLeft,
   Plus,
   Search,
   Settings,
@@ -24,11 +26,12 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { SimulationBanner } from "@/components/simulation-banner";
-import { Button } from "@/components/ui/button";
 import { CommandPalette } from "@/components/ui/command-palette";
 import { UserMenu } from "@/components/user-menu";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { cn } from "@/lib/utils";
+
+const SIDEBAR_KEY = "10x.sidebarCollapsed";
 
 /** Open the global ⌘K command palette from anywhere (topbar trigger). */
 function openCommandPalette(): void {
@@ -40,6 +43,7 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   match?: string;
+  badge?: string;
 }
 
 interface NavSection {
@@ -68,45 +72,60 @@ const navSections: NavSection[] = [
       { href: "/tutorials", label: "Tutorials", icon: BookOpen },
       { href: "/developers", label: "Developers", icon: Terminal },
       { href: "/affiliate", label: "Affiliate", icon: DollarSign },
-      { href: "/settings/api", label: "API", icon: Code },
+      { href: "/settings/api", label: "API", icon: Code, match: "/settings/api" },
       { href: "/community", label: "Community", icon: MessagesSquare },
     ],
   },
 ];
 
-const SECTION_LABELS: { prefix: string; label: string }[] = [
-  { prefix: "/dashboard", label: "Dashboard" },
-  { prefix: "/campaigns", label: "Campaigns" },
-  { prefix: "/contacts", label: "Contacts" },
-  { prefix: "/inbox", label: "Inbox" },
-  { prefix: "/accounts", label: "Accounts" },
-  { prefix: "/agency", label: "Agency" },
-  { prefix: "/settings", label: "Settings" },
-  { prefix: "/affiliate", label: "Affiliate" },
-  { prefix: "/tutorials", label: "Tutorials" },
-  { prefix: "/community", label: "Community" },
-  { prefix: "/onboarding", label: "Get started" },
+// Breadcrumb map — most-specific prefixes first.
+const CRUMBS: { prefix: string; group: string; page: string }[] = [
+  { prefix: "/campaigns/", group: "Campaigns", page: "Campaign" },
+  { prefix: "/campaigns", group: "Workspace", page: "Campaigns" },
+  { prefix: "/dashboard", group: "Workspace", page: "Dashboard" },
+  { prefix: "/contacts", group: "Workspace", page: "Contacts" },
+  { prefix: "/inbox", group: "Workspace", page: "Inbox" },
+  { prefix: "/accounts", group: "Workspace", page: "Accounts" },
+  { prefix: "/agency", group: "Workspace", page: "Agency" },
+  { prefix: "/settings/api", group: "Resources", page: "API" },
+  { prefix: "/settings", group: "Workspace", page: "Settings" },
+  { prefix: "/tutorials", group: "Resources", page: "Tutorials" },
+  { prefix: "/developers", group: "Resources", page: "Developers" },
+  { prefix: "/affiliate", group: "Resources", page: "Affiliate" },
+  { prefix: "/community", group: "Resources", page: "Community" },
+  { prefix: "/onboarding", group: "Workspace", page: "Get started" },
 ];
 
-function sectionLabel(pathname: string): string {
-  return SECTION_LABELS.find((s) => pathname.startsWith(s.prefix))?.label ?? "Workspace";
+function crumb(pathname: string): { group: string; page: string } {
+  return CRUMBS.find((c) => pathname.startsWith(c.prefix)) ?? { group: "Workspace", page: "" };
 }
 
 export function AppShell({ userEmail, children }: { userEmail: string; children: ReactNode }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
-  // Apply the Command Dark in-app theme to <html> so PORTALED overlays
-  // (Radix dropdown/select/tooltip, custom modals, slide-overs) that render at
-  // document.body — and therefore escape the in-page `.app-surface` div below —
-  // still inherit the dark CSS variables. Removed on unmount so marketing/auth
-  // shells keep the warm cream :root theme.
+  // Apply the cool-dark theme to <html> so PORTALED overlays (Radix menus,
+  // custom modals, slide-overs) that render at document.body inherit the tokens.
   useEffect(() => {
     document.documentElement.classList.add("app-surface");
     return () => {
       document.documentElement.classList.remove("app-surface");
     };
   }, []);
+
+  // Hydrate the persisted collapse flag after mount (avoids SSR mismatch).
+  useEffect(() => {
+    setCollapsed(window.localStorage.getItem(SIDEBAR_KEY) === "1");
+  }, []);
+
+  const toggleCollapsed = (): void => {
+    setCollapsed((c) => {
+      const next = !c;
+      window.localStorage.setItem(SIDEBAR_KEY, next ? "1" : "0");
+      return next;
+    });
+  };
 
   // Close the mobile drawer on navigation.
   useEffect(() => {
@@ -118,11 +137,23 @@ export function AppShell({ userEmail, children }: { userEmail: string; children:
     return pathname === base || pathname.startsWith(`${base}/`);
   };
 
+  const { group, page } = crumb(pathname);
+
   return (
     <div className="app-surface flex h-screen overflow-hidden bg-background">
-      {/* Desktop sidebar — 248px, sits just off the canvas. */}
-      <aside className="sticky top-0 hidden h-screen w-[248px] shrink-0 flex-col border-r border-border bg-[hsl(45_22%_5.5%)] lg:flex">
-        <SidebarContent isActive={isActive} userEmail={userEmail} />
+      {/* Desktop sidebar — 224px expanded / 60px collapsed icon rail. */}
+      <aside
+        className={cn(
+          "sticky top-0 hidden h-screen shrink-0 flex-col border-r border-border bg-rail transition-[width] [transition-duration:160ms] ease-out lg:flex",
+          collapsed ? "w-[60px]" : "w-[224px]",
+        )}
+      >
+        <SidebarContent
+          isActive={isActive}
+          userEmail={userEmail}
+          collapsed={collapsed}
+          onToggle={toggleCollapsed}
+        />
       </aside>
 
       {/* Mobile drawer */}
@@ -133,56 +164,58 @@ export function AppShell({ userEmail, children }: { userEmail: string; children:
             onClick={() => setMobileOpen(false)}
             role="presentation"
           />
-          <aside className="absolute left-0 top-0 flex h-full w-[248px] animate-fade-in flex-col border-r border-border bg-[hsl(45_22%_5.5%)] shadow-overlay">
+          <aside className="absolute left-0 top-0 flex h-full w-[224px] animate-fade-in flex-col border-r border-border bg-rail shadow-overlay">
             <button
               type="button"
               aria-label="Close menu"
               onClick={() => setMobileOpen(false)}
-              className="absolute right-3 top-4 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="absolute right-3 top-4 rounded-md p-1 text-white/45 hover:bg-white/[0.06] hover:text-foreground"
             >
               <X className="size-4" />
             </button>
-            <SidebarContent isActive={isActive} userEmail={userEmail} />
+            <SidebarContent isActive={isActive} userEmail={userEmail} collapsed={false} />
           </aside>
         </div>
       ) : null}
 
-      {/* Main column — a bounded flex column (the root is a fixed-height, non-scrolling
-          viewport). The header + optional simulation banner are fixed chrome; only
-          <main> scrolls. This lets full-height pages (inbox, campaign builder) use
-          `h-full` and fill exactly the space left after the banner — no window scroll. */}
+      {/* Main column — bounded flex column; only <main> scrolls. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="z-30 flex h-16 shrink-0 items-center gap-4 border-b border-border bg-background/80 px-4 backdrop-blur lg:px-7">
+        <header className="z-30 flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur lg:px-6">
           <button
             type="button"
             aria-label="Open menu"
             onClick={() => setMobileOpen(true)}
-            className="rounded-lg p-2 text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
+            className="rounded-md p-1.5 text-white/45 hover:bg-white/[0.06] hover:text-foreground lg:hidden"
           >
-            <PanelLeftClose className="size-5" />
+            <PanelLeft className="size-[18px]" />
           </button>
-          <div className="flex min-w-0 items-center gap-2 text-sm">
-            <span className="hidden text-muted-foreground sm:inline">Workspace</span>
-            <span className="hidden text-muted-foreground/50 sm:inline">/</span>
-            <span className="truncate font-semibold text-foreground">{sectionLabel(pathname)}</span>
+          <div className="flex min-w-0 items-center gap-2 text-[13px]">
+            <span className="hidden text-white/45 sm:inline">{group}</span>
+            {page ? (
+              <>
+                <span className="hidden text-white/25 sm:inline">/</span>
+                <span className="truncate font-semibold text-foreground">{page}</span>
+              </>
+            ) : null}
           </div>
-          {/* Quiet search / ⌘K trigger. */}
+          {/* Quiet ⌘K search trigger. */}
           <button
             type="button"
             onClick={openCommandPalette}
-            className="ml-auto flex w-[300px] min-w-[44px] max-w-[34vw] shrink items-center gap-2.5 rounded-[10px] border border-input bg-[hsl(45_22%_5.5%)] px-3 py-2 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+            className="ml-auto flex w-[260px] min-w-[44px] max-w-[34vw] shrink items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5 text-[12.5px] text-white/40 transition-colors hover:text-white/60"
           >
-            <Search className="size-[15px] shrink-0" />
+            <Search className="size-[14px] shrink-0" />
             <span className="hidden truncate sm:inline">Search or run a command…</span>
-            <span className="ml-auto hidden rounded-[5px] bg-muted px-1.5 py-[3px] font-mono text-[10px] font-semibold text-muted-foreground sm:inline">
+            <span className="ml-auto hidden rounded-[4px] bg-white/[0.06] px-1.5 py-0.5 text-[10.5px] font-semibold text-white/50 sm:inline">
               ⌘K
             </span>
           </button>
-          <Button asChild size="sm" className="shadow-[0_0_18px_-5px_hsl(var(--primary)/0.6)]">
-            <Link href="/campaigns">
-              <Plus className="size-4" /> <span className="hidden sm:inline">New campaign</span>
-            </Link>
-          </Button>
+          <Link
+            href="/campaigns"
+            className="flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[12.5px] font-semibold text-white transition-colors hover:bg-primary/90"
+          >
+            <Plus className="size-[14px]" /> <span className="hidden sm:inline">New campaign</span>
+          </Link>
         </header>
         <SimulationBanner />
         <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
@@ -197,61 +230,102 @@ export function AppShell({ userEmail, children }: { userEmail: string; children:
 function SidebarContent({
   isActive,
   userEmail,
+  collapsed,
+  onToggle,
 }: {
   isActive: (item: NavItem) => boolean;
   userEmail: string;
+  collapsed: boolean;
+  onToggle?: () => void;
 }) {
   return (
     <>
-      <div className="flex h-[60px] items-center gap-2.5 border-b border-border px-[18px]">
-        <span className="flex size-[30px] items-center justify-center rounded-lg bg-primary font-display text-xs font-bold tracking-tight text-primary-foreground shadow-[0_0_16px_-2px_hsl(var(--primary)/0.55)]">
+      {/* Logo + collapse toggle */}
+      <div
+        className={cn(
+          "flex items-center gap-2.5 px-4 pb-2.5 pt-4",
+          collapsed && "flex-col gap-2 px-0",
+        )}
+      >
+        <span className="flex size-[26px] shrink-0 items-center justify-center rounded-md bg-primary text-[11px] font-bold tracking-[-0.02em] text-white">
           10×
         </span>
-        <span className="font-display text-base font-semibold tracking-tight">10xConnect</span>
+        {!collapsed ? (
+          <span className="text-[13.5px] font-semibold">10xConnect</span>
+        ) : null}
+        {onToggle ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className={cn(
+              "flex size-6 items-center justify-center rounded-md text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white/70",
+              !collapsed && "ml-auto",
+            )}
+          >
+            {collapsed ? <ChevronsRight className="size-[15px]" /> : <ChevronsLeft className="size-[15px]" />}
+          </button>
+        ) : null}
       </div>
-      <div className="px-3 pb-2 pt-3.5">
-        <WorkspaceSwitcher />
+
+      {/* Workspace switcher */}
+      <div className={cn("pb-2.5", collapsed ? "px-0" : "px-3")}>
+        <WorkspaceSwitcher collapsed={collapsed} />
       </div>
-      <nav className="flex-1 space-y-1.5 overflow-y-auto px-3 pb-3 pt-1.5">
+
+      {/* Nav */}
+      <nav className={cn("nsb flex-1 overflow-y-auto pb-3", collapsed ? "px-2" : "px-3")}>
         {navSections.map((section, i) => (
-          <div key={section.title ?? i} className="space-y-0.5">
-            {section.title ? (
-              <p className="px-[11px] pb-1.5 pt-4 text-[10px] font-semibold uppercase tracking-[0.13em] text-muted-foreground/60">
+          <div key={section.title ?? i} className="flex flex-col gap-px">
+            {section.title && !collapsed ? (
+              <p className="px-2.5 pb-1 pt-4 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-white/35">
                 {section.title}
               </p>
+            ) : section.title && collapsed ? (
+              <div className="my-2 h-px bg-white/[0.06]" />
             ) : null}
             {section.items.map((item) => (
-              <NavLink key={item.href} item={item} active={isActive(item)} />
+              <NavLink key={item.href} item={item} active={isActive(item)} collapsed={collapsed} />
             ))}
           </div>
         ))}
       </nav>
-      <div className="border-t border-border p-3">
-        <UserMenu email={userEmail} />
+
+      {/* User footer */}
+      <div className={cn("border-t border-border p-3", collapsed && "px-0")}>
+        <UserMenu email={userEmail} collapsed={collapsed} />
       </div>
     </>
   );
 }
 
-function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+function NavLink({
+  item,
+  active,
+  collapsed,
+}: {
+  item: NavItem;
+  active: boolean;
+  collapsed: boolean;
+}) {
   const Icon = item.icon;
   return (
     <Link
       href={item.href}
+      title={item.label}
       className={cn(
-        "group flex items-center gap-[11px] rounded-[10px] px-[11px] py-[9px] text-[13px] font-semibold transition-colors",
-        active
-          ? "bg-primary/15 text-primary"
-          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+        "group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors",
+        collapsed && "justify-center px-0",
+        active ? "bg-white/[0.07] text-foreground" : "text-white/60 hover:bg-white/[0.05] hover:text-white/90",
       )}
     >
-      <Icon
-        className={cn(
-          "size-[18px] transition-colors",
-          active ? "text-primary" : "text-muted-foreground group-hover:text-foreground",
-        )}
-      />
-      {item.label}
+      <Icon className="size-[15px] shrink-0" />
+      {!collapsed ? <span className="flex-1 truncate">{item.label}</span> : null}
+      {item.badge && !collapsed ? (
+        <span className="ml-auto rounded-full bg-primary/[0.18] px-1.5 py-px text-[11px] font-semibold text-indigo-text">
+          {item.badge}
+        </span>
+      ) : null}
     </Link>
   );
 }

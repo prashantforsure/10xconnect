@@ -69,9 +69,9 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 function deliveryTone(status: DeliveryRow["status"]): string {
-  if (status === "delivered") return "text-emerald-600";
+  if (status === "delivered") return "text-success";
   if (status === "failed") return "text-destructive";
-  return "text-amber-600";
+  return "text-warning";
 }
 
 export function WebhooksClient() {
@@ -198,7 +198,7 @@ export function WebhooksClient() {
   return (
     <div className="space-y-6">
       <div className="surface-card p-6">
-        <h2 className="font-display text-base font-semibold">Add endpoint</h2>
+        <h2 className="text-[15px] font-semibold">Add endpoint</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           We POST a signed JSON payload on every subscribed event, with automatic retries for ~24
           hours. Works with Zapier (&quot;Webhooks by Zapier&quot;), n8n, Make, or your own server.
@@ -271,7 +271,7 @@ export function WebhooksClient() {
       </div>
 
       {newSecret ? (
-        <div className="rounded-xl border border-success/40 bg-success/10 p-3 text-sm">
+        <div className="rounded-lg border border-success/40 bg-success/10 p-3 text-sm">
           <p className="font-medium text-success">
             Signing secret — copy it now, it won&apos;t be shown again:
           </p>
@@ -299,20 +299,20 @@ export function WebhooksClient() {
         <p className="text-sm text-muted-foreground">Loading…</p>
       ) : hooks.length === 0 ? (
         <div className="surface-card border-dashed p-8 text-center text-sm text-muted-foreground">
-          <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <Webhook className="size-6" />
           </span>
           No webhooks configured.
         </div>
       ) : (
-        <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
+        <div className="divide-y divide-white/[0.06] overflow-hidden rounded-lg border border-border bg-card">
           {hooks.map((h) => (
-            <div key={h.id} className="px-4 py-3">
+            <div key={h.id} className="px-4 py-3 transition-colors hover:bg-white/[0.03]">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium">{h.name}</span>
-                    <Badge variant={h.status === "active" ? "secondary" : "destructive"}>
+                    <Badge variant={h.status === "active" ? "success" : "destructive"}>
                       {h.status === "active" ? "Active" : "Disabled"}
                     </Badge>
                   </div>

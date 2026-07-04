@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/lib/workspace/context";
 
-export function WorkspaceSwitcher() {
+export function WorkspaceSwitcher({ collapsed = false }: { collapsed?: boolean }) {
   const { workspaces, activeWorkspace, activeWorkspaceId, setActiveWorkspaceId } = useWorkspace();
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -26,21 +26,24 @@ export function WorkspaceSwitcher() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2.5 rounded-[10px] border border-border bg-[hsl(45_22%_8.5%)] px-[11px] py-[9px] text-left transition-colors hover:bg-accent"
-          >
-            <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-success/15 font-display text-[10px] font-bold text-success">
-              {(activeWorkspace?.name ?? "?").charAt(0).toUpperCase()}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[12.5px] font-semibold text-foreground">
-                {label}
-              </span>
-              <span className="block truncate text-[10.5px] text-muted-foreground">Workspace</span>
-            </span>
-            <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
-          </button>
+          {collapsed ? (
+            <button
+              type="button"
+              title={label}
+              className="mx-auto flex size-8 items-center justify-center rounded-md border border-border bg-surface transition-colors hover:bg-accent"
+            >
+              <span className="size-4 shrink-0 rounded bg-gradient-to-br from-primary to-branch" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-[7px] text-left text-[12.5px] font-medium text-white/75 transition-colors hover:bg-accent"
+            >
+              <span className="size-4 shrink-0 rounded bg-gradient-to-br from-primary to-branch" />
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+              <ChevronsUpDown className="size-3.5 shrink-0 text-white/40" />
+            </button>
+          )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-[13.5rem]">
           {workspaces.length > 0 ? (

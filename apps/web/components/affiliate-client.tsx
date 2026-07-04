@@ -55,13 +55,13 @@ export function AffiliateClient() {
       </div>
 
       <div className="surface-card p-5">
-        <div className="mb-2.5 text-[13px] font-semibold text-muted-foreground">
+        <div className="mb-2.5 text-[15px] font-semibold text-foreground">
           Your referral link
         </div>
         <p className="mb-3 text-xs text-muted-foreground">
           Earn {data.payoutRatePct}% recurring on every paid referral.
         </p>
-        <div className="flex items-center gap-2.5 rounded-[10px] border border-input bg-background px-3.5 py-2.5">
+        <div className="flex items-center gap-2.5 rounded-md border border-input bg-inset px-3.5 py-2.5">
           <code className="flex-1 break-all font-mono text-[13px] font-medium text-foreground">
             {data.referralUrl}
           </code>
@@ -88,16 +88,16 @@ function Stat({
   accent?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-card p-[18px]">
+    <div className="surface-card p-[18px]">
       <div
         className={cn(
-          "font-display text-[26px] font-bold leading-none tracking-tight",
+          "text-[26px] font-semibold leading-none tracking-[-0.02em] tabular-nums",
           accent ? "text-success" : "text-foreground",
         )}
       >
         {value}
       </div>
-      <div className="mt-[7px] text-xs text-muted-foreground">{label}</div>
+      <div className="mt-2 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-white/40">{label}</div>
     </div>
   );
 }

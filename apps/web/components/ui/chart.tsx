@@ -63,7 +63,7 @@ function ChartTooltip({
     return null;
   }
   return (
-    <div className="rounded-xl border bg-popover px-3 py-2 text-xs shadow-soft-md">
+    <div className="rounded-lg border border-white/10 bg-elevated px-3 py-2 text-xs shadow-raised">
       {label !== undefined && (
         <div className="mb-1 font-medium text-foreground">{label}</div>
       )}

@@ -8,6 +8,8 @@ import {
   Inbox,
   Linkedin,
   MessageSquare,
+  PanelRightClose,
+  PanelRightOpen,
   Pencil,
   RefreshCw,
   Send,
@@ -266,8 +268,8 @@ export function InboxClient() {
   // (a preference); dismissals are per-conversation for this session (a reminder
   // that should come back next time the thread is opened fresh).
   const [cockpitOpen, setCockpitOpen] = usePersistentBool("inbox.cockpitOpen", false);
-  const [relOpen, setRelOpen] = usePersistentBool("inbox.relOpen", false);
-  const [dismissedRel, setDismissedRel] = useState<Set<string>>(() => new Set());
+  // The lead reference panel (right rail) collapses to give the thread full width.
+  const [leadPanelOpen, setLeadPanelOpen] = usePersistentBool("inbox.leadPanelOpen", true);
   const [dismissedHot, setDismissedHot] = useState<Set<string>>(() => new Set());
   // Dev-only: simulate an inbound lead reply (mock adapter) to exercise the AI SDR.
   const [simOpen, setSimOpen] = useState(false);
@@ -674,10 +676,10 @@ export function InboxClient() {
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* List */}
-        <div className="flex w-[330px] min-h-0 shrink-0 flex-col border-r border-border bg-card">
+        <div className="flex w-[316px] min-h-0 shrink-0 flex-col border-r border-border bg-card">
         <div className="shrink-0 px-[18px] pb-3 pt-[18px]">
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h1 className="font-display text-[19px] font-semibold tracking-tight text-foreground">Inbox</h1>
+            <h1 className="text-[17px] font-semibold tracking-tight text-foreground">Inbox</h1>
             <div className="flex items-center gap-1.5">
               {IS_DEV ? (
                 <Button
@@ -704,10 +706,10 @@ export function InboxClient() {
                 key={f.key}
                 onClick={() => setFilter(f.key)}
                 className={cn(
-                  "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                   filter === f.key
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    ? "bg-white/[0.09] text-foreground"
+                    : "text-white/55 hover:bg-white/[0.05] hover:text-white/80",
                 )}
               >
                 {f.label}
@@ -732,10 +734,10 @@ export function InboxClient() {
                   key={a.id}
                   onClick={() => setAccountFilter(a.id)}
                   className={cn(
-                    "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                    "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                     accountFilter === a.id
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                      ? "bg-white/[0.09] text-foreground"
+                      : "text-white/55 hover:bg-white/[0.05] hover:text-white/80",
                   )}
                 >
                   <Linkedin className="size-3 shrink-0" />
@@ -750,7 +752,7 @@ export function InboxClient() {
             <p className="p-4 text-sm text-muted-foreground">Loading…</p>
           ) : items.length === 0 ? (
             <div className="p-8 text-center">
-              <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+              <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-xl bg-primary/[0.14] text-primary">
                 <Inbox className="size-6" />
               </span>
               <p className="text-sm text-muted-foreground">
@@ -763,8 +765,8 @@ export function InboxClient() {
                 key={c.id}
                 onClick={() => setSelectedId(c.id)}
                 className={cn(
-                  "flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-accent",
-                  selectedId === c.id && "bg-accent ring-1 ring-border",
+                  "flex w-full items-start gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-white/[0.04]",
+                  selectedId === c.id && "bg-white/[0.06]",
                 )}
               >
                 <Avatar name={c.leadName} size="md" />
@@ -826,7 +828,7 @@ export function InboxClient() {
           </div>
         ) : (
           <>
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card/60 px-5 py-3.5">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card/40 px-5 py-3">
               <div className="flex min-w-0 items-center gap-3">
                 <Avatar name={detail.lead.name} size="md" />
                 <div className="min-w-0">
@@ -861,7 +863,7 @@ export function InboxClient() {
                     href={detail.lead.linkedinUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-chart-2 hover:underline"
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-linkedin hover:underline"
                   >
                     <Linkedin className="size-4" /> Profile
                   </a>
@@ -891,75 +893,21 @@ export function InboxClient() {
                     </option>
                   ))}
                 </Select>
+                {/* Lead reference panel toggle — hides/reveals the right rail. */}
+                <button
+                  type="button"
+                  onClick={() => setLeadPanelOpen(!leadPanelOpen)}
+                  title={leadPanelOpen ? "Hide lead panel" : "Show lead panel"}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-md text-white/45 transition-colors hover:bg-white/[0.06] hover:text-foreground"
+                >
+                  {leadPanelOpen ? (
+                    <PanelRightClose className="size-[18px]" />
+                  ) : (
+                    <PanelRightOpen className="size-[18px]" />
+                  )}
+                </button>
               </div>
             </div>
-
-            {/* Relationship / intent summary (account-safety first: AI-pause + hot-lead).
-                Collapsed by default to a single line so it doesn't eat the thread;
-                expand for the next action + AI controls, or dismiss it for this thread. */}
-            {detail.relationship && !dismissedRel.has(detail.id) ? (
-              <div className="shrink-0 border-b border-border/70 px-5 py-2">
-                <div className="flex items-center gap-2.5 rounded-[10px] border border-border bg-background px-3 py-2">
-                  <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/15 font-display text-[11px] font-bold text-primary">
-                    {detail.relationship.intentScore}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="min-w-0 truncate text-[11.5px] font-semibold leading-tight text-foreground">
-                        {detail.relationship.summary ?? STAGE_LABEL[detail.pipelineStage]}
-                      </span>
-                      {detail.relationship.isHot ? (
-                        <Badge variant="default" className="shrink-0">
-                          🔥 Hot
-                        </Badge>
-                      ) : null}
-                      {/* Keep the paused signal visible even when collapsed. */}
-                      {!relOpen && detail.relationship.aiPaused ? (
-                        <Badge variant="warning" className="shrink-0">
-                          AI paused
-                        </Badge>
-                      ) : null}
-                    </div>
-                    {relOpen && detail.relationship.nextAction ? (
-                      <div className="mt-1 text-[11px] leading-snug text-muted-foreground">
-                        {detail.relationship.nextAction}
-                      </div>
-                    ) : null}
-                    {/* AI SDR status (informational). The Pause/Resume control lives in
-                        the thread header so it's always reachable, even when this card is
-                        collapsed or dismissed. */}
-                    {relOpen && (detail.relationship.hasBrain || detail.relationship.aiPaused) ? (
-                      <div className="mt-2 flex items-center gap-2">
-                        {detail.relationship.aiPaused ? (
-                          <Badge variant="warning">AI paused</Badge>
-                        ) : aiModeLabel(detail.relationship.aiMode) ? (
-                          <span className="flex items-center gap-1 text-[10.5px] font-medium text-primary/80">
-                            <Sparkles className="size-3" /> {aiModeLabel(detail.relationship.aiMode)}
-                          </span>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setRelOpen(!relOpen)}
-                    aria-expanded={relOpen}
-                    className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    title={relOpen ? "Collapse" : "Expand"}
-                  >
-                    {relOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDismissedRel((s) => new Set(s).add(detail.id))}
-                    className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    title="Dismiss for this conversation"
-                  >
-                    <X className="size-4" />
-                  </button>
-                </div>
-              </div>
-            ) : null}
 
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 py-5">
               <div className="flex w-full flex-col">
@@ -973,7 +921,7 @@ export function InboxClient() {
                     <div key={m.id} className="flex flex-col">
                       {showDay ? (
                         <div className="my-3 flex justify-center">
-                          <span className="rounded-full bg-muted/60 px-3 py-1 text-[11px] font-medium text-muted-foreground">
+                          <span className="rounded-full bg-white/[0.06] px-3 py-1 text-[11px] font-medium text-white/45">
                             {formatDayDivider(m.at)}
                           </span>
                         </div>
@@ -981,23 +929,23 @@ export function InboxClient() {
                       <div className={cn("mb-1.5 flex flex-col", outbound ? "items-end" : "items-start")}>
                         <div
                           className={cn(
-                            "max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm",
+                            "max-w-[78%] whitespace-pre-wrap break-words rounded-xl px-3.5 py-2 text-[13px] leading-relaxed",
                             outbound
-                              ? "rounded-br-md bg-primary text-primary-foreground"
-                              : "rounded-bl-md border border-border bg-card text-foreground",
+                              ? "rounded-br-sm bg-primary/[0.16] text-foreground"
+                              : "rounded-bl-sm border border-border bg-surface text-foreground",
                           )}
                         >
                           {m.voiceRef ? <span className="italic">🎤 Voice note</span> : m.body}
                         </div>
                         <span
                           className={cn(
-                            "mt-1 flex items-center gap-1 px-1 text-[10px] text-muted-foreground/70",
+                            "mt-1 flex items-center gap-1 px-1 text-[10px] text-white/40",
                             outbound && "flex-row-reverse",
                           )}
                         >
                           {formatMsgTime(m.at)}
                           {aiSent ? (
-                            <span className="flex items-center gap-0.5 text-primary/80">
+                            <span className="flex items-center gap-0.5 text-indigo-text">
                               <Sparkles className="size-2.5" /> AI
                             </span>
                           ) : null}
@@ -1104,7 +1052,7 @@ export function InboxClient() {
                     <button
                       key={s.id}
                       onClick={() => setReply(s.body)}
-                      className="rounded-full border border-border bg-secondary px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      className="rounded-full border border-border bg-inset px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground"
                       title={s.body}
                     >
                       {s.title}
@@ -1128,6 +1076,95 @@ export function InboxClient() {
           </>
         )}
         </div>
+
+        {/* Lead reference panel (right rail) — 280px, collapsible via the header toggle. */}
+        {detail && leadPanelOpen ? (
+          <aside className="hidden w-[280px] shrink-0 flex-col overflow-y-auto border-l border-border bg-rail xl:flex">
+            <div className="flex flex-col gap-3 border-b border-border px-4 py-4">
+              <Avatar name={detail.lead.name} size="lg" />
+              <div>
+                <div className="text-sm font-semibold text-foreground">{detail.lead.name}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  {[detail.lead.role, detail.lead.company].filter(Boolean).join(" · ") ||
+                    detail.lead.headline ||
+                    "—"}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {detail.lead.linkedinUrl ? (
+                  <a
+                    href={detail.lead.linkedinUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-[11px] font-medium text-linkedin transition-colors hover:bg-white/[0.05]"
+                  >
+                    <Linkedin className="size-3" /> Profile
+                  </a>
+                ) : null}
+                {detail.lead.email ? (
+                  <span className="inline-flex items-center rounded-md border border-border bg-surface px-2 py-1 text-[11px] text-muted-foreground">
+                    {detail.lead.email}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            {detail.relationship ? (
+              <div className="border-b border-border px-4 py-4">
+                <p className="eyebrow mb-2">Intent score</p>
+                <div className="flex items-center gap-3">
+                  <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary/[0.14] text-[17px] font-semibold tabular-nums text-indigo-text">
+                    {detail.relationship.intentScore}
+                  </span>
+                  <div className="min-w-0 flex flex-wrap gap-1.5">
+                    {detail.relationship.isHot ? <Badge variant="warning">🔥 Hot</Badge> : null}
+                    {detail.relationship.aiPaused ? <Badge variant="warning">AI paused</Badge> : null}
+                    {!detail.relationship.aiPaused && aiModeLabel(detail.relationship.aiMode) ? (
+                      <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-indigo-text">
+                        <Sparkles className="size-3" /> {aiModeLabel(detail.relationship.aiMode)}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="border-b border-border px-4 py-4">
+              <p className="eyebrow mb-2">Campaign</p>
+              <StageBadge stage={detail.pipelineStage} />
+            </div>
+
+            {detail.relationship?.summary || detail.relationship?.nextAction ? (
+              <div className="border-b border-border px-4 py-4">
+                <p className="eyebrow mb-2">Activity</p>
+                {detail.relationship.summary ? (
+                  <p className="text-[12px] leading-relaxed text-muted-foreground">
+                    {detail.relationship.summary}
+                  </p>
+                ) : null}
+                {detail.relationship.nextAction ? (
+                  <p className="mt-2 text-[11.5px] leading-relaxed text-white/45">
+                    <span className="font-medium text-white/60">Next:</span>{" "}
+                    {detail.relationship.nextAction}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {detail.lead.tags.length > 0 ? (
+              <div className="px-4 py-4">
+                <p className="eyebrow mb-2">Tags</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {detail.lead.tags.map((t) => (
+                    <Badge key={t} variant="muted">
+                      {t}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </aside>
+        ) : null}
       </div>
 
       <Modal
@@ -1139,7 +1176,7 @@ export function InboxClient() {
         <div className="space-y-2.5">
           <button
             onClick={() => void setInboxType("all_conversations")}
-            className="w-full rounded-xl border border-border bg-secondary px-4 py-3 text-left transition-colors hover:border-input hover:bg-accent"
+            className="w-full rounded-md border border-border bg-inset px-4 py-3 text-left transition-colors hover:border-white/20 hover:bg-white/[0.03]"
           >
             <div className="text-sm font-medium text-foreground">Extract all conversations</div>
             <div className="text-xs text-muted-foreground">
@@ -1148,7 +1185,7 @@ export function InboxClient() {
           </button>
           <button
             onClick={() => void setInboxType("campaign_only")}
-            className="w-full rounded-xl border border-border bg-secondary px-4 py-3 text-left transition-colors hover:border-input hover:bg-accent"
+            className="w-full rounded-md border border-border bg-inset px-4 py-3 text-left transition-colors hover:border-white/20 hover:bg-white/[0.03]"
           >
             <div className="text-sm font-medium text-foreground">Only campaign conversations</div>
             <div className="text-xs text-muted-foreground">
@@ -1184,10 +1221,10 @@ export function InboxClient() {
                   key={s.label}
                   onClick={() => setSimBody(s.body)}
                   className={cn(
-                    "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                    "rounded-md border px-2.5 py-1 text-xs transition-colors",
                     simBody === s.body
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-secondary text-muted-foreground hover:bg-accent hover:text-foreground",
+                      ? "border-primary/40 bg-primary/[0.14] text-indigo-text"
+                      : "border-border bg-inset text-muted-foreground hover:bg-white/[0.05] hover:text-foreground",
                   )}
                 >
                   {s.label}

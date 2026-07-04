@@ -127,7 +127,7 @@ curl "${API_BASE}/leads?limit=50&offset=0&search=acme" \\
 
 function Code({ children }: { children: string }) {
   return (
-    <pre className="overflow-x-auto rounded-xl border bg-secondary/40 p-4 text-xs leading-relaxed">
+    <pre className="overflow-x-auto rounded-lg border border-border bg-inset p-4 text-xs leading-relaxed text-muted-foreground">
       {children}
     </pre>
   );
@@ -216,10 +216,10 @@ export default function DevelopersPage() {
             idempotent at the dispatch layer — a retried send never double-messages a lead, and all
             sends respect the account&apos;s rate caps and working-hours schedule.
           </p>
-          <div className="overflow-x-auto rounded-xl border">
+          <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b bg-secondary/40 text-left">
+                <tr className="border-b border-border bg-inset text-left">
                   <th className="px-3 py-2 font-medium">Method</th>
                   <th className="px-3 py-2 font-medium">Path</th>
                   <th className="px-3 py-2 font-medium">What it does</th>
@@ -255,10 +255,10 @@ export default function DevelopersPage() {
             Every error is JSON with the HTTP status echoed in <code>statusCode</code> and a
             human-readable <code>message</code>. The common cases:
           </p>
-          <div className="overflow-x-auto rounded-xl border">
+          <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b bg-secondary/40 text-left">
+                <tr className="border-b border-border bg-inset text-left">
                   <th className="px-3 py-2 font-medium">Status</th>
                   <th className="px-3 py-2 font-medium">When</th>
                 </tr>
@@ -291,10 +291,10 @@ export default function DevelopersPage() {
             backoff for ~24 hours (6 retries). After 20 consecutive failures the webhook is
             disabled and you&apos;re notified in-app.
           </p>
-          <div className="overflow-x-auto rounded-xl border">
+          <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b bg-secondary/40 text-left">
+                <tr className="border-b border-border bg-inset text-left">
                   <th className="px-3 py-2 font-medium">Event</th>
                   <th className="px-3 py-2 font-medium">Fires when</th>
                 </tr>
@@ -402,10 +402,10 @@ API key:  10xc_YOUR_API_KEY   # sent as Authorization: Bearer`}</Code>
             key; <em>write</em> tools require an <code>All</code> key and are hidden from a Read-only
             key entirely.
           </p>
-          <div className="overflow-x-auto rounded-xl border">
+          <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b bg-secondary/40 text-left">
+                <tr className="border-b border-border bg-inset text-left">
                   <th className="px-3 py-2 font-medium">Tool</th>
                   <th className="px-3 py-2 font-medium">Access</th>
                   <th className="px-3 py-2 font-medium">Params</th>

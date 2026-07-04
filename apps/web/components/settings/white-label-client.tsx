@@ -122,7 +122,7 @@ export function WhiteLabelClient() {
               type="text"
               value={branding.primaryColor ?? ""}
               onChange={(e) => setBranding({ ...branding, primaryColor: e.target.value })}
-              placeholder="#F2683C"
+              placeholder="#5E6AD2"
             />
           </div>
         </div>

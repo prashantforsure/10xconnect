@@ -185,7 +185,7 @@ export function LeadsTab({
           No leads yet. Import new leads or enroll a contact list to start outreach.
         </div>
       ) : (
-        <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
+        <div className="divide-y overflow-hidden rounded-lg border bg-card shadow-soft">
           {leads.map((l) => (
             <LeadListRow key={l.leadId} lead={l} campaignId={campaignId} onRemove={() => setConfirmRemove(l)} />
           ))}

@@ -36,8 +36,8 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-full">
       {/* Quiet left nav (desktop) */}
-      <aside className="hidden w-56 shrink-0 border-r border-border bg-card/40 p-4 md:block">
-        <h2 className="mb-3 px-3 font-display text-sm font-semibold tracking-tight">Settings</h2>
+      <aside className="hidden w-[210px] shrink-0 border-r border-border bg-card/40 p-4 md:block">
+        <h2 className="mb-3 px-3 text-sm font-semibold tracking-tight">Settings</h2>
         <nav className="space-y-0.5">
           {settingsNav.map((item) => {
             const active = pathname === item.href;
@@ -47,16 +47,16 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-[10px] px-3 py-2 text-sm transition-colors",
+                  "flex items-center gap-[9px] rounded-md px-2.5 py-[7px] text-[12.5px] font-medium transition-colors",
                   active
-                    ? "bg-accent font-medium text-foreground"
-                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                    ? "bg-white/[0.07] text-foreground"
+                    : "text-white/60 hover:bg-white/[0.05] hover:text-foreground",
                 )}
               >
                 <Icon
                   className={cn(
                     "size-4 shrink-0",
-                    active ? "text-primary" : "text-muted-foreground",
+                    active ? "text-primary" : "text-white/60",
                   )}
                 />
                 {item.label}
@@ -78,8 +78,8 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
                 className={cn(
                   "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
                   active
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                    ? "bg-white/[0.07] text-foreground"
+                    : "text-white/60 hover:bg-white/[0.05] hover:text-foreground",
                 )}
               >
                 {item.label}

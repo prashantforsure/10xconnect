@@ -163,7 +163,7 @@ export function IntegrationsClient() {
       {loadError ? (
         <div
           role="alert"
-          className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
         >
           {loadError}
         </div>
@@ -171,7 +171,7 @@ export function IntegrationsClient() {
       {msg ? (
         <div
           role="status"
-          className="rounded-xl border bg-secondary/50 px-3 py-2 text-sm text-muted-foreground"
+          className="rounded-lg border border-border bg-secondary/50 px-3 py-2 text-sm text-muted-foreground"
         >
           {msg}
         </div>
@@ -182,7 +182,7 @@ export function IntegrationsClient() {
           <div key={p.id} className="surface-card p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-secondary font-display text-sm font-bold">
+                <span className="flex size-10 items-center justify-center rounded-xl bg-secondary text-sm font-bold">
                   {p.name.charAt(0)}
                 </span>
                 <div>

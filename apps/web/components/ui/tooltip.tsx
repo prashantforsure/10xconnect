@@ -33,7 +33,7 @@ function Tooltip({
       <span
         role="tooltip"
         className={cn(
-          "pointer-events-none absolute z-50 whitespace-nowrap rounded-lg border border-[#38321F] bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground opacity-0 shadow-overlay transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100",
+          "pointer-events-none absolute z-50 whitespace-nowrap rounded-md border border-white/10 bg-elevated px-2.5 py-1.5 text-[11.5px] font-medium text-popover-foreground opacity-0 shadow-raised transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100",
           pos,
           className,
         )}

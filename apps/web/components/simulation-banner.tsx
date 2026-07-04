@@ -50,7 +50,7 @@ export function SimulationBanner() {
   }
 
   return (
-    <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs font-medium text-amber-300 lg:px-7">
+    <div className="flex items-center gap-2 border-b border-border bg-warning/[0.13] px-4 py-2 text-[12px] font-medium text-warning lg:px-7">
       <FlaskConical className="size-3.5 shrink-0" />
       <span>
         Simulation mode is on — campaigns run end-to-end but <strong>no real messages are sent</strong>. Turn it off in

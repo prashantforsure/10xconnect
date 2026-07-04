@@ -18,7 +18,7 @@ export function SlideOver({
   open,
   onClose,
   title,
-  widthClass = "w-[440px] max-w-[92vw]",
+  widthClass = "w-[460px] max-w-[94vw]",
   children,
 }: {
   open: boolean;
@@ -52,7 +52,7 @@ export function SlideOver({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/55 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex justify-end bg-black/55 backdrop-blur-[2px]"
       onClick={onClose}
       role="presentation"
     >
@@ -61,21 +61,19 @@ export function SlideOver({
         aria-modal="true"
         aria-label={typeof title === "string" ? title : "Panel"}
         className={cn(
-          "flex h-full animate-slide-in-right flex-col border-l border-[#38321F] bg-card text-card-foreground shadow-overlay",
+          "flex h-full animate-slide-in-right flex-col border-l border-white/10 bg-inset text-card-foreground shadow-drawer",
           widthClass,
         )}
         onClick={(e) => e.stopPropagation()}
       >
         {title !== undefined ? (
           <div className="flex shrink-0 items-center justify-between gap-4 border-b border-border px-5 py-4">
-            <div className="min-w-0 font-display text-base font-semibold tracking-tight">
-              {title}
-            </div>
+            <div className="min-w-0 text-[15px] font-semibold tracking-tight">{title}</div>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="shrink-0 rounded-md p-1 text-white/45 transition-colors hover:bg-white/[0.06] hover:text-foreground"
             >
               <X className="size-4" />
             </button>
@@ -85,7 +83,7 @@ export function SlideOver({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute right-4 top-4 z-10 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="absolute right-4 top-4 z-10 rounded-md p-1 text-white/45 transition-colors hover:bg-white/[0.06] hover:text-foreground"
           >
             <X className="size-4" />
           </button>

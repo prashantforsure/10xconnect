@@ -221,11 +221,11 @@ export function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="w-[560px] max-w-[92vw] overflow-hidden rounded-2xl border border-[#38321F] bg-popover text-popover-foreground shadow-overlay"
+        className="w-[560px] max-w-[92vw] overflow-hidden rounded-xl border border-white/10 bg-elevated text-popover-foreground shadow-modal"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-border px-[18px] py-[15px]">
-          <Search className="size-[17px] shrink-0 text-muted-foreground" />
+          <Search className="size-[17px] shrink-0 text-white/40" />
           <input
             ref={inputRef}
             value={query}

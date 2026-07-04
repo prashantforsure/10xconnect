@@ -7,10 +7,10 @@ import { Stat, StatChip } from "./connectors";
 import { useBuilder } from "./context";
 import { Segment } from "./flow";
 
-// Dark dotted-grid canvas: warm hairline dots over the recessed canvas tone
-// (matches the Command Dark mockup — #2A2619 dots on a #15130C field).
+// Dark dotted-grid canvas: faint white hairline dots over the recessed canvas
+// tone (#0C0D0F field, white/0.08 dots — the design's dotted sequence canvas).
 const DOTTED_BG: React.CSSProperties = {
-  backgroundColor: "hsl(48 24% 6%)",
+  backgroundColor: "#0C0D0F",
   backgroundImage: "radial-gradient(hsl(var(--border)) 1px, transparent 1px)",
   backgroundSize: "22px 22px",
   backgroundPosition: "11px 11px",

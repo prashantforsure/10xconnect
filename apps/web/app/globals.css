@@ -3,126 +3,58 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    /* Warm, Slite-inspired light theme */
-    --background: 40 43% 96%; /* warm cream #FAF6EE */
-    --foreground: 30 10% 15%; /* warm near-black */
-
-    --card: 40 40% 99%; /* near-white warm surface */
-    --card-foreground: 30 10% 15%;
-    --popover: 40 40% 99%;
-    --popover-foreground: 30 10% 15%;
-
-    --primary: 15 87% 59%; /* coral-orange #F2683C */
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 40 35% 93%; /* soft cream */
-    --secondary-foreground: 30 12% 20%;
-
-    --muted: 41 33% 92%;
-    --muted-foreground: 36 8% 46%;
-
-    --accent: 40 40% 93%; /* hover surface */
-    --accent-foreground: 30 12% 18%;
-
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-
-    --success: 152 56% 38%;
-    --success-foreground: 0 0% 100%;
-
-    --warning: 35 92% 50%;
-    --warning-foreground: 30 30% 12%;
-
-    --border: 38 27% 87%; /* warm light gray */
-    --input: 38 27% 87%;
-    --ring: 15 87% 59%; /* coral focus ring */
-
-    --radius: 0.75rem;
-
-    /* Chart series — coral lead + warm/neutral complements */
-    --chart-1: 15 87% 59%; /* coral */
-    --chart-2: 200 70% 50%; /* teal-blue */
-    --chart-3: 152 50% 45%; /* green */
-    --chart-4: 265 55% 62%; /* violet */
-    --chart-5: 38 90% 55%; /* amber */
-  }
-
-  .dark {
-    --background: 28 12% 9%;
-    --foreground: 40 30% 95%;
-    --card: 28 12% 12%;
-    --card-foreground: 40 30% 95%;
-    --popover: 28 12% 12%;
-    --popover-foreground: 40 30% 95%;
-    --primary: 15 87% 59%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 28 10% 18%;
-    --secondary-foreground: 40 30% 95%;
-    --muted: 28 10% 18%;
-    --muted-foreground: 36 10% 64%;
-    --accent: 28 10% 20%;
-    --accent-foreground: 40 30% 95%;
-    --destructive: 0 62% 48%;
-    --destructive-foreground: 0 0% 100%;
-    --success: 152 50% 45%;
-    --success-foreground: 0 0% 100%;
-    --warning: 35 92% 55%;
-    --warning-foreground: 30 30% 12%;
-    --border: 28 10% 22%;
-    --input: 28 10% 22%;
-    --ring: 15 87% 59%;
-    --chart-1: 15 87% 62%;
-    --chart-2: 200 70% 58%;
-    --chart-3: 152 50% 52%;
-    --chart-4: 265 60% 70%;
-    --chart-5: 38 90% 60%;
-  }
-}
-
-@layer base {
   /*
-   * In-app surface theme: whiter / lighter than the warm marketing cream, with
-   * only a faint warm tint. Coral primary, fonts, and text colors are inherited
-   * unchanged. Applied to the AppShell root so every nested card/input/popover
-   * (which read these CSS vars) pick it up automatically; marketing & auth keep
-   * the warm :root cream.
+   * "Linear-style" cool dark system — a single theme for the whole app and
+   * marketing. Near-black cool-neutral surfaces, an indigo accent, white-alpha
+   * hairlines + text. Tokens live on :root (and .app-surface, which the AppShell
+   * still stamps onto <html> so portaled overlays inherit them). Colour tokens
+   * are HSL triplets consumed by tailwind.config.ts as `hsl(var(--x) / <alpha>)`
+   * so opacity modifiers (bg-primary/14, etc.) resolve to the design's tints.
+   * --border / --input bake their own alpha (white hairlines).
    */
-  /*
-   * Direction C — "Command Dark": the in-app surface is a warm-charcoal, coral-accent,
-   * safety-first dark theme. Applied to a root ancestor of the app (AppShell adds the
-   * `app-surface` class to <html> so portaled popovers inherit it too). Marketing & auth
-   * keep the warm cream :root theme.
-   */
+  :root,
   .app-surface {
-    --background: 45 22% 7%; /* #16140E canvas */
-    --foreground: 41 42% 93%; /* #F4EFE4 */
-    --card: 42 20% 10%; /* #1E1B14 panel */
-    --card-foreground: 41 42% 93%;
-    --popover: 44 21% 10%; /* #201D15 raised overlay */
-    --popover-foreground: 41 42% 93%;
-    --primary: 15 87% 59%; /* #F2683C unchanged */
+    --background: 210 11% 4%; /* #08090A app canvas */
+    --foreground: 0 0% 93%; /* text/primary — white .92 */
+
+    --card: 220 9% 7%; /* #101113 surface */
+    --card-foreground: 0 0% 93%;
+    --popover: 220 6% 10%; /* #18191B elevated (menus, tooltips, toast) */
+    --popover-foreground: 0 0% 93%;
+
+    --primary: 234 56% 60%; /* #5E6AD2 indigo */
     --primary-foreground: 0 0% 100%;
-    --secondary: 40 19% 13%; /* #26221A */
-    --secondary-foreground: 41 42% 93%;
-    --muted: 40 19% 13%; /* #26221A */
-    --muted-foreground: 39 8% 59%; /* #A39B8C */
-    --accent: 40 21% 11%; /* #221E16 hover surface */
-    --accent-foreground: 41 42% 93%;
-    --destructive: 7 86% 69%; /* #F4796A */
-    --destructive-foreground: 45 22% 7%;
-    --success: 159 64% 52%; /* #34D39A */
-    --success-foreground: 45 22% 7%;
-    --warning: 38 89% 60%; /* #F4B23E */
-    --warning-foreground: 45 22% 7%;
-    --border: 46 25% 13%; /* #2A2619 hairline */
-    --input: 41 19% 16%; /* #322D22 control border */
-    --ring: 15 87% 59%; /* coral focus */
-    --chart-1: 15 87% 59%; /* coral */
-    --chart-2: 210 74% 56%; /* #3C8FE2 blue */
-    --chart-3: 159 64% 52%; /* #34D39A green */
-    --chart-4: 264 80% 71%; /* #A878F0 violet */
-    --chart-5: 38 89% 60%; /* amber */
+
+    --secondary: 220 11% 5%; /* #0C0D0F inset */
+    --secondary-foreground: 0 0% 93%;
+
+    --muted: 220 6% 10%; /* #18191B */
+    --muted-foreground: 220 5% 62%; /* text/secondary — white .60 */
+
+    --accent: 220 6% 12%; /* hover surface lift */
+    --accent-foreground: 0 0% 93%;
+
+    --destructive: 2 70% 67%; /* #E5726F */
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 144 41% 56%; /* #62BD87 */
+    --success-foreground: 0 0% 100%;
+
+    --warning: 34 64% 59%; /* #D9A054 */
+    --warning-foreground: 220 11% 5%;
+
+    --border: 0 0% 100% / 0.08; /* hairline — white .08 */
+    --input: 0 0% 100% / 0.1; /* control border — white .10 */
+    --ring: 234 56% 60%; /* indigo focus */
+
+    --radius: 0.5rem; /* 8px cards; controls override to 6–7px */
+
+    /* Chart series — indigo lead + cool complements */
+    --chart-1: 234 56% 60%; /* indigo */
+    --chart-2: 210 74% 56%; /* blue */
+    --chart-3: 144 41% 56%; /* green */
+    --chart-4: 263 79% 71%; /* purple */
+    --chart-5: 34 64% 59%; /* amber */
   }
 
   * {
@@ -131,32 +63,45 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings:
-      "rlig" 1,
-      "calt" 1,
-      "cv11" 1;
+      "cv11" 1,
+      "calt" 1;
+    font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
-  /* Headings lean on the display face */
   h1,
   h2,
   h3 {
-    @apply font-display tracking-tight;
+    @apply tracking-tight;
+  }
+
+  /* Custom scrollbars — 10px, faint white thumb (matches the design spec). */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    border: 2px solid hsl(var(--background));
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.16);
   }
 }
 
 @layer components {
-  /* Subtle warm grain/elevation surface used by feature cards */
+  /* Elevated surface used by feature cards / list containers. */
   .surface-card {
-    @apply rounded-2xl border bg-card shadow-soft;
+    @apply rounded-lg border border-border bg-card;
   }
-  /* Pill used for marketing eyebrows + badges */
+  /* Uppercase eyebrow / section label. */
   .eyebrow {
-    @apply inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs font-medium text-muted-foreground;
+    @apply text-[10.5px] font-semibold uppercase tracking-[0.06em] text-white/40;
   }
-  /* Marketing display headline scale */
+  /* Marketing display headline scale. */
   .display-xl {
-    @apply font-display text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl;
+    @apply text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl;
   }
 }
 
@@ -284,11 +229,13 @@
 }
 
 @layer utilities {
-  /* Hide scrollbars on horizontal rails while keeping scroll */
-  .no-scrollbar::-webkit-scrollbar {
+  /* Hide scrollbars on horizontal rails while keeping scroll (.nsb per design) */
+  .no-scrollbar::-webkit-scrollbar,
+  .nsb::-webkit-scrollbar {
     display: none;
   }
-  .no-scrollbar {
+  .no-scrollbar,
+  .nsb {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }

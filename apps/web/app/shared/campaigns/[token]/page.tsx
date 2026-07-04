@@ -9,7 +9,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
-const DEFAULT_ACCENT = "#4f46e5";
+const DEFAULT_ACCENT = "#5E6AD2";
 const HEX = /^#[0-9a-fA-F]{3,8}$/;
 
 interface ClientReport {
@@ -59,17 +59,17 @@ export default function SharedCampaignReportPage() {
 
   if (state === "loading") {
     return (
-      <main className="grid min-h-dvh place-items-center bg-neutral-50 text-neutral-400">
+      <main className="grid min-h-dvh place-items-center bg-background text-muted-foreground">
         <p className="text-sm">Loading report…</p>
       </main>
     );
   }
   if (state === "error" || !report) {
     return (
-      <main className="grid min-h-dvh place-items-center bg-neutral-50 px-6 text-center">
+      <main className="grid min-h-dvh place-items-center bg-background px-6 text-center">
         <div>
-          <h1 className="text-lg font-semibold text-neutral-800">Report unavailable</h1>
-          <p className="mt-1 text-sm text-neutral-500">
+          <h1 className="text-lg font-semibold text-foreground">Report unavailable</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             This report link is invalid or has been turned off.
           </p>
         </div>
@@ -82,9 +82,9 @@ export default function SharedCampaignReportPage() {
   const maxFunnel = Math.max(1, ...funnel.map((f) => f.value));
 
   return (
-    <main className="min-h-dvh bg-neutral-50 text-neutral-900">
+    <main className="min-h-dvh bg-background text-foreground">
       {/* Brand bar */}
-      <header className="border-b border-neutral-200 bg-white">
+      <header className="border-b border-border bg-card">
         <div className="mx-auto flex max-w-4xl items-center gap-3 px-6 py-4">
           {brand.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -98,7 +98,7 @@ export default function SharedCampaignReportPage() {
             </span>
           )}
           <span className="text-sm font-semibold tracking-tight">{brandName}</span>
-          <span className="ml-auto text-xs uppercase tracking-wider text-neutral-400">
+          <span className="ml-auto text-xs uppercase tracking-wider text-white/40">
             Campaign report
           </span>
         </div>
@@ -115,7 +115,7 @@ export default function SharedCampaignReportPage() {
             {campaign.status}
           </span>
         </div>
-        <p className="mt-1 text-sm text-neutral-500">Outreach performance summary.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Outreach performance summary.</p>
 
         {/* KPI cards */}
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -135,13 +135,13 @@ export default function SharedCampaignReportPage() {
         </div>
 
         {/* Funnel */}
-        <section className="mt-10 rounded-2xl border border-neutral-200 bg-white p-6">
-          <h2 className="text-sm font-semibold text-neutral-700">Sequence funnel</h2>
+        <section className="mt-10 rounded-lg border border-border bg-card p-6">
+          <h2 className="text-sm font-semibold text-foreground">Sequence funnel</h2>
           <div className="mt-5 space-y-3.5">
             {funnel.map((f) => (
               <div key={f.label} className="flex items-center gap-4">
-                <span className="w-28 shrink-0 text-sm text-neutral-600">{f.label}</span>
-                <div className="h-7 flex-1 overflow-hidden rounded-md bg-neutral-100">
+                <span className="w-28 shrink-0 text-sm text-muted-foreground">{f.label}</span>
+                <div className="h-7 flex-1 overflow-hidden rounded-md bg-inset">
                   <div
                     className="flex h-full items-center rounded-md px-2 text-xs font-semibold text-white transition-all"
                     style={{
@@ -152,7 +152,7 @@ export default function SharedCampaignReportPage() {
                     {f.value}
                   </div>
                 </div>
-                <span className="w-14 shrink-0 text-right text-xs tabular-nums text-neutral-400">
+                <span className="w-14 shrink-0 text-right text-xs tabular-nums text-white/40">
                   {f.pct !== undefined ? `${f.pct}%` : ""}
                 </span>
               </div>
@@ -160,7 +160,7 @@ export default function SharedCampaignReportPage() {
           </div>
         </section>
 
-        <footer className="mt-10 text-center text-xs text-neutral-400">
+        <footer className="mt-10 text-center text-xs text-white/40">
           Prepared by {brandName}
         </footer>
       </div>
@@ -180,12 +180,12 @@ function Kpi({
   accent: string;
 }) {
   return (
-    <div className="rounded-2xl border border-neutral-200 bg-white p-5">
-      <p className="text-xs font-medium uppercase tracking-wider text-neutral-400">{label}</p>
+    <div className="rounded-lg border border-border bg-card p-5">
+      <p className="text-xs font-medium uppercase tracking-wider text-white/40">{label}</p>
       <p className="mt-2 text-3xl font-bold tabular-nums" style={{ color: accent }}>
         {value.toLocaleString()}
       </p>
-      {sub ? <p className="mt-1 text-xs text-neutral-500">{sub}</p> : null}
+      {sub ? <p className="mt-1 text-xs text-muted-foreground">{sub}</p> : null}
     </div>
   );
 }

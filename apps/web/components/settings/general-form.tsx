@@ -176,7 +176,7 @@ export function GeneralSettingsForm({
       <form onSubmit={onSave} className="space-y-8">
         {/* Profile */}
         <section className="surface-card space-y-4 p-6">
-          <h2 className="font-display text-base font-semibold">
+          <h2 className="text-[15px] font-semibold">
             Profile
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -208,7 +208,7 @@ export function GeneralSettingsForm({
 
         {/* Workspace */}
         <section className="surface-card space-y-4 p-6">
-          <h2 className="font-display text-base font-semibold">
+          <h2 className="text-[15px] font-semibold">
             Workspace
           </h2>
           {workspace ? (
@@ -289,7 +289,7 @@ export function GeneralSettingsForm({
       {/* Danger zone */}
       {workspace ? (
         <section className="surface-card space-y-3 border-destructive/40 p-6">
-          <h2 className="font-display text-base font-semibold text-destructive">Danger zone</h2>
+          <h2 className="text-[15px] font-semibold text-destructive">Danger zone</h2>
           <p className="text-sm text-muted-foreground">
             Deleting this workspace permanently removes its accounts, campaigns, contacts, and
             conversations. This cannot be undone.
