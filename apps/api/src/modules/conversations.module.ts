@@ -5,6 +5,7 @@ import type { ChannelAdapter, ConversationThread } from "@10xconnect/core";
 import type { DB } from "@10xconnect/db";
 import {
   BadGatewayException,
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -23,7 +24,7 @@ import { z } from "zod";
 
 import { CHANNEL_ADAPTER } from "../adapter/channel-adapter.module";
 import type { AuthUser } from "../auth/auth-user.interface";
-import { CurrentUser } from "../auth/current-user.decorator";
+import { CurrentUser, OptionalCurrentUser } from "../auth/current-user.decorator";
 import { WorkspaceId } from "../common/decorators/workspace-id.decorator";
 import { WorkspaceScopeGuard } from "../common/guards/workspace-scope.guard";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
@@ -93,7 +94,7 @@ export class ConversationsService {
 
   async list(
     workspaceId: string,
-    currentUserId: string,
+    currentUserId: string | null,
     filter: ConversationFilter = "all",
     accountId?: string,
   ) {
@@ -132,6 +133,9 @@ export class ConversationsService {
     } else if (filter === "important") {
       q = q.where("c.is_important", "=", true);
     } else if (filter === "mine") {
+      if (!currentUserId) {
+        return []; // "mine" is meaningless for API-key requests (no user)
+      }
       q = q.where("c.assigned_to", "=", currentUserId);
     }
     if (accountId) {
@@ -152,7 +156,7 @@ export class ConversationsService {
       tags: r.tags,
       needsAttention: r.needsAttention,
       isImportant: r.isImportant,
-      assignedToMe: r.assignedTo === currentUserId,
+      assignedToMe: currentUserId !== null && r.assignedTo === currentUserId,
       updatedAt: r.updatedAt,
       lastMessage: lastByConvo.get(r.id) ?? null,
       account: {
@@ -396,7 +400,7 @@ export class ConversationsService {
     return row.id;
   }
 
-  async detail(workspaceId: string, id: string, currentUserId: string) {
+  async detail(workspaceId: string, id: string, currentUserId: string | null) {
     const c = await this.db
       .selectFrom("conversations as c")
       .leftJoin("leads as l", "l.id", "c.lead_id")
@@ -494,7 +498,7 @@ export class ConversationsService {
       tags: c.tags,
       needsAttention: c.needsAttention,
       isImportant: c.isImportant,
-      assignedToMe: c.assignedTo === currentUserId,
+      assignedToMe: currentUserId !== null && c.assignedTo === currentUserId,
       draft,
       relationship,
       lead: {
@@ -574,7 +578,15 @@ export class ConversationsService {
     return { queued: true };
   }
 
-  async update(workspaceId: string, id: string, currentUserId: string, dto: UpdateConversationDto) {
+  async update(
+    workspaceId: string,
+    id: string,
+    currentUserId: string | null,
+    dto: UpdateConversationDto,
+  ) {
+    if (dto.assignToMe && !currentUserId) {
+      throw new BadRequestException("assignToMe requires a user session (not an API key)");
+    }
     const updated = await this.db
       .updateTable("conversations")
       .set({
@@ -584,7 +596,7 @@ export class ConversationsService {
         ...(dto.isImportant !== undefined ? { is_important: dto.isImportant } : {}),
         ...(dto.needsAttention !== undefined ? { needs_attention: dto.needsAttention } : {}),
         // assignToMe wins if both are sent; assignedTo can explicitly clear (null).
-        ...(dto.assignToMe ? { assigned_to: currentUserId } : {}),
+        ...(dto.assignToMe && currentUserId ? { assigned_to: currentUserId } : {}),
         ...(dto.assignedTo !== undefined ? { assigned_to: dto.assignedTo } : {}),
       })
       .where("workspace_id", "=", workspaceId)
@@ -602,7 +614,10 @@ export class ConversationsService {
     if (!updated) {
       throw new NotFoundException("Conversation not found");
     }
-    return { ...updated, assignedToMe: updated.assignedTo === currentUserId };
+    return {
+      ...updated,
+      assignedToMe: currentUserId !== null && updated.assignedTo === currentUserId,
+    };
   }
 
   listSavedResponses(workspaceId: string) {
@@ -631,14 +646,14 @@ export class ConversationsController {
   @Get("conversations")
   list(
     @WorkspaceId() workspaceId: string,
-    @CurrentUser() user: AuthUser,
+    @OptionalCurrentUser() user: AuthUser | undefined,
     @Query("filter") filter?: string,
     @Query("accountId") accountId?: string,
   ) {
     const f = (CONVERSATION_FILTERS as readonly string[]).includes(filter ?? "")
       ? (filter as ConversationFilter)
       : "all";
-    return this.conversations.list(workspaceId, user.id, f, accountId || undefined);
+    return this.conversations.list(workspaceId, user?.id ?? null, f, accountId || undefined);
   }
 
   @Post("conversations/sync")
@@ -649,10 +664,10 @@ export class ConversationsController {
   @Get("conversations/:id")
   detail(
     @WorkspaceId() workspaceId: string,
-    @CurrentUser() user: AuthUser,
+    @OptionalCurrentUser() user: AuthUser | undefined,
     @Param("id") id: string,
   ) {
-    return this.conversations.detail(workspaceId, id, user.id);
+    return this.conversations.detail(workspaceId, id, user?.id ?? null);
   }
 
   @Post("conversations/:id/reply")
@@ -667,11 +682,11 @@ export class ConversationsController {
   @Patch("conversations/:id")
   update(
     @WorkspaceId() workspaceId: string,
-    @CurrentUser() user: AuthUser,
+    @OptionalCurrentUser() user: AuthUser | undefined,
     @Param("id") id: string,
     @Body(new ZodValidationPipe(updateConversationSchema)) body: UpdateConversationDto,
   ) {
-    return this.conversations.update(workspaceId, id, user.id, body);
+    return this.conversations.update(workspaceId, id, user?.id ?? null, body);
   }
 
   @Get("saved-responses")
@@ -692,5 +707,6 @@ export class ConversationsController {
 @Module({
   controllers: [ConversationsController],
   providers: [ConversationsService],
+  exports: [ConversationsService],
 })
 export class ConversationsModule {}

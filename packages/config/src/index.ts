@@ -174,6 +174,11 @@ const envSchema = z.object({
   // and reject anything else — fail closed. Unset → allowed (dev / mock adapter).
   WEBHOOK_SECRET: optionalString,
 
+  // Integrations — OUTBOUND webhook/Slack delivery poller (apps/api). Signing
+  // uses per-webhook DB secrets, NOT the inbound WEBHOOK_SECRET above.
+  INTEGRATIONS_DELIVERY_ENABLED: booleanWithDefault(true),
+  INTEGRATIONS_DELIVERY_TICK_MS: numberWithDefault(15_000),
+
   // Observability (Phase 12+)
   SENTRY_DSN: optionalString,
 

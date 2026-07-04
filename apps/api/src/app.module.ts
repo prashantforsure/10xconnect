@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 
 import { ChannelAdapterModule } from "./adapter/channel-adapter.module";
+import { AuthModule } from "./auth/auth.module";
 import { SupabaseAuthGuard } from "./auth/supabase-auth.guard";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
 import { DatabaseModule } from "./database/database.module";
@@ -24,6 +25,7 @@ import { HostedAuthModule } from "./modules/hosted-auth.module";
 import { IntegrationsModule } from "./modules/integrations.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { ListsModule } from "./modules/lists.module";
+import { McpModule } from "./modules/mcp/mcp.module";
 import { NotificationsModule } from "./modules/notifications.module";
 import { PersonalizationModule } from "./modules/personalization.module";
 import { PublicReportsModule } from "./modules/public-reports.module";
@@ -39,6 +41,7 @@ import { WorkspacesModule } from "./modules/workspaces.module";
     // Provider webhooks are exempted with @SkipThrottle() so retries never drop.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
     DatabaseModule,
+    AuthModule,
     ChannelAdapterModule,
     EngineModule,
     WorkspacesModule,
@@ -60,6 +63,7 @@ import { WorkspacesModule } from "./modules/workspaces.module";
     WebhooksModule,
     ApiKeysModule,
     IntegrationsModule,
+    McpModule,
     PublicReportsModule,
     AgencyModule,
     DevModule,

@@ -11,9 +11,18 @@ import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload }
 
 import { IS_PUBLIC_KEY } from "../common/decorators/public.decorator";
 
+import {
+  API_KEY_TOKEN_PREFIX,
+  ApiKeyAuthService,
+  type ApiKeyPrincipal,
+} from "./api-key-auth.service";
 import type { AuthUser } from "./auth-user.interface";
 
-type AuthenticatedRequest = Request & { user?: AuthUser };
+type AuthenticatedRequest = Request & {
+  user?: AuthUser;
+  apiKey?: ApiKeyPrincipal;
+  workspaceId?: string;
+};
 
 /** Thrown for server misconfiguration (missing env), surfaced as 500 not 401. */
 class AuthConfigError extends Error {}
@@ -56,7 +65,10 @@ async function verifyAccessToken(token: string): Promise<JWTPayload> {
  */
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly apiKeys: ApiKeyAuthService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
@@ -72,6 +84,16 @@ export class SupabaseAuthGuard implements CanActivate {
 
     if (!token) {
       throw new UnauthorizedException("Missing bearer token");
+    }
+
+    // Public-API path: a `10xc_` bearer key authenticates as a WORKSPACE, not a
+    // user. The key pins the workspace (no X-Workspace-Id needed); request.user
+    // stays undefined; denylist/read-only/rate-limit enforced by the service.
+    if (token.startsWith(API_KEY_TOKEN_PREFIX)) {
+      const principal = await this.apiKeys.authorize(token, request.method, request.path);
+      request.apiKey = principal;
+      request.workspaceId = principal.workspaceId;
+      return true;
     }
 
     let payload: JWTPayload;

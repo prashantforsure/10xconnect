@@ -9,6 +9,7 @@ import { autonomyFrom, computeFirstDispatchAt, computeNextDispatchAt } from "@10
 import type { DB } from "@10xconnect/db";
 import type { Kysely } from "kysely";
 
+import { emitIntegrationEvent } from "./events";
 import { isConditionType, nodeToActionType } from "./nodes";
 import { loadGraph } from "./repository";
 import { assignAndPersist, getCampaignPool } from "./senders";
@@ -160,7 +161,7 @@ function resolveWaitChain(
  * them), and enrolling into a completed campaign reopens it (see enrollLeads).
  */
 export async function maybeCompleteCampaign(deps: { db: Kysely<DB> }, campaignId: string): Promise<void> {
-  await deps.db
+  const completed = await deps.db
     .updateTable("campaigns")
     .set({ status: "completed" })
     .where("id", "=", campaignId)
@@ -179,7 +180,19 @@ export async function maybeCompleteCampaign(deps: { db: Kysely<DB> }, campaignId
     .where((eb) =>
       eb.exists(eb.selectFrom("lead_campaign_state").select("id").where("campaign_id", "=", campaignId)),
     )
-    .execute();
+    .returning(["id", "workspace_id", "name"])
+    .executeTakeFirst();
+
+  // The guarded UPDATE returned a row ⇔ THIS call flipped running→completed —
+  // natural exactly-once for the outbox event (concurrent calls return nothing).
+  if (completed) {
+    await emitIntegrationEvent(deps.db, {
+      workspaceId: completed.workspace_id,
+      type: "campaign_completed",
+      dedupeKey: `campaign_completed:${campaignId}:${new Date().toISOString().slice(0, 10)}`,
+      payload: { campaign: { id: completed.id, name: completed.name } },
+    });
+  }
 }
 
 /**

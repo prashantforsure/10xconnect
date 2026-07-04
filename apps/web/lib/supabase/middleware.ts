@@ -7,7 +7,9 @@ type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
 // Routes reachable without a session. Everything else requires auth.
 // "/connect" covers the Hosted Auth popup landing page (/connect/callback).
-const PUBLIC_PATHS = ["/login", "/signup", "/reset-password", "/auth", "/connect"];
+// "/developers" is the public API/webhooks/MCP reference — deliberately readable
+// without an account (prospective integrators land here before signing up).
+const PUBLIC_PATHS = ["/login", "/signup", "/reset-password", "/auth", "/connect", "/developers"];
 // Public marketing/legal pages (exact match — "/" must not make everything public).
 const PUBLIC_EXACT = new Set(["/", "/pricing", "/privacy", "/terms", "/extension-privacy"]);
 

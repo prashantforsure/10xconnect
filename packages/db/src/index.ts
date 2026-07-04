@@ -6,12 +6,17 @@ import type { Database } from "./database.types";
 export type { Database, Json } from "./database.types";
 export { createDb, type DB } from "./kysely";
 export type {
+  ApiKeyPermission,
   AppExtraTables,
+  DeliveryStatus,
+  DeliveryTargetKind,
   ImportJobRow,
   ImportJobsTable,
   ImportSource,
   ImportStatus,
+  IntegrationEventType,
   PromptTemplateScope,
+  WebhookStatus,
   WorkflowTemplateScope,
 } from "./app-tables";
 

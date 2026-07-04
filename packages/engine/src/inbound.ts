@@ -9,6 +9,7 @@ import type { DB } from "@10xconnect/db";
 import type { Kysely } from "kysely";
 
 import { maybeCompleteCampaign } from "./campaign-runner";
+import { emitIntegrationEvent, leadEventSummary } from "./events";
 import { flagAccountIncident } from "./restrictions";
 
 export interface InboundDeps {
@@ -142,8 +143,24 @@ export async function processInboundEvent(
         await handleReply(deps.db, account, leadId, event);
       }
       break;
+    case "invite_accepted":
+      // Recorded above (conditions read lead_events); also emit to the
+      // integrations outbox. `inserted` is guaranteed here (duplicate returned).
+      if (leadId) {
+        await emitIntegrationEvent(deps.db, {
+          workspaceId: account.workspaceId,
+          type: "accepted_invite",
+          dedupeKey: `accepted_invite:${event.id}`,
+          payload: {
+            lead: await leadEventSummary(deps.db, account.workspaceId, leadId),
+            account_id: account.id,
+            channel: event.channel,
+          },
+        });
+      }
+      break;
     default:
-      // invite_accepted / message_opened / email_* — recorded; conditions read them.
+      // message_opened / email_* — recorded; conditions read them.
       break;
   }
   return { status: "processed" };
@@ -288,6 +305,21 @@ async function handleReply(
     .set({ needs_attention: true, updated_at: nowIso })
     .where("id", "=", conversationId)
     .execute();
+
+  // Integrations outbox: the reply event (deduped by the provider event id).
+  await emitIntegrationEvent(db, {
+    workspaceId: account.workspaceId,
+    type: "reply",
+    dedupeKey: `reply:${event.id}`,
+    payload: {
+      lead: await leadEventSummary(db, account.workspaceId, leadId),
+      conversation_id: conversationId,
+      campaign_id: campaignId,
+      account_id: account.id,
+      channel: event.channel,
+      message: { body: event.message.body ?? null },
+    },
+  });
   await db
     .insertInto("relationship_state")
     .values({

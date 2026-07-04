@@ -12,6 +12,13 @@ out/
 # Test / coverage
 coverage/
 
+# Playwright e2e (apps/web/e2e)
+playwright-report/
+blob-report/
+test-results/
+apps/web/e2e/.auth/
+.playwright-artifacts/
+
 # Logs
 *.log
 npm-debug.log*

@@ -227,6 +227,104 @@ export interface SendingAccountsExtraColumns {
   label: NullableWithDefault<string>;
 }
 
+export type ApiKeyPermission = "all" | "read_only";
+
+// ---------------------------------------------------------------------------
+// Integrations build — outbox + outbound webhook delivery (Phase B) + provider
+// connections (Phase C).
+// ---------------------------------------------------------------------------
+
+/** Domain events emitted to the integrations outbox (webhooks + Slack). */
+export type IntegrationEventType =
+  | "reply"
+  | "accepted_invite"
+  | "status_change"
+  | "hot_lead"
+  | "campaign_completed"
+  | "message_sent";
+
+export type WebhookStatus = "active" | "disabled";
+export type DeliveryStatus = "pending" | "delivered" | "failed";
+export type DeliveryTargetKind = "webhook" | "slack";
+
+/**
+ * The outbox: one row per domain event, deduped per workspace so idempotent
+ * seams can re-emit safely (insert ON CONFLICT DO NOTHING). The delivery
+ * poller fans unprocessed rows out into webhook_deliveries.
+ */
+export interface IntegrationEventsTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  type: ColumnType<IntegrationEventType, IntegrationEventType, IntegrationEventType>;
+  dedupe_key: ColumnType<string, string, string>;
+  payload: WithDefault<Json>;
+  processed_at: NullableWithDefault<string>;
+  created_at: WithDefault<string>;
+}
+
+/** One delivery attempt-chain per event x target (webhook or Slack connection). */
+export interface WebhookDeliveriesTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  event_id: ColumnType<string, string, string>;
+  target_kind: WithDefault<DeliveryTargetKind>;
+  webhook_id: NullableWithDefault<string>;
+  connection_id: NullableWithDefault<string>;
+  event_type: ColumnType<string, string, string>;
+  attempt: WithDefault<number>;
+  status: WithDefault<DeliveryStatus>;
+  response_code: NullableWithDefault<number>;
+  error: NullableWithDefault<string>;
+  next_attempt_at: WithDefault<string>;
+  delivered_at: NullableWithDefault<string>;
+  created_at: WithDefault<string>;
+}
+
+export type IntegrationProvider = "slack";
+
+/**
+ * Provider connections (Phase C): one per provider per workspace. config is
+ * provider-specific jsonb; secret material inside it (e.g. the Slack incoming
+ * webhook URL) is SecretCipher-encrypted before insert.
+ */
+export interface IntegrationConnectionsTable {
+  id: WithDefault<string>;
+  workspace_id: ColumnType<string, string, string>;
+  provider: ColumnType<IntegrationProvider, IntegrationProvider, IntegrationProvider>;
+  status: WithDefault<WebhookStatus>;
+  config: WithDefault<Json>;
+  events: WithDefault<string[]>;
+  created_at: WithDefault<string>;
+  updated_at: WithDefault<string>;
+}
+
+/**
+ * webhooks v2 columns (not in the generated types). secret is the per-webhook
+ * signing secret (whsec_..., null for legacy rows = deliveries unsigned);
+ * auth_header_value is SecretCipher-encrypted at rest.
+ */
+export interface WebhooksExtraColumns {
+  name: WithDefault<string>;
+  secret: NullableWithDefault<string>;
+  auth_header_name: NullableWithDefault<string>;
+  auth_header_value: NullableWithDefault<string>;
+  status: WithDefault<WebhookStatus>;
+  consecutive_failures: WithDefault<number>;
+}
+
+/**
+ * API keys v2 columns (integrations build) not yet in the generated types.
+ * Intersected into the generated api_keys table. `prefix` is the display
+ * prefix of the plaintext (e.g. "10xc_a1b2c3d") — null for legacy keys created
+ * before v2, whose plaintext is unrecoverable (only the sha256 hash is stored).
+ */
+export interface ApiKeysExtraColumns {
+  name: WithDefault<string>;
+  permission: WithDefault<ApiKeyPermission>;
+  prefix: NullableWithDefault<string>;
+  last_used_at: NullableWithDefault<string>;
+}
+
 // ---------------------------------------------------------------------------
 // MVP M5 — conversation brain (knowledge base, facts, AI drafts, brain config).
 // ---------------------------------------------------------------------------
@@ -434,6 +532,13 @@ export interface AppExtraTables {
   account_link_requests: AccountLinkRequestsTable;
   // Augments the generated sending_accounts table with the multi-account label.
   sending_accounts: SendingAccountsExtraColumns;
+  // Augments the generated api_keys table with the v2 public-API columns.
+  api_keys: ApiKeysExtraColumns;
+  // Integrations build — outbox + delivery log; webhooks v2 columns; connections.
+  integration_events: IntegrationEventsTable;
+  webhook_deliveries: WebhookDeliveriesTable;
+  webhooks: WebhooksExtraColumns;
+  integration_connections: IntegrationConnectionsTable;
   relationship_state: RelationshipStateTable;
   // Augments the generated conversations table with Phase 1 columns.
   conversations: ConversationsExtraColumns;

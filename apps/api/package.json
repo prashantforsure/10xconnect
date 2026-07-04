@@ -9,7 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "tsx --test src/common/crypto/secret-cipher.test.ts",
-    "test:integration": "tsx --test src/modules/brain.config.integration.test.ts src/modules/blueprint.config.integration.test.ts src/modules/workflow-templates.integration.test.ts src/modules/workflows.integration.test.ts src/modules/unit-economics-ab.integration.test.ts src/modules/live-sequence-edit.integration.test.ts"
+    "test:integration": "tsx --test src/modules/brain.config.integration.test.ts src/modules/blueprint.config.integration.test.ts src/modules/workflow-templates.integration.test.ts src/modules/workflows.integration.test.ts src/modules/unit-economics-ab.integration.test.ts src/modules/live-sequence-edit.integration.test.ts src/modules/api-keys.integration.test.ts src/modules/integrations/delivery.integration.test.ts src/modules/integrations/slack.integration.test.ts src/modules/mcp/mcp.integration.test.ts"
   },
   "dependencies": {
     "@10xconnect/adapters": "workspace:*",
@@ -17,6 +17,7 @@
     "@10xconnect/core": "workspace:*",
     "@10xconnect/db": "workspace:*",
     "@10xconnect/engine": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.16.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",

@@ -23,6 +23,7 @@ import { maybeChargeActivityProfileVisit } from "./activity-budget";
 import { runConversationTurn } from "./brain/turn";
 import { advanceLead, type CampaignRow, maybeCompleteCampaign } from "./campaign-runner";
 import { evaluateCondition } from "./conditions";
+import { emitIntegrationEvent } from "./events";
 import { executeTransportAction } from "./executor";
 import { isConditionType, isOrchestrationNode, nodeToActionType } from "./nodes";
 import {
@@ -41,6 +42,18 @@ import type { EngineDeps, LeadStateRow, SequenceNodeRow } from "./types";
 
 const MAX_ATTEMPTS = 3;
 const HOLD_MS = 60 * 60 * 1000; // account paused/restricted → re-check hourly
+
+// message_sent outbox events fire for message-BEARING sends only — engagement
+// actions (like/comment/visit/follow/tag) are not "messages" to a subscriber.
+const MESSAGE_SENT_NODE_TYPES = new Set([
+  "send_connection_request",
+  "send_message",
+  "send_voice_note",
+  "inmail",
+  "send_message_to_open_profile",
+  "send_email",
+  "email_followup",
+]);
 
 export interface DispatchStats {
   claimed: number;
@@ -480,6 +493,30 @@ async function processAction(
   const attempts = action.attempts + 1;
   if (result.status === "success") {
     await finalize(deps, action.id, "success", result as unknown as Json, attempts, now);
+    // Integrations outbox — message-bearing sends only (a like/visit is not a
+    // "message sent"); the action idempotency key makes the emit exactly-once.
+    if (MESSAGE_SENT_NODE_TYPES.has(node.type)) {
+      const name =
+        [enrichment.firstName, enrichment.lastName]
+          .filter((v): v is string => typeof v === "string" && v.length > 0)
+          .join(" ") || null;
+      await emitIntegrationEvent(
+        deps.db,
+        {
+          workspaceId: campaign.workspace_id,
+          type: "message_sent",
+          dedupeKey: `message_sent:${action.idempotency_key}`,
+          payload: {
+            lead: { id: lead.id, name, linkedin_url: lead.linkedin_url },
+            campaign_id: campaign.id,
+            account_id: account.id,
+            action_type: node.type,
+            simulated: simulate,
+          },
+        },
+        deps.log,
+      );
+    }
     await advanceLead(deps, campaign, state, node, "next");
     stats.dispatched += 1;
     stats.advanced += 1;
@@ -646,6 +683,32 @@ async function handleConversationReply(
       .where("id", "=", convo.id)
       .execute();
     await finalize(deps, action.id, "success", result as unknown as Json, attempts, now);
+    // Integrations outbox — a conversation reply IS a message sent.
+    {
+      const replyName =
+        [enrichment.firstName, enrichment.lastName]
+          .filter((v): v is string => typeof v === "string" && v.length > 0)
+          .join(" ") || null;
+      await emitIntegrationEvent(
+        deps.db,
+        {
+          workspaceId: convo.workspaceId,
+          type: "message_sent",
+          dedupeKey: `message_sent:${action.idempotency_key}`,
+          payload: {
+            lead: convo.leadId
+              ? { id: convo.leadId, name: replyName, linkedin_url: convo.linkedinUrl }
+              : null,
+            conversation_id: convo.id,
+            account_id: convo.accountId,
+            action_type: "conversation_reply",
+            authored_by: authoredBy,
+            simulated: simulate,
+          },
+        },
+        deps.log,
+      );
+    }
     stats.dispatched += 1;
     return;
   }

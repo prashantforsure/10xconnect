@@ -1,15 +1,26 @@
 "use client";
 
-import { Copy, KeyRound, Plus, Trash2 } from "lucide-react";
+import { Check, Copy, KeyRound, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import { useWorkspace } from "@/lib/workspace/context";
 
+type Permission = "all" | "read_only";
+
 interface ApiKey {
   id: string;
+  name: string;
+  permission: Permission;
+  /** Display prefix of the plaintext (null for keys created before v2). */
+  prefix: string | null;
+  lastUsedAt: string | null;
   createdAt: string;
 }
 
@@ -22,7 +33,12 @@ export function ApiKeysClient() {
   const { activeWorkspaceId } = useWorkspace();
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [newKey, setNewKey] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [permission, setPermission] = useState<Permission>("all");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -43,13 +59,41 @@ export function ApiKeysClient() {
   }, [load]);
 
   const create = async (): Promise<void> => {
+    if (creating) {
+      return;
+    }
     setError(null);
+    setCreating(true);
     try {
-      const res = await api.request<{ key: string }>("/api-keys", { method: "POST" });
+      const res = await api.request<{ key: string }>("/api-keys", {
+        method: "POST",
+        body: {
+          ...(name.trim() ? { name: name.trim() } : {}),
+          permission,
+        },
+      });
       setNewKey(res.key);
+      setName("");
+      setPermission("all");
       await load();
     } catch (err) {
       setError(errorMessage(err, "Could not create key"));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const rename = async (id: string): Promise<void> => {
+    const value = renameValue.trim();
+    if (!value) {
+      return;
+    }
+    try {
+      await api.request(`/api-keys/${id}`, { method: "PATCH", body: { name: value } });
+      setRenamingId(null);
+      await load();
+    } catch (err) {
+      setError(errorMessage(err, "Could not rename key"));
     }
   };
 
@@ -68,10 +112,33 @@ export function ApiKeysClient() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={() => void create()}>
+      {/* Create form — name + permission, Aimfox parity */}
+      <div className="surface-card flex flex-wrap items-end gap-3 p-4">
+        <div className="min-w-[180px] flex-1 space-y-1.5">
+          <Label htmlFor="key-name">Name</Label>
+          <Input
+            id="key-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Zapier, n8n, MCP"
+            maxLength={80}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="key-permission">Permission</Label>
+          <Select
+            id="key-permission"
+            className="w-[150px]"
+            value={permission}
+            onChange={(e) => setPermission(e.target.value as Permission)}
+          >
+            <option value="all">All</option>
+            <option value="read_only">Read-only</option>
+          </Select>
+        </div>
+        <Button onClick={() => void create()} disabled={creating}>
           <Plus />
-          Generate key
+          {creating ? "Generating…" : "Generate key"}
         </Button>
       </div>
 
@@ -89,6 +156,10 @@ export function ApiKeysClient() {
               Copy
             </Button>
           </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Use it as <code>Authorization: Bearer &lt;key&gt;</code> against the API — the key is
+            scoped to this workspace (no X-Workspace-Id header needed).
+          </p>
         </div>
       ) : null}
 
@@ -106,16 +177,88 @@ export function ApiKeysClient() {
       ) : (
         <div className="divide-y overflow-hidden rounded-2xl border bg-card shadow-soft">
           {keys.map((k) => (
-            <div key={k.id} className="flex items-center justify-between px-4 py-3">
-              <div className="text-sm">
-                <span className="font-mono">10xc_••••••••</span>
-                <span className="ml-2 text-xs text-muted-foreground">
-                  created {new Date(k.createdAt).toLocaleDateString()}
-                </span>
+            <div key={k.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+              <div className="min-w-0 flex-1 text-sm">
+                {renamingId === k.id ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          void rename(k.id);
+                        }
+                        if (e.key === "Escape") {
+                          setRenamingId(null);
+                        }
+                      }}
+                      className="h-8 max-w-[220px]"
+                      maxLength={80}
+                      autoFocus
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Save name"
+                      title="Save"
+                      className="size-7"
+                      onClick={() => void rename(k.id)}
+                    >
+                      <Check className="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Cancel rename"
+                      title="Cancel"
+                      className="size-7"
+                      onClick={() => setRenamingId(null)}
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-medium">{k.name}</span>
+                    <Badge variant={k.permission === "read_only" ? "secondary" : "outline"}>
+                      {k.permission === "read_only" ? "Read-only" : "All"}
+                    </Badge>
+                  </div>
+                )}
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+                  <span className="font-mono">{k.prefix ? `${k.prefix}…` : "10xc_…"}</span>
+                  <span>created {new Date(k.createdAt).toLocaleDateString()}</span>
+                  <span>
+                    {k.lastUsedAt
+                      ? `last used ${new Date(k.lastUsedAt).toLocaleString()}`
+                      : "never used"}
+                  </span>
+                </div>
               </div>
-              <Button variant="ghost" size="icon" className="text-destructive" onClick={() => void revoke(k.id)}>
-                <Trash2 className="size-4" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Rename ${k.name}`}
+                  title="Rename"
+                  onClick={() => {
+                    setRenamingId(k.id);
+                    setRenameValue(k.name);
+                  }}
+                >
+                  <Pencil className="size-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Revoke ${k.name}`}
+                  title="Revoke"
+                  className="text-destructive"
+                  onClick={() => void revoke(k.id)}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
             </div>
           ))}
         </div>

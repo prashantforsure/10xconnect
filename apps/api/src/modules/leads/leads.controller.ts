@@ -15,7 +15,7 @@ import {
 import type { Response } from "express";
 
 import type { AuthUser } from "../../auth/auth-user.interface";
-import { CurrentUser } from "../../auth/current-user.decorator";
+import { OptionalCurrentUser } from "../../auth/current-user.decorator";
 import { WorkspaceId } from "../../common/decorators/workspace-id.decorator";
 import { WorkspaceScopeGuard } from "../../common/guards/workspace-scope.guard";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
@@ -61,20 +61,23 @@ export class LeadsController {
   @Post("import")
   import(
     @WorkspaceId() workspaceId: string,
-    @CurrentUser() user: AuthUser,
+    @OptionalCurrentUser() user: AuthUser | undefined,
     @Body(new ZodValidationPipe(importRequestSchema)) body: ImportRequestDto,
   ): Promise<ImportJobView> {
-    return this.imports.startImport(workspaceId, user.id, body);
+    return this.imports.startImport(workspaceId, user?.id ?? null, body);
   }
 
   @Post("find")
   find(
     @WorkspaceId() workspaceId: string,
-    @CurrentUser() user: AuthUser,
+    @OptionalCurrentUser() user: AuthUser | undefined,
     @Body(new ZodValidationPipe(findRequestSchema)) body: FindRequestDto,
   ): Promise<ImportJobView> {
     // The built-in lead finder is a lead_finder import (unified pipeline §8).
-    return this.imports.startImport(workspaceId, user.id, { source: "lead_finder", ...body });
+    return this.imports.startImport(workspaceId, user?.id ?? null, {
+      source: "lead_finder",
+      ...body,
+    });
   }
 
   @Get("import-jobs")

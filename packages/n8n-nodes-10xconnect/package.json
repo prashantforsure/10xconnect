@@ -1,0 +1,36 @@
+{
+  "name": "n8n-nodes-10xconnect",
+  "version": "0.1.0",
+  "description": "n8n community nodes for 10xConnect — LinkedIn outreach campaigns, leads, conversations, and event triggers.",
+  "keywords": [
+    "n8n-community-node-package",
+    "10xconnect",
+    "linkedin",
+    "outreach"
+  ],
+  "license": "MIT",
+  "private": true,
+  "main": "index.js",
+  "files": [
+    "dist"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/TenXConnectApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/TenXConnect/TenXConnect.node.js",
+      "dist/nodes/TenXConnectTrigger/TenXConnectTrigger.node.js"
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"n8n package: lint skipped (published separately)\""
+  },
+  "devDependencies": {
+    "n8n-workflow": "^1.82.0",
+    "typescript": "^5.7.2"
+  }
+}

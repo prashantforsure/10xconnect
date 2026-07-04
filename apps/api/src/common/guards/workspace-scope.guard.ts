@@ -11,10 +11,15 @@ import {
 import type { Request } from "express";
 import type { Kysely } from "kysely";
 
+import type { ApiKeyPrincipal } from "../../auth/api-key-auth.service";
 import type { AuthUser } from "../../auth/auth-user.interface";
 import { KYSELY_DB } from "../../database/database.module";
 
-type ScopedRequest = Request & { user?: AuthUser; workspaceId?: string };
+type ScopedRequest = Request & {
+  user?: AuthUser;
+  apiKey?: ApiKeyPrincipal;
+  workspaceId?: string;
+};
 
 const WORKSPACE_HEADER = "x-workspace-id";
 
@@ -29,6 +34,18 @@ export class WorkspaceScopeGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<ScopedRequest>();
+
+    // Public-API path: the key already pinned the workspace in the auth guard.
+    // There is no user/membership to check; a mismatching header is an error.
+    if (request.apiKey) {
+      const header = request.headers[WORKSPACE_HEADER];
+      const headerWorkspaceId = Array.isArray(header) ? header[0] : header;
+      if (headerWorkspaceId && headerWorkspaceId !== request.apiKey.workspaceId) {
+        throw new ForbiddenException("X-Workspace-Id does not match the API key's workspace");
+      }
+      request.workspaceId = request.apiKey.workspaceId;
+      return true;
+    }
 
     const user = request.user;
     if (!user) {

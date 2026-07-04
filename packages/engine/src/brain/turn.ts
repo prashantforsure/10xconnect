@@ -36,6 +36,7 @@ import {
 } from "@10xconnect/core";
 import type { Json } from "@10xconnect/db";
 
+import { emitIntegrationEvent } from "../events";
 import { addToDoNotContact } from "../suppression";
 import type { EngineDeps } from "../types";
 
@@ -470,6 +471,25 @@ async function handleHotLead(
       body: `${summary.text.slice(0, 480)}${summary.text.length > 480 ? "…" : ""}`,
     })
     .execute();
+
+  // Integrations outbox: one hot_lead per conversation per day (webhooks/Slack).
+  await emitIntegrationEvent(
+    db,
+    {
+      workspaceId: input.convo.workspaceId,
+      type: "hot_lead",
+      dedupeKey: `hot_lead:${input.convo.id}:${nowIso.slice(0, 10)}`,
+      payload: {
+        lead: { id: input.leadId, name, linkedin_url: lead?.linkedin_url ?? null },
+        conversation_id: input.convo.id,
+        campaign_id: input.campaignId,
+        reasons: input.reasons,
+        summary: summary.text,
+        next_step: summary.nextStep,
+      },
+    },
+    deps.log,
+  );
 
   // Supersede any pending draft; write the escalation carrying the summary.
   await db.updateTable("message_drafts").set({ status: "discarded" }).where("conversation_id", "=", input.convo.id).where("status", "=", "pending").execute();

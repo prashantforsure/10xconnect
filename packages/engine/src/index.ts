@@ -7,6 +7,7 @@ export * from "./nodes";
 export * from "./config";
 export * from "./campaign-runner";
 export * from "./dispatch";
+export * from "./events";
 export * from "./inbound";
 export * from "./restrictions";
 export * from "./senders";

@@ -7,6 +7,8 @@
 import type { DB } from "@10xconnect/db";
 import type { Kysely } from "kysely";
 
+import { emitIntegrationEvent } from "./events";
+
 export type AccountIncident = "restricted" | "captcha";
 
 export async function flagAccountIncident(
@@ -46,4 +48,17 @@ export async function flagAccountIncident(
           : "Sending is paused for safety. Complete the checkpoint, then resume the account.",
     })
     .execute();
+
+  // Integrations outbox: one status_change per account/incident/day (covers the
+  // inbound webhook path AND both dispatch-time detection sites in one seam).
+  await emitIntegrationEvent(db, {
+    workspaceId,
+    type: "status_change",
+    dedupeKey: `status_change:${accountId}:${incident}:${new Date().toISOString().slice(0, 10)}`,
+    payload: {
+      account: { id: accountId, name },
+      status,
+      incident,
+    },
+  });
 }

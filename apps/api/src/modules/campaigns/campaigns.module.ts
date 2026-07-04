@@ -13,6 +13,6 @@ import { CampaignsService } from "./campaigns.service";
 @Module({
   controllers: [CampaignsController],
   providers: [CampaignsService, CampaignRunService],
-  exports: [CampaignsService],
+  exports: [CampaignsService, CampaignRunService],
 })
 export class CampaignsModule {}

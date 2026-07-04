@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { ApiKeysClient } from "@/components/settings/api-keys-client";
 
 export default function ApiSettingsPage() {
@@ -6,7 +8,12 @@ export default function ApiSettingsPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">API</h1>
         <p className="text-sm text-muted-foreground">
-          Generate workspace API keys for the public API. Treat keys like passwords.
+          Generate workspace API keys for the public API. Treat keys like passwords. Endpoints,
+          webhooks, Zapier/n8n recipes, and MCP setup live in the{" "}
+          <Link href="/developers" target="_blank" className="text-primary underline">
+            developer docs
+          </Link>
+          .
         </p>
       </header>
       <ApiKeysClient />

@@ -20,7 +20,7 @@ import type { Kysely } from "kysely";
 import { z } from "zod";
 
 import type { AuthUser } from "../auth/auth-user.interface";
-import { CurrentUser } from "../auth/current-user.decorator";
+import { OptionalCurrentUser } from "../auth/current-user.decorator";
 import { WorkspaceId } from "../common/decorators/workspace-id.decorator";
 import { WorkspaceScopeGuard } from "../common/guards/workspace-scope.guard";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
@@ -107,7 +107,11 @@ export class SuppressionService {
     };
   }
 
-  async add(workspaceId: string, userId: string, dto: AddSuppressionDto): Promise<SuppressionEntry> {
+  async add(
+    workspaceId: string,
+    userId: string | null,
+    dto: AddSuppressionDto,
+  ): Promise<SuppressionEntry> {
     const email = dto.email ? (normalizeEmail(dto.email) ?? dto.email.toLowerCase()) : null;
     const linkedinUrl = dto.linkedinUrl ?? null;
     if (!email && !linkedinUrl) {
@@ -190,10 +194,10 @@ export class SuppressionController {
   @Post()
   add(
     @WorkspaceId() workspaceId: string,
-    @CurrentUser() user: AuthUser,
+    @OptionalCurrentUser() user: AuthUser | undefined,
     @Body(new ZodValidationPipe(addSuppressionSchema)) body: AddSuppressionDto,
   ): Promise<SuppressionEntry> {
-    return this.suppression.add(workspaceId, user.id, body);
+    return this.suppression.add(workspaceId, user?.id ?? null, body);
   }
 
   @Delete(":id")
