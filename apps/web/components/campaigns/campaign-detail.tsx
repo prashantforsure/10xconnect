@@ -46,6 +46,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/ui/modal";
+import { useToast } from "@/components/ui/toast";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
@@ -103,6 +104,7 @@ function firstActionLabel(iso: string | null): string {
 export function CampaignDetail({ campaignId }: { campaignId: string }) {
   const api = useApi();
   const router = useRouter();
+  const { toast } = useToast();
   const { activeWorkspaceId } = useWorkspace();
 
   const [campaign, setCampaign] = useState<CampaignDetailView | null>(null);
@@ -257,6 +259,17 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
         status: acc?.status ?? (campaign?.accountId ? null : "no account bound"),
       }),
     );
+    // Surface the AI-off advisory only at the moment it actually matters (launch),
+    // as a transient toast — no permanent banner while you build.
+    if (aiOff && tab !== "context") {
+      toast({
+        id: "campaign-ai-off",
+        variant: "warning",
+        title: "AI replies are off",
+        description: "No aim or knowledge base yet — the AI won't answer leads who reply.",
+        action: { label: "Open the Context tab →", onClick: () => setTab("context") },
+      });
+    }
     setAuditOpen(true);
   };
 
@@ -384,11 +397,7 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
       : poolIds.length === 1
         ? senderName(poolIds[0])
         : `${poolIds.length} senders`;
-  const hasNotice =
-    Boolean(actionError) ||
-    Boolean(flash) ||
-    Boolean(shareUrl) ||
-    (Boolean(aiOff) && tab !== "context");
+  const hasNotice = Boolean(actionError) || Boolean(flash) || Boolean(shareUrl);
 
   return (
     // Full-height, full-bleed app layout (matches the Command Dark mockup): a
@@ -570,21 +579,6 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
               {shareCopied ? "Share link copied:" : "Share link ready — copy it:"}{" "}
               <span className="font-mono text-xs text-muted-foreground">{shareUrl}</span>
             </div>
-          ) : null}
-          {aiOff && tab !== "context" ? (
-            <button
-              type="button"
-              onClick={() => setTab("context")}
-              className="flex w-full items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-left text-sm transition-colors hover:bg-warning/20"
-            >
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
-              <span>
-                <span className="font-medium">AI replies are off.</span>{" "}
-                <span className="text-muted-foreground">
-                  No aim or knowledge base yet — open the Context tab to configure it →
-                </span>
-              </span>
-            </button>
           ) : null}
         </div>
       ) : null}

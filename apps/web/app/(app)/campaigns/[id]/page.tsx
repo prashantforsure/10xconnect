@@ -1,4 +1,5 @@
 import { CampaignDetail } from "@/components/campaigns/campaign-detail";
+import { ToastProvider } from "@/components/ui/toast";
 
 export default async function CampaignDetailPage({
   params,
@@ -6,5 +7,9 @@ export default async function CampaignDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <CampaignDetail campaignId={id} />;
+  return (
+    <ToastProvider>
+      <CampaignDetail campaignId={id} />
+    </ToastProvider>
+  );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { type GenNode, lintSequenceTiming } from "@10xconnect/core";
-import { AlertTriangle, Check, Loader2, Redo2, Undo2, Wand2, Workflow, X } from "lucide-react";
+import { Check, Loader2, Redo2, Undo2, Wand2, Workflow } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BuildWithAiModal } from "./build-with-ai";
@@ -15,6 +15,7 @@ import { WorkflowsPicker } from "./workflows-picker";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { SlideOver } from "@/components/ui/slide-over";
+import { useToast } from "@/components/ui/toast";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import { configForTypeChange, defaultConfigFor, isComposerType } from "@/lib/campaigns/composer";
@@ -455,9 +456,52 @@ export function BuilderTab({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
-  // Advisory pacing lint (E3 — never blocks save/run). Dismissable per visit.
+  // Advisory pacing lint (E3 — never blocks save/run). Surfaced as an
+  // auto-dismissing toast the moment an EDIT introduces or changes a pacing issue
+  // — never on initial load (a freshly opened campaign shouldn't nag before it's
+  // been touched). Firing with a stable id means an edit refreshes the one toast
+  // instead of stacking duplicates.
+  const { toast, dismiss } = useToast();
   const timingFindings = useMemo(() => lintSequenceTiming(nodes), [nodes]);
-  const [timingDismissed, setTimingDismissed] = useState(false);
+  const timingBaselineRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Re-baseline on every (re)load so the freshly loaded graph never toasts.
+    if (loading) {
+      timingBaselineRef.current = null;
+      return;
+    }
+    const sig = timingFindings
+      .map((f) => `${f.id}:${f.nodeId ?? ""}`)
+      .sort()
+      .join("|");
+    // First settle after a load = record the baseline silently, no toast.
+    if (timingBaselineRef.current === null) {
+      timingBaselineRef.current = sig;
+      return;
+    }
+    if (sig === timingBaselineRef.current) {
+      return;
+    }
+    timingBaselineRef.current = sig;
+    if (timingFindings.length === 0) {
+      // An edit resolved the last advisory — clear any lingering toast.
+      dismiss("builder-timing");
+      return;
+    }
+    toast({
+      id: "builder-timing",
+      variant: "warning",
+      title: timingFindings.length === 1 ? "Pacing suggestion" : `${timingFindings.length} pacing suggestions`,
+      description: (
+        <ul className="space-y-1">
+          {timingFindings.map((f) => (
+            <li key={`${f.id}:${f.nodeId ?? ""}`}>{f.message}</li>
+          ))}
+        </ul>
+      ),
+    });
+  }, [timingFindings, loading, toast, dismiss]);
 
   const ctx: BuilderContextValue = useMemo(
     () => ({
@@ -495,29 +539,6 @@ export function BuilderTab({
       ) : null}
 
       {error ? <p className="flex-shrink-0 px-5 pt-3 text-sm text-destructive">{error}</p> : null}
-
-      {timingFindings.length > 0 && !timingDismissed ? (
-        <div className="mx-5 mt-3 flex-shrink-0 rounded-xl border border-warning/40 bg-warning/10 px-3 py-2">
-          <div className="flex items-start justify-between gap-2">
-            <ul className="space-y-1">
-              {timingFindings.map((f) => (
-                <li key={`${f.id}:${f.nodeId ?? ""}`} className="flex items-start gap-1.5 text-xs text-foreground">
-                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
-                  {f.message}
-                </li>
-              ))}
-            </ul>
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground"
-              onClick={() => setTimingDismissed(true)}
-              aria-label="Dismiss timing advisories"
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
-        </div>
-      ) : null}
 
       {/* Full-bleed canvas — fills the remaining height. Selecting a text-bearing
           step opens a full-focus SlideOver overlay (same ComposerPanel, props). */}
