@@ -15,6 +15,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Terminal,
   Users,
   X,
 } from "lucide-react";
@@ -65,6 +66,7 @@ const navSections: NavSection[] = [
     title: "Resources",
     items: [
       { href: "/tutorials", label: "Tutorials", icon: BookOpen },
+      { href: "/developers", label: "Developers", icon: Terminal },
       { href: "/affiliate", label: "Affiliate", icon: DollarSign },
       { href: "/settings/api", label: "API", icon: Code },
       { href: "/community", label: "Community", icon: MessagesSquare },

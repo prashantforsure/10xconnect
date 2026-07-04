@@ -56,7 +56,7 @@ export class TenXConnect implements INodeType {
             value: "analytics",
             action: "Get campaign analytics",
             routing: {
-              request: { method: "GET", url: '=/campaigns/{{$parameter["campaignId"]}}/analytics' },
+              request: { method: "GET", url: '=/analytics/campaign/{{$parameter["campaignId"]}}' },
             },
           },
           {

@@ -33,9 +33,9 @@ const FOOTER_COLUMNS: { title: string; links: { href: string; label: string }[] 
   {
     title: "Resources",
     links: [
-      { href: "/#", label: "Help center" },
+      { href: "/developers", label: "Developer docs" },
       { href: "/tutorials", label: "Tutorials" },
-      { href: "/settings/api", label: "API docs" },
+      { href: "/community", label: "Help center" },
       { href: "/community", label: "Community" },
       { href: "/#", label: "Status" },
     ],

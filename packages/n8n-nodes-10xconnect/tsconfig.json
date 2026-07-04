@@ -12,6 +12,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["credentials/**/*.ts", "nodes/**/*.ts"],
+  "include": ["index.ts", "credentials/**/*.ts", "nodes/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }

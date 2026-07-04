@@ -20,9 +20,20 @@ test("/developers renders publicly with no console errors", async ({ page }) => 
   await expect(page).toHaveURL(/\/developers$/);
   await expect(page.getByRole("heading", { name: "Developers", exact: true })).toBeVisible();
 
-  for (const section of ["Authentication", "REST API", "Webhooks", "MCP server"]) {
+  for (const section of [
+    "Authentication",
+    "REST API",
+    "Errors",
+    "Webhooks",
+    "Make (Integromat)",
+    "MCP server",
+  ]) {
     await expect(page.getByRole("heading", { name: section })).toBeVisible();
   }
+
+  // The MCP tool reference is enumerated (read + write tools present).
+  await expect(page.getByText("list_campaigns", { exact: true })).toBeVisible();
+  await expect(page.getByText("create_webhook", { exact: true })).toBeVisible();
 
   // The API base URL is interpolated into the docs (no unrendered placeholder).
   await expect(page.getByText(API_URL, { exact: false }).first()).toBeVisible();

@@ -5,7 +5,7 @@
 // the browser can log in through the real UI. Service-role bypasses RLS; these
 // helpers NEVER run in app/runtime code — test-only.
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
@@ -134,6 +134,32 @@ export async function insertIntegrationEvent(
     throw row.error ?? new Error("e2e: integration_events insert failed");
   }
   return row.data.id as string;
+}
+
+/**
+ * Seed an API key row directly (service-role) so a spec can exercise the public
+ * API / MCP endpoint without driving the UI. Mirrors ApiKeysService.create +
+ * hashApiKey (sha256 hex of the plaintext, 12-char display prefix). Returns the
+ * plaintext `10xc_…` key — used by the MCP e2e to hit the live server.
+ */
+export async function seedApiKey(
+  workspaceId: string,
+  permission: "all" | "read_only" = "all",
+): Promise<string> {
+  const admin = serviceClient();
+  const key = `10xc_${randomBytes(24).toString("hex")}`;
+  const hash = createHash("sha256").update(key).digest("hex");
+  const row = await admin.from("api_keys").insert({
+    workspace_id: workspaceId,
+    hash,
+    name: `e2e-${permission}`,
+    permission,
+    prefix: key.slice(0, 12),
+  });
+  if (row.error) {
+    throw row.error;
+  }
+  return key;
 }
 
 /** Read the seeded context written by global-setup. */

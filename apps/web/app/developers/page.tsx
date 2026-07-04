@@ -22,7 +22,7 @@ const ENDPOINTS: Array<{ method: string; path: string; note: string }> = [
   { method: "POST", path: "/campaigns/:id/pause", note: "Pause (freeze in place)" },
   { method: "POST", path: "/campaigns/:id/resume", note: "Resume a paused campaign" },
   { method: "POST", path: "/campaigns/:id/leads", note: "Enroll leads into a campaign" },
-  { method: "GET", path: "/campaigns/:id/analytics", note: "Requests, accepts (+%), replies (+%)" },
+  { method: "GET", path: "/analytics/campaign/:id", note: "Campaign metrics: requests, accepts (+%), replies (+%)" },
   { method: "GET", path: "/leads", note: "List/search contacts" },
   { method: "POST", path: "/leads/import", note: "Import leads (csv | profile_urls | …)" },
   { method: "GET", path: "/conversations", note: "Unified inbox (filter, accountId)" },
@@ -84,6 +84,47 @@ const MCP_JSON = `{
   }
 }`;
 
+// The full MCP tool surface (source of truth: apps/api/.../mcp-tools.service.ts).
+// Read tools are available to every key; write tools only to "All" keys — a
+// Read-only key never even sees them in tools/list.
+const MCP_TOOLS: Array<{ tool: string; access: "read" | "write"; params: string; returns: string }> = [
+  { tool: "list_accounts", access: "read", params: "—", returns: "Connected LinkedIn accounts + status + health" },
+  { tool: "get_account_health", access: "read", params: "accountId", returns: "Acceptance rate, volume vs caps, restrictions, score" },
+  { tool: "list_campaigns", access: "read", params: "—", returns: "Campaigns with status + lead counts" },
+  { tool: "get_campaign", access: "read", params: "campaignId", returns: "One campaign's detail" },
+  { tool: "get_campaign_analytics", access: "read", params: "campaignId", returns: "Requests, accepts (+%), replies (+%), likes/comments" },
+  { tool: "get_workspace_analytics", access: "read", params: "range? (7d | 30d | all)", returns: "Workspace-level outreach analytics" },
+  { tool: "search_leads", access: "read", params: "query?, limit? (1–100)", returns: "Leads by name, company, headline, email, URL" },
+  { tool: "get_lead", access: "read", params: "leadId", returns: "One lead's full profile + enrichment" },
+  { tool: "list_conversations", access: "read", params: "filter? (all | reply_required | important), accountId?", returns: "Inbox threads across accounts" },
+  { tool: "get_conversation", access: "read", params: "conversationId", returns: "Full message thread + lead panel" },
+  { tool: "list_webhooks", access: "read", params: "—", returns: "Outbound webhooks (URL, events, status)" },
+  { tool: "pause_campaign", access: "write", params: "campaignId", returns: "Freezes dispatch in place (resumable)" },
+  { tool: "resume_campaign", access: "write", params: "campaignId", returns: "Resumes each lead where it stopped" },
+  { tool: "send_reply", access: "write", params: "conversationId, body (1–8000)", returns: "Queues a reply through the dispatch engine" },
+  { tool: "create_webhook", access: "write", params: "url, events[], name?", returns: "Creates a webhook; returns the signing secret once" },
+];
+
+const ERRORS: Array<{ status: string; when: string }> = [
+  { status: "401", when: "Missing or invalid API key" },
+  { status: "403", when: "Read-only key on a write, or a route API keys can't reach (billing, workspace/member, key management)" },
+  { status: "404", when: "Resource missing or not in your workspace" },
+  { status: "422 / 400", when: "Request body or query failed validation — the message names the field" },
+  { status: "429", when: "Over 60 requests/minute for this key — back off and retry" },
+];
+
+const ERROR_BODY = `// Errors are JSON with a numeric statusCode + human message:
+{ "statusCode": 403, "message": "This API key is read-only", "error": "Forbidden" }
+{ "statusCode": 401, "message": "Invalid API key" }
+{ "statusCode": 429, "message": "API key rate limit exceeded (60 requests/minute). Retry in 42s." }`;
+
+const PAGINATION = `# List endpoints page with limit + offset (limit max 200, default 50).
+curl "${API_BASE}/leads?limit=50&offset=0&search=acme" \\
+  -H "Authorization: Bearer 10xc_YOUR_API_KEY"
+
+# → { "leads": [ … ], "total": 128, "limit": 50, "offset": 0 }
+# Fetch the next page with offset=50, then offset=100, until offset ≥ total.`;
+
 function Code({ children }: { children: string }) {
   return (
     <pre className="overflow-x-auto rounded-xl border bg-secondary/40 p-4 text-xs leading-relaxed">
@@ -125,9 +166,11 @@ export default function DevelopersPage() {
           {[
             ["#auth", "Authentication"],
             ["#api", "REST API"],
+            ["#errors", "Errors"],
             ["#webhooks", "Webhooks"],
             ["#zapier", "Zapier"],
             ["#n8n", "n8n"],
+            ["#make", "Make"],
             ["#mcp", "MCP server"],
           ].map(([href, label]) => (
             <a
@@ -151,9 +194,13 @@ export default function DevelopersPage() {
           <Code>{`curl ${API_BASE}/campaigns \\
   -H "Authorization: Bearer 10xc_YOUR_API_KEY"`}</Code>
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-            <li>Rate limit: 60 requests/minute per key (429 with a Retry-After hint).</li>
             <li>
-              <code>Read-only</code> keys are rejected on any non-GET request.
+              Rate limit: 60 requests/minute per key — a <code>429</code> whose message includes the
+              retry delay in seconds.
+            </li>
+            <li>
+              <code>Read-only</code> keys are rejected on writes (any method other than
+              GET/HEAD/OPTIONS).
             </li>
             <li>
               Billing, workspace/member management, and key management are never reachable with an
@@ -189,6 +236,51 @@ export default function DevelopersPage() {
               </tbody>
             </table>
           </div>
+          <h3 className="text-sm font-semibold">Pagination</h3>
+          <p className="text-sm text-muted-foreground">
+            List endpoints take <code>limit</code> + <code>offset</code> query params and return the
+            page alongside a <code>total</code> so you can walk every result:
+          </p>
+          <Code>{PAGINATION}</Code>
+          <h3 className="text-sm font-semibold">Idempotency</h3>
+          <p className="text-sm text-muted-foreground">
+            Sends are idempotent at the dispatch layer — enrolling the same lead or replying twice
+            never double-messages them. On the receiving side, every webhook envelope carries a
+            unique <code>id</code>; use it to de-duplicate deliveries (we may retry).
+          </p>
+        </Section>
+
+        <Section id="errors" title="Errors">
+          <p className="text-sm text-muted-foreground">
+            Every error is JSON with the HTTP status echoed in <code>statusCode</code> and a
+            human-readable <code>message</code>. The common cases:
+          </p>
+          <div className="overflow-x-auto rounded-xl border">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b bg-secondary/40 text-left">
+                  <th className="px-3 py-2 font-medium">Status</th>
+                  <th className="px-3 py-2 font-medium">When</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ERRORS.map((e) => (
+                  <tr key={e.status} className="border-b last:border-0">
+                    <td className="whitespace-nowrap px-3 py-1.5 font-mono font-semibold">
+                      {e.status}
+                    </td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{e.when}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Code>{ERROR_BODY}</Code>
+          <p className="text-xs text-muted-foreground">
+            The <code>429</code> response means you crossed 60 requests/minute for that key — space
+            out calls and retry. Billing, workspace/member, and key-management routes always return{" "}
+            <code>403</code> to an API key; use the app for those.
+          </p>
         </Section>
 
         <Section id="webhooks" title="Webhooks">
@@ -264,6 +356,26 @@ Base URL: ${API_BASE}
 API key:  10xc_YOUR_API_KEY   # sent as Authorization: Bearer`}</Code>
         </Section>
 
+        <Section id="make" title="Make (Integromat)">
+          <p className="text-sm text-muted-foreground">
+            Same pattern as Zapier, no custom app needed:
+          </p>
+          <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+            <li>
+              <span className="font-medium text-foreground">Trigger (10xConnect → Make):</span> add a{" "}
+              <em>Custom webhook</em> module, copy its URL, and register it in Settings → Webhooks
+              with the events you want. Each delivery arrives as a JSON bundle you can map
+              downstream.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">Action (Make → 10xConnect):</span> use an{" "}
+              <em>HTTP → Make a request</em> module against a REST endpoint (e.g.{" "}
+              <code>{API_BASE}/campaigns/CAMPAIGN_ID/leads</code>) with the header{" "}
+              <code>Authorization: Bearer 10xc_…</code>.
+            </li>
+          </ol>
+        </Section>
+
         <Section id="mcp" title="MCP server">
           <p className="text-sm text-muted-foreground">
             A remote Model Context Protocol server lets Claude, Cursor, or any MCP client manage
@@ -277,9 +389,53 @@ API key:  10xc_YOUR_API_KEY   # sent as Authorization: Bearer`}</Code>
           <h3 className="text-sm font-semibold">Cursor / Claude Desktop (mcp.json)</h3>
           <Code>{MCP_JSON}</Code>
           <p className="text-xs text-muted-foreground">
-            Clients without native header support can proxy via{" "}
+            The <code>mcp.json</code> block goes in your client&apos;s config — for Claude Desktop
+            that&apos;s{" "}
+            <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS) or{" "}
+            <code>%APPDATA%\Claude\claude_desktop_config.json</code> (Windows). Clients without native
+            header support can proxy via{" "}
             <code>npx mcp-remote {API_BASE}/mcp --header &quot;Authorization:Bearer 10xc_…&quot;</code>.
           </p>
+          <h3 className="text-sm font-semibold">Tools</h3>
+          <p className="text-sm text-muted-foreground">
+            Fifteen tools, each scoped to the key&apos;s workspace. <em>Read</em> tools work with any
+            key; <em>write</em> tools require an <code>All</code> key and are hidden from a Read-only
+            key entirely.
+          </p>
+          <div className="overflow-x-auto rounded-xl border">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b bg-secondary/40 text-left">
+                  <th className="px-3 py-2 font-medium">Tool</th>
+                  <th className="px-3 py-2 font-medium">Access</th>
+                  <th className="px-3 py-2 font-medium">Params</th>
+                  <th className="px-3 py-2 font-medium">Returns</th>
+                </tr>
+              </thead>
+              <tbody>
+                {MCP_TOOLS.map((t) => (
+                  <tr key={t.tool} className="border-b last:border-0">
+                    <td className="whitespace-nowrap px-3 py-1.5 font-mono">{t.tool}</td>
+                    <td className="px-3 py-1.5">
+                      <span
+                        className={
+                          t.access === "write"
+                            ? "rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400"
+                            : "rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-600 dark:text-violet-400"
+                        }
+                      >
+                        {t.access}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-1.5 font-mono text-muted-foreground">
+                      {t.params}
+                    </td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{t.returns}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Section>
       </div>
 
