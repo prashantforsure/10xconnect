@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm --filter @10xconnect/config --filter @10xconnect/core --filter @10xconnect/db --filter @10xconnect/adapters --filter @10xconnect/engine run build && tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
