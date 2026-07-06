@@ -1,9 +1,23 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { siteUrl } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
+
+// Live request origin (proto+host) — correct on prod + localhost automatically,
+// so auth redirects work on every domain without a build-time env var.
+// Falls back to NEXT_PUBLIC_SITE_URL when there's no request context.
+async function resolveSiteUrl(): Promise<string> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  if (host) {
+    const proto = h.get("x-forwarded-proto") ?? "https";
+    return `${proto}://${host}`;
+  }
+  return siteUrl();
+}
 
 function withError(path: string, message: string): never {
   redirect(`${path}?error=${encodeURIComponent(message)}`);
@@ -34,7 +48,7 @@ export async function signup(formData: FormData): Promise<void> {
   const { error } = await supabase.auth.signUp({
     email,
     password,
-    options: { emailRedirectTo: `${siteUrl()}/auth/confirm?next=/` },
+    options: { emailRedirectTo: `${await resolveSiteUrl()}/auth/confirm?next=/` },
   });
 
   if (error) {
@@ -48,7 +62,7 @@ export async function requestPasswordReset(formData: FormData): Promise<void> {
 
   const supabase = await createClient();
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${siteUrl()}/auth/confirm?next=/reset-password`,
+    redirectTo: `${await resolveSiteUrl()}/auth/confirm?next=/reset-password`,
   });
 
   if (error) {
@@ -73,7 +87,7 @@ export async function signInWithGoogle(): Promise<void> {
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo: `${siteUrl()}/auth/callback?next=/` },
+    options: { redirectTo: `${await resolveSiteUrl()}/auth/callback?next=/` },
   });
 
   if (error) {
