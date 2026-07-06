@@ -4,6 +4,7 @@ import { Check } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { PageLoader } from "@/components/ui/loader";
 import { Slider } from "@/components/ui/slider";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
@@ -88,7 +89,7 @@ export function BillingClient() {
     return <p className="text-sm text-muted-foreground">Select a workspace.</p>;
   }
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>;
+    return <PageLoader />;
   }
 
   const isDeveloper = sub?.developer === true;

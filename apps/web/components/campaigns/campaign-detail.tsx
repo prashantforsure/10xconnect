@@ -45,6 +45,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { PageLoader } from "@/components/ui/loader";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import type { ApiError } from "@/lib/api/client";
@@ -375,7 +376,7 @@ export function CampaignDetail({ campaignId }: { campaignId: string }) {
   };
 
   if (loading) {
-    return <div className="p-8 text-sm text-muted-foreground">Loading campaign…</div>;
+    return <PageLoader label="Loading campaign…" />;
   }
   if (error || !campaign) {
     return <div className="p-8 text-sm text-destructive">{error ?? "Campaign not found"}</div>;

@@ -20,9 +20,9 @@ export interface BodyEditorHandle {
 }
 
 const VAR_CHIP_CLASS =
-  "10xc-chip mx-0.5 inline-flex select-none items-center gap-1 rounded-md border border-input bg-muted px-1.5 py-0.5 align-baseline font-mono text-xs font-medium text-muted-foreground";
+  "10xc-chip mx-0.5 inline-flex select-none items-center gap-1 rounded-md border border-white/10 bg-white/[0.05] px-1.5 py-0.5 align-baseline text-xs font-medium text-foreground/85 transition-colors hover:bg-white/[0.08]";
 const AI_CHIP_CLASS =
-  "10xc-chip mx-0.5 inline-flex cursor-pointer select-none items-center gap-1 rounded-md bg-primary/15 px-1.5 py-0.5 align-baseline text-xs font-medium text-primary hover:bg-primary/25";
+  "10xc-chip mx-0.5 inline-flex cursor-pointer select-none items-center gap-1 rounded-md border border-primary/25 bg-primary/15 px-1.5 py-0.5 align-baseline text-xs font-medium text-primary transition-colors hover:bg-primary/25";
 
 function chipRemoveButton(): HTMLButtonElement {
   const x = document.createElement("button");
@@ -407,7 +407,7 @@ export const BodyEditor = forwardRef<
         onDrop={onDrop}
         onDragEnd={onDragEnd}
         className={cn(
-          "min-h-[140px] w-full whitespace-pre-wrap rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+          "min-h-[150px] w-full whitespace-pre-wrap rounded-xl border border-input bg-background px-3.5 py-3 text-sm leading-relaxed transition-colors focus-visible:border-primary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
           disabled && "cursor-not-allowed opacity-60",
         )}
       />
@@ -419,7 +419,7 @@ export const BodyEditor = forwardRef<
         style={{ display: "none" }}
       />
       {showPlaceholder ? (
-        <span className="pointer-events-none absolute left-3 top-2 text-sm text-muted-foreground">
+        <span className="pointer-events-none absolute left-3.5 top-3 text-sm text-muted-foreground">
           {placeholder ?? "Write your message…"}
         </span>
       ) : null}

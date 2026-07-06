@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageLoader } from "@/components/ui/loader";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { SlideOver } from "@/components/ui/slide-over";
@@ -485,7 +486,7 @@ export function ContactsClient() {
           <div className="min-h-0 flex-1">
             {error ? <p className="p-4 text-sm text-destructive">{error}</p> : null}
             {loading ? (
-              <p className="p-4 text-sm text-muted-foreground">Loading contacts…</p>
+              <PageLoader label="Loading contacts…" />
             ) : leads.length === 0 ? (
               <EmptyState onImport={() => setImportOpen(true)} />
             ) : view === "list" ? (

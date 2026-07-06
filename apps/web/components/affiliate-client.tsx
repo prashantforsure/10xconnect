@@ -4,6 +4,7 @@ import { Copy } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { PageLoader } from "@/components/ui/loader";
 import { useApi } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/lib/workspace/context";
@@ -42,7 +43,7 @@ export function AffiliateClient() {
     return <p className="text-sm text-muted-foreground">Select a workspace.</p>;
   }
   if (loading || !data) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>;
+    return <PageLoader />;
   }
 
   return (

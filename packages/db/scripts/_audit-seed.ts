@@ -78,10 +78,15 @@ async function main(): Promise<void> {
     }
     const userId = created.data.user.id;
 
-    // 2. Workspace — simulation_mode:true IN THE SAME INSERT (safety layer L1)
+    // 2. Workspace — handle_new_user already created this user's personal
+    //    workspace + owner membership. Overwrite its settings so
+    //    simulation_mode:true lands (safety layer L1) and rename it, keeping a
+    //    single workspace per user.
     const ws = await pg.query(
-      `insert into public.workspaces (name, owner_id, settings)
-       values ($1, $2, $3::jsonb) returning id`,
+      `update public.workspaces
+          set name = $1, settings = $3::jsonb
+        where owner_id = $2
+        returning id`,
       [
         "AUDIT-SIM (safe to delete)",
         userId,
@@ -95,13 +100,7 @@ async function main(): Promise<void> {
     );
     const workspaceId: string = ws.rows[0].id;
 
-    // 3. Owner membership
-    await pg.query(
-      `insert into public.memberships (workspace_id, user_id, role) values ($1, $2, 'owner')`,
-      [workspaceId, userId],
-    );
-
-    // 4. Sim sending account — fake provider id (safety layer L2), warmup done
+    // 3. Sim sending account — fake provider id (safety layer L2), warmup done
     const acct = await pg.query(
       `insert into public.sending_accounts
          (workspace_id, type, connection_method, name, provider_account_id, status, health_score, warmup_state, location, country)
@@ -111,7 +110,7 @@ async function main(): Promise<void> {
     );
     const accountId: string = acct.rows[0].id;
 
-    // 5. Leads — pre-enriched (enrich_status='enriched' so nothing triggers real fetchProfile)
+    // 4. Leads — pre-enriched (enrich_status='enriched' so nothing triggers real fetchProfile)
     const leadIds: Record<string, string> = {};
     for (let i = 0; i < LEAD_SPECS.length; i++) {
       const spec = LEAD_SPECS[i];
@@ -144,7 +143,7 @@ async function main(): Promise<void> {
       }
     }
 
-    // 6. Contact list with L1–L8
+    // 5. Contact list with L1–L8
     const list = await pg.query(
       `insert into public.contact_lists (workspace_id, name, color) values ($1, 'Audit List', '#7c3aed') returning id`,
       [workspaceId],
@@ -157,7 +156,7 @@ async function main(): Promise<void> {
       );
     }
 
-    // 7. Verify the simulation flag really landed (safety preflight, part 1)
+    // 6. Verify the simulation flag really landed (safety preflight, part 1)
     const check = await pg.query(
       `select settings->>'simulation_mode' as sim from public.workspaces where id = $1`,
       [workspaceId],

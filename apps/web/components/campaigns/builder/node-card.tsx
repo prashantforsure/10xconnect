@@ -1,57 +1,24 @@
 "use client";
 
 import { isBodyConfigured } from "@10xconnect/core";
-import {
-  AlertTriangle,
-  ArrowDown,
-  ArrowUp,
-  CornerDownRight,
-  Eye,
-  GitBranch,
-  Mail,
-  MessageCircle,
-  MessageSquare,
-  Mic,
-  Send,
-  Tag,
-  ThumbsUp,
-  Trash2,
-  UserCheck,
-  UserPlus,
-  Users,
-} from "lucide-react";
-import type { ComponentType } from "react";
+import { AlertTriangle, ArrowDown, ArrowUp, Trash2, Users } from "lucide-react";
 
 import { useBuilder } from "./context";
+import { iconForType } from "./node-icons";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { COMPOSER_MANAGED_KEYS, hasTextBody, isComposerType, readComposer } from "@/lib/campaigns/composer";
+import {
+  bodyOptional,
+  COMPOSER_MANAGED_KEYS,
+  hasTextBody,
+  isComposerType,
+  readComposer,
+} from "@/lib/campaigns/composer";
 import type { GraphNode } from "@/lib/campaigns/graph";
 import { nodeDef } from "@/lib/campaigns/nodes";
 import { cn } from "@/lib/utils";
-
-const ICONS: Record<string, ComponentType<{ className?: string }>> = {
-  send_connection_request: UserPlus,
-  send_message: MessageSquare,
-  send_voice_note: Mic,
-  comment_last_post: MessageCircle,
-  reply_comment: CornerDownRight,
-  like_last_post: ThumbsUp,
-  visit_profile: Eye,
-  inmail: Mail,
-  send_message_to_open_profile: Send,
-  follow_lead: UserCheck,
-  add_tag: Tag,
-};
-
-function iconFor(node: GraphNode): ComponentType<{ className?: string }> {
-  if (node.kind === "condition") {
-    return GitBranch;
-  }
-  return ICONS[node.type] ?? MessageSquare;
-}
 
 /** Parse a numeric field value, coercing blank/invalid to 0 (never NaN). */
 function parseIntOr0(v: string): number {
@@ -66,7 +33,7 @@ function isMisconfigured(node: GraphNode): boolean {
   }
   const composer = readComposer(node.type, node.config);
   return hasTextBody(node.type)
-    ? !isBodyConfigured(composer.body)
+    ? !bodyOptional(node.type) && !isBodyConfigured(composer.body)
     : node.type === "send_voice_note" && !composer.audioRef.trim();
 }
 
@@ -77,7 +44,7 @@ export function NodeCard({ node }: { node: GraphNode }) {
   const isSelected = selectedId === node.id && composer;
   const count = counts[node.id] ?? 0;
   const misconfigured = isMisconfigured(node);
-  const Icon = iconFor(node);
+  const Icon = iconForType(node.type, node.kind);
   const isCondition = node.kind === "condition";
   // Inline fields = config the composer DOESN'T own (e.g. reply_comment's postUrl).
   const inlineFields = (def?.fields ?? []).filter((f) => !COMPOSER_MANAGED_KEYS.has(f.key));

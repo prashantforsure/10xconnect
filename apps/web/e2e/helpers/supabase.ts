@@ -81,24 +81,19 @@ export async function seedWorkspace(): Promise<SeededContext> {
   }
   const userId = created.data.user.id;
 
+  // handle_new_user already created this user's personal workspace + owner
+  // membership; reuse it (renamed) rather than inserting a second workspace.
   const ws = await admin
     .from("workspaces")
-    .insert({ name: `E2E ${id}`, owner_id: userId })
+    .update({ name: `E2E ${id}` })
+    .eq("owner_id", userId)
     .select("id")
     .single();
   if (ws.error || !ws.data) {
     await admin.auth.admin.deleteUser(userId);
-    throw ws.error ?? new Error("e2e: workspace insert failed");
+    throw ws.error ?? new Error("e2e: workspace lookup failed");
   }
   const workspaceId = ws.data.id as string;
-
-  const membership = await admin
-    .from("memberships")
-    .insert({ workspace_id: workspaceId, user_id: userId, role: "owner" });
-  if (membership.error) {
-    await admin.auth.admin.deleteUser(userId);
-    throw membership.error;
-  }
 
   return { userId, workspaceId, email, password };
 }

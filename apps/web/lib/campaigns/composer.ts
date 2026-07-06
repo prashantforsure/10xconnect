@@ -20,6 +20,10 @@ export const COMPOSER_TYPES = new Set([
   "send_message_to_open_profile",
   "comment_last_post",
   "reply_comment",
+  // The connection-request "note" is edited in the composer too (sidebar, with
+  // merge variables) rather than an inline card textarea. Its body is OPTIONAL —
+  // no note = best acceptance rate (§2 default). See bodyOptional().
+  "send_connection_request",
 ]);
 
 export function isComposerType(type: string): boolean {
@@ -31,11 +35,25 @@ export function hasTextBody(type: string): boolean {
   return isComposerType(type) && type !== "send_voice_note";
 }
 
+/**
+ * Composer types whose text body is OPTIONAL — empty is valid and must not raise
+ * the "Action required" badge. Today only the connection-request note (§2: the
+ * no-note default performs best).
+ */
+export function bodyOptional(type: string): boolean {
+  return type === "send_connection_request";
+}
+
 /** Legacy string config keys for a node's text, in priority order. */
 export function legacyTextKeys(type: string): string[] {
-  return type === "comment_last_post" || type === "reply_comment"
-    ? ["text", "comment", "body"]
-    : ["body", "message"];
+  if (type === "comment_last_post" || type === "reply_comment") {
+    return ["text", "comment", "body"];
+  }
+  // The engine dispatches a connection request from config.note (see executor).
+  if (type === "send_connection_request") {
+    return ["note", "body"];
+  }
+  return ["body", "message"];
 }
 
 /** Config keys the composer manages (body/AI/etc.) — NOT shown as inline card fields. */
@@ -44,6 +62,7 @@ export const COMPOSER_MANAGED_KEYS = new Set([
   "text",
   "message",
   "comment",
+  "note", // connection-request note — edited in the composer, not inline
   "aiPrompt",
   "subject",
   "messageBody",
@@ -119,7 +138,11 @@ export function bodyConfigPatch(type: string, body: MessageBody): Record<string,
     messageBody: body,
     aiPrompt: extractAiPrompt(body),
   };
-  patch[type === "comment_last_post" ? "text" : "body"] = messageBodyToTemplate(body);
+  // Keep the engine's legacy string key in sync: comment reads `text`, a
+  // connection request dispatches from `note`, everything else uses `body`.
+  const legacyKey =
+    type === "comment_last_post" ? "text" : type === "send_connection_request" ? "note" : "body";
+  patch[legacyKey] = messageBodyToTemplate(body);
   return patch;
 }
 

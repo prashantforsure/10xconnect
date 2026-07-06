@@ -32,17 +32,15 @@ export async function seedWorkspace(): Promise<SeededWorkspace> {
   }
   const userId = created.data.user.id;
 
-  // The handle_new_user trigger has already mirrored the auth user into
-  // public.profiles, so owner_id below satisfies its FK.
+  // The handle_new_user trigger has already created this user's personal
+  // workspace + owner membership. Reuse it (renamed for debuggability) instead
+  // of inserting a second workspace.
   const ws = await db
-    .insertInto("workspaces")
-    .values({ name: `Phase1 Test ${suffix}`, owner_id: userId })
+    .updateTable("workspaces")
+    .set({ name: `Phase1 Test ${suffix}` })
+    .where("owner_id", "=", userId)
     .returning("id")
     .executeTakeFirstOrThrow();
-  await db
-    .insertInto("memberships")
-    .values({ workspace_id: ws.id, user_id: userId, role: "owner" })
-    .execute();
 
   const cleanup = async (): Promise<void> => {
     // Deleting the auth user cascades: auth.users → profiles → workspaces

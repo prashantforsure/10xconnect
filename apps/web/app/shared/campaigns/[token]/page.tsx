@@ -8,6 +8,8 @@
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { PageLoader } from "@/components/ui/loader";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1";
 const DEFAULT_ACCENT = "#5E6AD2";
 const HEX = /^#[0-9a-fA-F]{3,8}$/;
@@ -60,7 +62,7 @@ export default function SharedCampaignReportPage() {
   if (state === "loading") {
     return (
       <main className="grid min-h-dvh place-items-center bg-background text-muted-foreground">
-        <p className="text-sm">Loading report…</p>
+        <PageLoader label="Loading report…" />
       </main>
     );
   }

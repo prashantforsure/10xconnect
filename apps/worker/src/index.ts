@@ -24,7 +24,8 @@ import {
  */
 function main(): void {
   // Fail fast in production if critical secrets are missing (no-op in dev/test).
-  assertProductionEnv();
+  // "worker": no HTTP surface, so it does NOT require SUPABASE_JWT_SECRET (API-only).
+  assertProductionEnv("worker");
   console.log(`worker up (${env.NODE_ENV})`);
 
   const adapterKind = resolveAdapterKind();

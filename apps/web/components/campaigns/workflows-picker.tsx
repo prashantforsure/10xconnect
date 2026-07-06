@@ -6,6 +6,7 @@ import { type ComponentType, useCallback, useEffect, useRef, useState } from "re
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageLoader } from "@/components/ui/loader";
 import { Modal } from "@/components/ui/modal";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
@@ -250,7 +251,7 @@ export function WorkflowsPicker({
               </Button>
             </div>
             {loading ? (
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <PageLoader />
             ) : saved.length === 0 ? (
               <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                 No saved workflows yet. Build a sequence and click “Save current” to reuse it later.

@@ -21,6 +21,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageLoader } from "@/components/ui/loader";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -749,7 +750,7 @@ export function InboxClient() {
         </div>
         <div className="no-scrollbar flex flex-1 flex-col gap-0.5 overflow-auto px-2.5 pb-2.5">
           {loading ? (
-            <p className="p-4 text-sm text-muted-foreground">Loading…</p>
+            <PageLoader />
           ) : items.length === 0 ? (
             <div className="p-8 text-center">
               <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-xl bg-primary/[0.14] text-primary">

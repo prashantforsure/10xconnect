@@ -37,6 +37,7 @@ import { SlideOver } from "@/components/ui/slide-over";
 import { useApi } from "@/lib/api/client";
 import {
   bodyConfigPatch,
+  bodyOptional,
   CHANGEABLE_TYPES,
   hasTextBody,
   readComposer,
@@ -65,6 +66,7 @@ const BODY_CHAR_LIMITS: Record<string, number> = {
   inmail: LINKEDIN_LIMITS.inmailBody,
   send_message: LINKEDIN_LIMITS.message,
   send_message_to_open_profile: LINKEDIN_LIMITS.message,
+  send_connection_request: LINKEDIN_LIMITS.connectionNote,
 };
 
 export function ComposerPanel({
@@ -130,6 +132,8 @@ export function ComposerPanel({
 
   const state = readComposer(type, config);
   const isText = hasTextBody(type);
+  const isConnect = type === "send_connection_request";
+  const canChangeType = (CHANGEABLE_TYPES as readonly string[]).includes(type);
 
   const update = (partial: Record<string, unknown>): void => {
     onConfigChange({ ...config, ...partial });
@@ -138,7 +142,7 @@ export function ComposerPanel({
   const onBody = (body: MessageBody): void => update(bodyConfigPatch(type, body));
 
   const misconfigured = isText
-    ? !isBodyConfigured(state.body)
+    ? !bodyOptional(type) && !isBodyConfigured(state.body)
     : type === "send_voice_note" && !state.audioRef.trim();
 
   const runPreview = async (body: MessageBody): Promise<void> => {
@@ -206,36 +210,40 @@ export function ComposerPanel({
               {running ? "Editing live step — changes apply to future sends" : "Editing step"}
             </p>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                // Changing the action TYPE is structural — locked while live.
-                disabled={running}
-                title={running ? "Stop the campaign to change this step's action type" : undefined}
-                className="shrink-0 border border-primary/30 bg-primary/15 text-primary hover:bg-primary/25 hover:text-primary"
-              >
-                <RefreshCw className="size-4" />
-                Change
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {CHANGEABLE_TYPES.map((t) => (
-                <DropdownMenuItem
-                  key={t}
-                  onSelect={() => {
-                    if (t !== type) {
-                      onChangeType(t);
-                    }
-                  }}
+          {/* Connect vs message aren't interchangeable transports, so a
+              connection request has no "Change" control. */}
+          {canChangeType ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  // Changing the action TYPE is structural — locked while live.
+                  disabled={running}
+                  title={running ? "Stop the campaign to change this step's action type" : undefined}
+                  className="shrink-0 border border-primary/30 bg-primary/15 text-primary hover:bg-primary/25 hover:text-primary"
                 >
-                  {nodeLabel(t)}
-                  {t === type ? <span className="ml-auto text-xs text-primary">current</span> : null}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  <RefreshCw className="size-4" />
+                  Change
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {CHANGEABLE_TYPES.map((t) => (
+                  <DropdownMenuItem
+                    key={t}
+                    onSelect={() => {
+                      if (t !== type) {
+                        onChangeType(t);
+                      }
+                    }}
+                  >
+                    {nodeLabel(t)}
+                    {t === type ? <span className="ml-auto text-xs text-primary">current</span> : null}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
       }
     >
@@ -272,25 +280,34 @@ export function ComposerPanel({
 
         {isText ? (
           <div className="space-y-2">
-            {/* Toolbar */}
+            {/* Toolbar. A connection-request note is a short {token} string the
+                engine dispatches as-is, so AI / framework / attachments (which
+                would be dropped or are invalid here) are hidden — only merge
+                variables + Preview apply. */}
             <div className="flex flex-wrap items-center gap-2">
-              <AiPromptButton
-                onInsert={(prompt, promptId) => editorRef.current?.insertAi(prompt, promptId)}
-                onOpenPromptLibrary={() => setLibraryOpen(true)}
-              />
+              {!isConnect ? (
+                <AiPromptButton
+                  onInsert={(prompt, promptId) => editorRef.current?.insertAi(prompt, promptId)}
+                  onOpenPromptLibrary={() => setLibraryOpen(true)}
+                />
+              ) : null}
               <VariablePicker
                 onInsert={(key, fallback) => editorRef.current?.insertVariable(key, fallback)}
               />
-              <FrameworkMenu
-                onSetBody={onBody}
-                onInsertText={(t) => editorRef.current?.insertText(t)}
-              />
-              <AttachmentMenu
-                attachments={state.attachments}
-                onChange={(attachments) => update({ attachments })}
-                workspaceId={workspaceId}
-                campaignId={campaignId}
-              />
+              {!isConnect ? (
+                <FrameworkMenu
+                  onSetBody={onBody}
+                  onInsertText={(t) => editorRef.current?.insertText(t)}
+                />
+              ) : null}
+              {!isConnect ? (
+                <AttachmentMenu
+                  attachments={state.attachments}
+                  onChange={(attachments) => update({ attachments })}
+                  workspaceId={workspaceId}
+                  campaignId={campaignId}
+                />
+              ) : null}
               <Button type="button" variant="outline" size="sm" onClick={() => void openPreview()}>
                 <Eye className="size-4" />
                 Preview
@@ -302,12 +319,22 @@ export function ComposerPanel({
               ref={editorRef}
               value={state.body}
               onChange={onBody}
-              placeholder="Write your message… insert variables and an AI prompt above."
+              placeholder={
+                isConnect
+                  ? "Leave empty for the best acceptance rate — or add a short note. Supports {first_name}, {company}."
+                  : "Write your message… insert variables and an AI prompt above."
+              }
               onEditAi={(current) => {
                 setEditAiPrompt(current.prompt ?? "");
                 setEditAiOpen(true);
               }}
             />
+
+            {isConnect ? (
+              <p className="text-[11px] text-muted-foreground">
+                No note = best acceptance rate. Keep it short and human if you add one (§2).
+              </p>
+            ) : null}
 
             {/* Sales-guard linter + above-the-fold + char counter (advisory) */}
             <GuardrailsPanel body={state.body} charLimit={BODY_CHAR_LIMITS[type]} />

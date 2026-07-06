@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageLoader } from "@/components/ui/loader";
 import { useApi } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/lib/workspace/context";
@@ -89,7 +90,7 @@ export function AgencyClient() {
   };
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>;
+    return <PageLoader />;
   }
   if (error || !data) {
     return <p className="text-sm text-destructive">{error ?? "No data"}</p>;

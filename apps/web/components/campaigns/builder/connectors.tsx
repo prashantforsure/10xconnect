@@ -1,8 +1,10 @@
 "use client";
 
-import { Clock, GitBranch, Layers, Plus, Trash2, X, Zap } from "lucide-react";
+import { Clock, Plus, Trash2, X } from "lucide-react";
+import { useState } from "react";
 
 import { useBuilder } from "./context";
+import { InsertModal } from "./insert-modal";
 
 import {
   DropdownMenu,
@@ -14,69 +16,30 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import type { Edge, GraphNode } from "@/lib/campaigns/graph";
-import { ACTION_NODES, CONDITION_NODES } from "@/lib/campaigns/nodes";
-
-const TEMPLATES: { kind: "nurture" | "revisit" | "connected_split"; label: string; description: string }[] = [
-  { kind: "connected_split", label: "Connected vs not connected", description: "branch: message if connected, else connect → message" },
-  { kind: "nurture", label: "Engagement nurture", description: "like → wait → visit → wait → comment" },
-  { kind: "revisit", label: "Revisit later", description: "long wait, then a fresh-angle message" },
-];
 
 const Line = ({ className = "h-3" }: { className?: string }) => (
   <div className={`w-px bg-border ${className}`} />
 );
 
-/** A circular "+" on the connector that opens the Add action/condition/template menu. */
+/** A circular "+" on the connector that opens the Add action/condition/template modal. */
 export function InsertButton({ edge }: { edge: Edge }) {
-  const { running, insertNode, insertTemplate } = useBuilder();
+  const { running } = useBuilder();
+  const [open, setOpen] = useState(false);
   if (running) {
     return <Line className="h-6" />;
   }
   return (
     <div className="flex flex-col items-center">
       <Line />
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label="Insert step"
-            className="flex size-6 items-center justify-center rounded-full border border-input bg-card text-primary shadow-soft transition-colors hover:border-primary hover:bg-primary/10"
-          >
-            <Plus className="size-3.5" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="max-h-[22rem] w-64 overflow-auto">
-          <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Zap className="size-3.5" /> Actions
-          </DropdownMenuLabel>
-          {ACTION_NODES.map((n) => (
-            <DropdownMenuItem key={n.type} onSelect={() => insertNode(edge, "action", n.type)} className="flex-col items-start">
-              <span className="text-sm font-medium">{n.label}</span>
-              <span className="text-[11px] text-muted-foreground">{n.description}</span>
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <GitBranch className="size-3.5" /> Conditions
-          </DropdownMenuLabel>
-          {CONDITION_NODES.map((n) => (
-            <DropdownMenuItem key={n.type} onSelect={() => insertNode(edge, "condition", n.type)} className="flex-col items-start">
-              <span className="text-sm font-medium">{n.label}</span>
-              <span className="text-[11px] text-muted-foreground">{n.description}</span>
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Layers className="size-3.5" /> Templates
-          </DropdownMenuLabel>
-          {TEMPLATES.map((t) => (
-            <DropdownMenuItem key={t.kind} onSelect={() => insertTemplate(edge, t.kind)} className="flex-col items-start">
-              <span className="text-sm font-medium">{t.label}</span>
-              <span className="text-[11px] text-muted-foreground">{t.description}</span>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <button
+        type="button"
+        aria-label="Insert step"
+        onClick={() => setOpen(true)}
+        className="flex size-6 items-center justify-center rounded-full border border-input bg-card text-primary shadow-soft transition-colors hover:border-primary hover:bg-primary/10"
+      >
+        <Plus className="size-3.5" />
+      </button>
+      <InsertModal open={open} onClose={() => setOpen(false)} edge={edge} />
       <Line />
     </div>
   );

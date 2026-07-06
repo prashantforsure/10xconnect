@@ -11,6 +11,7 @@ import { TemplatesModal } from "@/components/campaigns/templates";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageLoader } from "@/components/ui/loader";
 import { Modal } from "@/components/ui/modal";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
@@ -127,7 +128,7 @@ export function CampaignsList() {
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading campaigns…</p>
+        <PageLoader label="Loading campaigns…" />
       ) : campaigns.length === 0 ? (
         <div className="surface-card flex flex-col items-center border-dashed p-14 text-center">
           <span className="flex size-14 items-center justify-center rounded-xl bg-primary/[0.14] text-primary">

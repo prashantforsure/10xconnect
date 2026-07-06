@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/app-shell";
+import { ToastProvider } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/server";
 import { WorkspaceProvider, type WorkspaceSummary } from "@/lib/workspace/context";
 import { resolveActiveWorkspaceId } from "@/lib/workspace/server";
@@ -30,7 +31,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <WorkspaceProvider workspaces={workspaces} initialWorkspaceId={initialWorkspaceId}>
-      <AppShell userEmail={user.email ?? ""}>{children}</AppShell>
+      {/* App-wide toasts: any (app) page can fire useToast() from here down. */}
+      <ToastProvider>
+        <AppShell userEmail={user.email ?? ""}>{children}</AppShell>
+      </ToastProvider>
     </WorkspaceProvider>
   );
 }

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageLoader } from "@/components/ui/loader";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
 import { useWorkspace } from "@/lib/workspace/context";
@@ -66,7 +67,7 @@ export function WhiteLabelClient() {
     return <p className="text-sm text-muted-foreground">Select a workspace.</p>;
   }
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>;
+    return <PageLoader />;
   }
 
   return (

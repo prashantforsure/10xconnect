@@ -115,13 +115,28 @@ export function useToast(): ToastContextValue {
   return ctx;
 }
 
-const VARIANT_STYLES: Record<ToastVariant, { border: string; icon: ReactNode }> = {
-  default: { border: "border-border", icon: <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" /> },
-  warning: { border: "border-warning/40", icon: <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" /> },
-  success: { border: "border-success/40", icon: <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" /> },
+// "Featured icon" look — a tinted rounded square holds the variant glyph on the
+// left, matching the Untitled UI notification card. Tokens only, no new deps.
+const VARIANT_STYLES: Record<ToastVariant, { tint: string; ring: string; icon: ReactNode }> = {
+  default: {
+    tint: "bg-white/[0.06] text-muted-foreground",
+    ring: "ring-white/10",
+    icon: <Info className="size-[18px]" />,
+  },
+  warning: {
+    tint: "bg-warning/15 text-warning",
+    ring: "ring-warning/30",
+    icon: <AlertTriangle className="size-[18px]" />,
+  },
+  success: {
+    tint: "bg-success/15 text-success",
+    ring: "ring-success/30",
+    icon: <CheckCircle2 className="size-[18px]" />,
+  },
   destructive: {
-    border: "border-destructive/40",
-    icon: <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" />,
+    tint: "bg-destructive/15 text-destructive",
+    ring: "ring-destructive/30",
+    icon: <XCircle className="size-[18px]" />,
   },
 };
 
@@ -155,30 +170,46 @@ function ToastItem({ toast, onDismiss }: { toast: ToastRecord; onDismiss: (id: s
     <div
       role="status"
       aria-live="polite"
-      className={cn(
-        "pointer-events-auto flex animate-slide-in-right items-start gap-2.5 rounded-xl border bg-elevated px-3.5 py-3 text-sm text-foreground shadow-toast",
-        style.border,
-      )}
+      className="pointer-events-auto flex animate-slide-in-right items-start gap-3 rounded-xl border border-border bg-elevated p-3.5 text-sm text-foreground shadow-toast"
     >
-      {style.icon}
+      <span
+        className={cn(
+          "inline-flex size-9 shrink-0 items-center justify-center rounded-lg ring-1",
+          style.tint,
+          style.ring,
+        )}
+      >
+        {style.icon}
+      </span>
       <div className="min-w-0 flex-1">
-        {toast.title ? <p className="font-medium leading-snug">{toast.title}</p> : null}
+        {toast.title ? (
+          <p className="text-[13.5px] font-semibold leading-snug">{toast.title}</p>
+        ) : null}
         {toast.description ? (
           <div className={cn("text-[13px] leading-snug text-muted-foreground", toast.title && "mt-0.5")}>
             {toast.description}
           </div>
         ) : null}
         {toast.action ? (
-          <button
-            type="button"
-            onClick={() => {
-              toast.action?.onClick();
-              onDismiss(id);
-            }}
-            className="mt-2 text-[13px] font-medium text-indigo-text transition-colors hover:text-foreground"
-          >
-            {toast.action.label}
-          </button>
+          <div className="mt-2.5 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                toast.action?.onClick();
+                onDismiss(id);
+              }}
+              className="text-[13px] font-semibold text-indigo-text transition-colors hover:text-foreground"
+            >
+              {toast.action.label}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDismiss(id)}
+              className="text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Dismiss
+            </button>
+          </div>
         ) : null}
       </div>
       <button

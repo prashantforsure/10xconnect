@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageLoader } from "@/components/ui/loader";
 import { Modal } from "@/components/ui/modal";
 import type { ApiError } from "@/lib/api/client";
 import { useApi } from "@/lib/api/client";
@@ -105,7 +106,7 @@ export function SuppressionPanel() {
       <div className="min-h-0 flex-1">
         {error ? <p className="p-4 text-sm text-destructive">{error}</p> : null}
         {loading ? (
-          <p className="p-4 text-sm text-muted-foreground">Loading…</p>
+          <PageLoader />
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 rounded-[14px] border border-border bg-card p-12 text-center">
             <span className="flex size-14 items-center justify-center rounded-xl bg-destructive/[0.12] text-destructive">

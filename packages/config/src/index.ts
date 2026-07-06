@@ -251,12 +251,24 @@ export function isDeveloperEmail(email: string | null | undefined): boolean {
 }
 
 /**
+ * Which server process is booting. Determines the required-secret set: the API
+ * verifies inbound user session JWTs (needs SUPABASE_JWT_SECRET); the worker has
+ * no HTTP surface and never sees a user token, so it must NOT require it.
+ */
+export type ServerRole = "api" | "worker";
+
+/**
  * Fail fast at SERVER STARTUP if production is missing critical secrets. Call
  * from the api/worker bootstrap — NOT at import time, so it never breaks a build
  * (Next.js sets NODE_ENV=production during `next build`). In non-production it is
  * a no-op, keeping local dev and tests frictionless.
+ *
+ * `role` scopes the required set: SUPABASE_JWT_SECRET is API-only (user-JWT
+ * verification), so requiring it on the worker would crash-loop a process that
+ * never uses it. Defaults to "api" (the stricter set) so an unspecified caller
+ * never under-checks.
  */
-export function assertProductionEnv(e: Env = env): void {
+export function assertProductionEnv(role: ServerRole = "api", e: Env = env): void {
   if (e.NODE_ENV !== "production") {
     return;
   }
@@ -264,9 +276,12 @@ export function assertProductionEnv(e: Env = env): void {
     ["SECRETS_ENCRYPTION_KEY", "encrypts connected-account sessions at rest"],
     ["SUPABASE_URL", "Supabase project URL"],
     ["SUPABASE_SERVICE_ROLE_KEY", "service-role database access"],
-    ["SUPABASE_JWT_SECRET", "verifies user session JWTs"],
     ["DATABASE_URL", "database connection"],
   ];
+  // Only the API verifies user session JWTs; the worker has no HTTP surface.
+  if (role === "api") {
+    required.push(["SUPABASE_JWT_SECRET", "verifies user session JWTs"]);
+  }
   const missing = required.filter(([key]) => !e[key]).map(([key, why]) => `  - ${key} (${why})`);
   if (missing.length > 0) {
     throw new Error(

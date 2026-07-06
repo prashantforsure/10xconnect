@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageLoader } from "@/components/ui/loader";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
@@ -156,7 +157,7 @@ export function MembersClient() {
     );
   }
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading members…</p>;
+    return <PageLoader label="Loading members…" />;
   }
   if (error) {
     return <p className="text-sm text-destructive">{error}</p>;

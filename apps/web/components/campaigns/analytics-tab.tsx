@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageLoader } from "@/components/ui/loader";
 import { useApi } from "@/lib/api/client";
 import { nodeLabel } from "@/lib/campaigns/nodes";
 import { formatUsd, type UnitEconomics } from "@/lib/campaigns/unit-economics";
@@ -87,7 +88,7 @@ export function AnalyticsTab({ campaignId }: { campaignId: string }) {
   }, [load]);
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading…</p>;
+    return <PageLoader />;
   }
   if (!data) {
     return <p className="text-sm text-muted-foreground">No analytics yet.</p>;

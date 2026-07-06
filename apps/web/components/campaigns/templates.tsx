@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageLoader } from "@/components/ui/loader";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
@@ -259,7 +260,7 @@ export function TemplatesModal({ open, onClose }: { open: boolean; onClose: () =
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading templates…</p>
+            <PageLoader label="Loading templates…" />
           ) : templates.length === 0 ? (
             <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
               No {SCOPE_LABEL[scope].toLowerCase()} templates yet.

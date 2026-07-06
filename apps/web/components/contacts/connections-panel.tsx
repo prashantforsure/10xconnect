@@ -7,6 +7,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { PageLoader } from "@/components/ui/loader";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
@@ -209,7 +210,7 @@ export function ConnectionsPanel({
         {error ? <p className="p-4 text-sm text-destructive">{error}</p> : null}
         {status ? <p className="pb-3 text-sm text-success">{status}</p> : null}
         {loading ? (
-          <p className="p-4 text-sm text-muted-foreground">Loading connections…</p>
+          <PageLoader label="Loading connections…" />
         ) : connections.length === 0 ? (
           <EmptyState accountConnected={accountConnected} />
         ) : (

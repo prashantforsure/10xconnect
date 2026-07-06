@@ -18,6 +18,7 @@ import { ImportModal } from "@/components/contacts/import-modal";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageLoader } from "@/components/ui/loader";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import type { ApiError } from "@/lib/api/client";
@@ -157,7 +158,7 @@ export function LeadsTab({
   };
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading leads…</p>;
+    return <PageLoader label="Loading leads…" />;
   }
 
   return (

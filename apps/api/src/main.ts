@@ -8,8 +8,8 @@ import { AppModule } from "./app.module";
 
 async function bootstrap(): Promise<void> {
   // Refuse to boot in production without the critical secrets (fail fast, not at
-  // first-use). No-op in dev/test.
-  assertProductionEnv();
+  // first-use). No-op in dev/test. "api": also requires SUPABASE_JWT_SECRET.
+  assertProductionEnv("api");
 
   const app = await NestFactory.create(AppModule);
   // Security headers (HSTS, no-sniff, frameguard, etc.). This is a JSON API + a

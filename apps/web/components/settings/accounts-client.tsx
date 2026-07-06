@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PageLoader } from "@/components/ui/loader";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -346,7 +347,7 @@ export function AccountsClient() {
     );
   }
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading accounts…</p>;
+    return <PageLoader label="Loading accounts…" />;
   }
   if (error) {
     return <p className="text-sm text-destructive">{error}</p>;

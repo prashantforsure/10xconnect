@@ -358,6 +358,9 @@ export function DashboardClient({ greetingName }: { greetingName: string }) {
         </div>
       ) : null}
 
+      {/* Connect-account prompt — the dashboard is empty until an account is connected */}
+      {!hasAccount ? <ConnectLinkedInHero /> : null}
+
       {/* Body — primary column + right rail */}
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_336px]">
         {/* PRIMARY */}
@@ -417,7 +420,12 @@ export function DashboardClient({ greetingName }: { greetingName: string }) {
         {/* RIGHT RAIL */}
         <aside className="space-y-5">
           {showChecklist ? (
-            <GetStartedCard hasAccount={hasAccount} hasCampaign={hasCampaign} hasConversation={hasConversation} />
+            <GetStartedCard
+              hasAccount={hasAccount}
+              hasCampaign={hasCampaign}
+              hasConversation={hasConversation}
+              hideAccountStep={!hasAccount}
+            />
           ) : null}
 
           <ThisMonthCard a={a} d={d} booked={booked} series={series} range={range} />
@@ -886,22 +894,53 @@ function UnitEconomicsCard({ econ, range }: { econ: UnitEconomics | null; range:
   );
 }
 
+/* ------------------------------------------------------ connect-account hero */
+
+function ConnectLinkedInHero() {
+  return (
+    <section className="surface-card flex flex-col items-start gap-4 border-dashed p-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-start gap-4">
+        <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/[0.14] text-primary">
+          <ShieldCheck className="size-6" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-[17px] font-semibold tracking-tight text-foreground">
+            Connect your LinkedIn account
+          </h2>
+          <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-muted-foreground">
+            Your dashboard stays empty until an account is connected. Log in once on the secure hosted
+            page — no password to hand over — and we warm the account up gradually inside safe daily
+            limits.
+          </p>
+        </div>
+      </div>
+      <Link href="/accounts" className="shrink-0">
+        <Button size="lg">Connect now</Button>
+      </Link>
+    </section>
+  );
+}
+
 /* ---------------------------------------------------------------- checklist */
 
 function GetStartedCard({
   hasAccount,
   hasCampaign,
   hasConversation,
+  hideAccountStep,
 }: {
   hasAccount: boolean;
   hasCampaign: boolean;
   hasConversation: boolean;
+  hideAccountStep?: boolean;
 }) {
   return (
     <section className="rounded-xl border border-border bg-card p-5">
       <h2 className="mb-3 text-[15px] font-semibold text-foreground">Get started</h2>
       <div className="space-y-1.5">
-        <ChecklistItem done={hasAccount} label="Connect a LinkedIn account" href="/settings/accounts" />
+        {hideAccountStep ? null : (
+          <ChecklistItem done={hasAccount} label="Connect a LinkedIn account" href="/accounts" />
+        )}
         <ChecklistItem done={hasCampaign} label="Create a campaign" href="/campaigns" />
         <ChecklistItem done={hasConversation} label="Reply to your first lead" href="/inbox" icon={Inbox} />
       </div>
