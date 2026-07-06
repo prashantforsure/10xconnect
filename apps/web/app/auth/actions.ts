@@ -6,16 +6,24 @@ import { redirect } from "next/navigation";
 import { siteUrl } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
-// Live request origin (proto+host) — correct on prod + localhost automatically,
-// so auth redirects work on every domain without a build-time env var.
-// Falls back to NEXT_PUBLIC_SITE_URL when there's no request context.
+// Resolve the origin for auth redirects so they work on every domain without
+// depending on a build-time env var (NEXT_PUBLIC_* is frozen into the bundle at
+// build; on Railway that inlining + proxy headers both proved unreliable).
 async function resolveSiteUrl(): Promise<string> {
+  // 1) Live request origin — zero-config, correct for local dev + preview domains.
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   if (host) {
     const proto = h.get("x-forwarded-proto") ?? "https";
     return `${proto}://${host}`;
   }
+  // 2) Explicit origin from the SERVER runtime env (read live, never build-inlined).
+  //    Set on Railway as APP_URL — reliable when proxy headers are absent.
+  const runtime = process.env.APP_URL ?? process.env.SITE_URL;
+  if (runtime) {
+    return runtime.replace(/\/+$/, "");
+  }
+  // 3) Build-time public var / local default (last resort).
   return siteUrl();
 }
 
