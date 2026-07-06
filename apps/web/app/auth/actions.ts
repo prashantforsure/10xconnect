@@ -6,25 +6,28 @@ import { redirect } from "next/navigation";
 import { siteUrl } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
-// Resolve the origin for auth redirects so they work on every domain without
-// depending on a build-time env var (NEXT_PUBLIC_* is frozen into the bundle at
-// build; on Railway that inlining + proxy headers both proved unreliable).
+// Resolve the origin for auth redirects so they work on every domain without a
+// build-time env var. NEXT_PUBLIC_* is frozen into the bundle at build, and on
+// Railway both that inlining AND the proxy request headers proved unreliable in
+// the server-action context. So in production we trust the explicit runtime env
+// (APP_URL) first; locally we derive from the request for zero-config dev.
 async function resolveSiteUrl(): Promise<string> {
-  // 1) Live request origin — zero-config, correct for local dev + preview domains.
+  // Explicit deploy origin from the SERVER runtime env — read live at runtime,
+  // never build-inlined. Set on Railway as APP_URL.
+  const configured = (process.env.APP_URL ?? process.env.SITE_URL)
+    ?.trim()
+    .replace(/\/+$/, "");
+  if (process.env.NODE_ENV === "production" && configured) {
+    return configured;
+  }
+  // Local dev / preview: derive from the incoming request (zero config).
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   if (host) {
     const proto = h.get("x-forwarded-proto") ?? "https";
     return `${proto}://${host}`;
   }
-  // 2) Explicit origin from the SERVER runtime env (read live, never build-inlined).
-  //    Set on Railway as APP_URL — reliable when proxy headers are absent.
-  const runtime = process.env.APP_URL ?? process.env.SITE_URL;
-  if (runtime) {
-    return runtime.replace(/\/+$/, "");
-  }
-  // 3) Build-time public var / local default (last resort).
-  return siteUrl();
+  return configured ?? siteUrl();
 }
 
 function withError(path: string, message: string): never {
