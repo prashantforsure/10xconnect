@@ -39,3 +39,23 @@ test("an undefined override keeps the preset value (no accidental zeroing)", () 
   assert.equal(cfg.minSpacingMs, DISPATCH_PRESETS.testing.minSpacingMs);
   assert.equal(cfg.batchSize, 25);
 });
+
+test("AI auto-reply delay: instant in testing, 5–10 min in production", () => {
+  const testing = resolveDispatchConfig({ mode: "testing" });
+  assert.equal(testing.aiReplyMinDelayMs, 0, "testing auto-sends instantly");
+  assert.equal(testing.aiReplyJitterMs, 0);
+
+  const prod = resolveDispatchConfig({ mode: "production" });
+  assert.equal(prod.aiReplyMinDelayMs, 300_000, "5-min floor before an AI auto-reply");
+  assert.equal(prod.aiReplyJitterMs, 300_000, "up to +5-min jitter → 5–10 min");
+});
+
+test("AI auto-reply delay honors per-field env overrides", () => {
+  const cfg = resolveDispatchConfig({
+    mode: "production",
+    aiReplyMinDelayMs: 120_000,
+    aiReplyJitterMs: 60_000,
+  });
+  assert.equal(cfg.aiReplyMinDelayMs, 120_000);
+  assert.equal(cfg.aiReplyJitterMs, 60_000);
+});

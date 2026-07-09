@@ -20,8 +20,19 @@ export type DispatchMode = "testing" | "production";
  * only controls cadence within the window, never the daily total.
  */
 export const DISPATCH_PRESETS: Record<DispatchMode, Omit<DispatchConfig, "batchSize">> = {
-  testing: { minSpacingMs: 1_000, jitterMs: 0, ignoreWorkingHours: true },
-  production: { minSpacingMs: 240_000, jitterMs: 240_000, ignoreWorkingHours: false },
+  // testing: everything fast, and AI auto-replies fire instantly so demos/tests
+  // don't wait on a humanizing delay.
+  testing: { minSpacingMs: 1_000, jitterMs: 0, ignoreWorkingHours: true, aiReplyMinDelayMs: 0, aiReplyJitterMs: 0 },
+  // production: human pacing for campaign sends (4–8 min) AND for AI auto-replies
+  // (5–10 min = 5-min floor + up to 5-min jitter) so an autonomous reply never
+  // looks like an instant bot answer.
+  production: {
+    minSpacingMs: 240_000,
+    jitterMs: 240_000,
+    ignoreWorkingHours: false,
+    aiReplyMinDelayMs: 300_000,
+    aiReplyJitterMs: 300_000,
+  },
 };
 
 /**
@@ -35,6 +46,8 @@ export function resolveDispatchConfig(input: {
   jitterMs?: number;
   ignoreWorkingHours?: boolean;
   batchSize?: number;
+  aiReplyMinDelayMs?: number;
+  aiReplyJitterMs?: number;
 }): DispatchConfig {
   const preset = DISPATCH_PRESETS[input.mode] ?? DISPATCH_PRESETS.testing;
   return {
@@ -42,6 +55,8 @@ export function resolveDispatchConfig(input: {
     jitterMs: input.jitterMs ?? preset.jitterMs,
     ignoreWorkingHours: input.ignoreWorkingHours ?? preset.ignoreWorkingHours,
     batchSize: input.batchSize ?? 25,
+    aiReplyMinDelayMs: input.aiReplyMinDelayMs ?? preset.aiReplyMinDelayMs ?? 0,
+    aiReplyJitterMs: input.aiReplyJitterMs ?? preset.aiReplyJitterMs ?? 0,
   };
 }
 
@@ -56,5 +71,7 @@ export function dispatchConfigFromEnv(): DispatchConfig {
     minSpacingMs: env.DISPATCH_MIN_SPACING_MS,
     jitterMs: env.DISPATCH_JITTER_MS,
     ignoreWorkingHours: env.DISPATCH_IGNORE_WORKING_HOURS,
+    aiReplyMinDelayMs: env.AI_AUTO_REPLY_MIN_DELAY_MS,
+    aiReplyJitterMs: env.AI_AUTO_REPLY_JITTER_MS,
   });
 }

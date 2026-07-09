@@ -154,6 +154,15 @@ const envSchema = z.object({
   DISPATCH_JITTER_MS: optionalNumber,
   DISPATCH_IGNORE_WORKING_HOURS: optionalBoolean,
 
+  // AI auto-reply humanizing delay (autonomy dial). When the conversation brain
+  // AUTO-SENDS a reply with no human in the loop, we hold it AI_AUTO_REPLY_MIN_DELAY_MS
+  // + up to AI_AUTO_REPLY_JITTER_MS of random slack before it goes out, so an
+  // autonomous answer reads like a person who took a moment to reply — not an
+  // instant bot. Human-approved replies always send immediately. Unset → the
+  // DISPATCH_MODE preset (testing = 0 = instant; production = 5–10 min).
+  AI_AUTO_REPLY_MIN_DELAY_MS: optionalNumber,
+  AI_AUTO_REPLY_JITTER_MS: optionalNumber,
+
   // Payments (Phase 9+)
   CREEM_API_KEY: optionalString,
 

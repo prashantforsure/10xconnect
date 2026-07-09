@@ -66,7 +66,8 @@ function main(): void {
   console.log(
     `dispatch cadence: mode=${env.DISPATCH_MODE} tick=${env.DISPATCH_TICK_MS}ms ` +
       `spacing=${deps.config.minSpacingMs}ms jitter=${deps.config.jitterMs}ms ` +
-      `ignoreWorkingHours=${deps.config.ignoreWorkingHours}`,
+      `ignoreWorkingHours=${deps.config.ignoreWorkingHours} ` +
+      `aiReplyDelay=${deps.config.aiReplyMinDelayMs}ms+${deps.config.aiReplyJitterMs}ms`,
   );
 
   let ticking = false;

@@ -198,7 +198,6 @@ export class DeliveryService implements OnModuleInit, OnModuleDestroy {
 
   /** Claim due deliveries (SKIP LOCKED) and POST them outside the transaction. */
   async deliverDue(): Promise<number> {
-    const nowIso = new Date().toISOString();
     const leaseIso = new Date(Date.now() + CLAIM_LEASE_MS).toISOString();
 
     const claimed = await this.db.transaction().execute(async (trx) => {
@@ -206,7 +205,12 @@ export class DeliveryService implements OnModuleInit, OnModuleDestroy {
         .selectFrom("webhook_deliveries")
         .select("id")
         .where("status", "=", "pending")
-        .where("next_attempt_at", "<=", nowIso)
+        // Compare against the DB clock, not the app-server clock: rows are stamped
+        // with `next_attempt_at default now()` (DB time). A client-side `new Date()`
+        // that lags the DB by even ~1s would treat a just-fanned-out row as "not yet
+        // due" and skip it until a later tick — up to a full poll interval of extra
+        // latency on every fresh delivery under clock skew.
+        .where("next_attempt_at", "<=", sql<string>`now()`)
         .orderBy("next_attempt_at")
         .limit(DELIVER_BATCH)
         .forUpdate()

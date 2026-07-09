@@ -13,6 +13,16 @@ export interface DispatchConfig {
   ignoreWorkingHours: boolean;
   /** Max due actions processed per tick. */
   batchSize: number;
+  /**
+   * AI auto-reply humanizing delay (autonomy dial). When the brain auto-sends a
+   * reply with NO human in the loop, we don't fire it back instantly (a dead
+   * giveaway of a bot) — we hold it this long, plus up to `aiReplyJitterMs` of
+   * randomized slack, so it reads like a person who took a moment to read and
+   * type. Human-approved replies are unaffected — they still send immediately.
+   * Optional (undefined → 0 = no delay) so demo/test config literals stay valid.
+   */
+  aiReplyMinDelayMs?: number;
+  aiReplyJitterMs?: number;
 }
 
 /**

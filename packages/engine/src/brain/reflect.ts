@@ -19,6 +19,22 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
+/**
+ * When to actually send an approved reply. A HUMAN-approved reply goes out now
+ * (a person just pressed send). An AI AUTO-SEND (autonomy dial, no human in the
+ * loop) is held for a randomized humanizing delay — `aiReplyMinDelayMs` + up to
+ * `aiReplyJitterMs` — so it never fires back instantly like a bot. The delays are
+ * 0 by default (and in testing mode), so nothing changes unless production pacing
+ * is configured. See DispatchConfig.aiReplyMinDelayMs.
+ */
+function replyScheduledAt(deps: EngineDeps, authoredBy: "human" | "ai", now: Date): Date {
+  if (authoredBy !== "ai") return now;
+  const min = deps.config.aiReplyMinDelayMs ?? 0;
+  const jitter = deps.config.aiReplyJitterMs ?? 0;
+  if (min <= 0 && jitter <= 0) return now;
+  return new Date(now.getTime() + min + Math.floor(Math.random() * (jitter + 1)));
+}
+
 export interface ApproveResult {
   status: "approved" | "not_found";
   actionId?: string;
@@ -56,6 +72,10 @@ export async function approveDraft(
   if (!convo?.accountId) return { status: "not_found" };
 
   // Enqueue the reply (Phase 1 conversation_reply path → worker sends via spine).
+  // Human-approved replies go out now; AI auto-sends get a humanizing delay so an
+  // autonomous answer never fires back instantly (see replyScheduledAt).
+  const authoredBy = input.authoredBy ?? "human";
+  const now = deps.now?.() ?? new Date();
   const idempotencyKey = `reply:${draft.conversationId}:${draft.id}`;
   await db
     .insertInto("actions")
@@ -66,13 +86,13 @@ export async function approveDraft(
       type: "message",
       status: "pending",
       idempotency_key: idempotencyKey,
-      scheduled_at: new Date().toISOString(),
+      scheduled_at: replyScheduledAt(deps, authoredBy, now).toISOString(),
       config: JSON.stringify({
         kind: "conversation_reply",
         conversationId: draft.conversationId,
         body,
         channel: convo.channel,
-        authoredBy: input.authoredBy ?? "human",
+        authoredBy,
       }),
     })
     .onConflict((oc) => oc.column("idempotency_key").doNothing())
